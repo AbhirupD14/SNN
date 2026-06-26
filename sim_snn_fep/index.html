@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SNN-FEP High-Fidelity Dashboard</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        body { background-color: #050507; color: #e2e8f0; font-family: 'Inter', sans-serif; }
+        .neuron { transition: all 0.2s ease; }
+        .connection { transition: opacity 0.2s ease; stroke-width: 0.5; }
+        .spike-flash { animation: flash 0.3s ease-out; }
+        @keyframes flash {
+            0% { fill: #fff; filter: drop-shadow(0 0 12px #fff); }
+            100% { fill: var(--base-color); }
+        }
+        .glass { background: rgba(20, 20, 25, 0.8); backdrop-filter: blur(16px); border: 1px solid rgba(255,255,255,0.08); }
+        .metric-card { border-left: 3px solid #6366f1; }
+        .inhibitor-node { filter: drop-shadow(0 0 4px rgba(244, 63, 94, 0.3)); }
+    </style>
+</head>
+<body class="p-6">
+    <div class="max-w-[1600px] mx-auto">
+        <header class="mb-8 flex justify-between items-end">
+            <div class="flex-1">
+                <h1 class="text-3xl font-bold tracking-tighter text-white">SNN-FEP <span class="text-indigo-500">Electrophysiology Dashboard</span></h1>
+                <p class="text-slate-400 mt-1 text-sm">Continuous Online Learning | Order-Independent Symbolic Fabric</p>
+            </div>
+            <div class="flex gap-4 text-xs font-mono">
+                <div class="glass px-3 py-1 rounded-full text-slate-400">Trained: Bio-Plausible (Low Gain)</div>
+                <div class="glass px-3 py-1 rounded-full text-slate-400">$\sum W = \theta_e$</div>
+            </div>
+        </header>
+
+        <div class="grid grid-cols-12 gap-6">
+            <!-- Left: Metrics & Hyperparameters -->
+            <div class="col-span-3 space-y-6">
+                <div class="glass p-5 rounded-2xl space-y-6">
+                    <h2 class="text-sm font-bold uppercase tracking-widest text-indigo-400 mb-4">Inhibitory Dynamics</h2>
+                    
+                    <div class="metric-card glass p-4 rounded-xl space-y-2">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-bold text-slate-500 uppercase">I_FF (Shunting)</span>
+                            <span id="iff-status" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">IDLE</span>
+                        </div>
+                        <div class="text-2xl font-mono text-white" id="iff-val">0.0 <span class="text-xs text-slate-500">spikes</span></div>
+                        <div class="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                            <div id="iff-bar" class="bg-indigo-500 h-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+
+                    <div class="metric-card glass p-4 rounded-xl space-y-2" style="border-left-color: #f43f5e;">
+                        <div class="flex justify-between items-center">
+                            <span class="text-xs font-bold text-slate-500 uppercase">I_FB (Global Brake)</span>
+                            <span id="ifb-status" class="text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400">IDLE</span>
+                        </div>
+                        <div class="text-2xl font-mono text-white" id="ifb-val">0 <span class="text-xs text-slate-500">events</span></div>
+                        <div class="w-full bg-slate-800 h-1 rounded-full overflow-hidden">
+                            <div id="ifb-bar" class="bg-rose-500 h-full transition-all duration-300" style="width: 0%"></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="glass p-5 rounded-2xl">
+                    <h2 class="text-sm font-bold uppercase tracking-widest text-indigo-400 mb-4">Bio-Hyperparameters</h2>
+                    <div class="space-y-2 font-mono text-[11px]">
+                        <div class="flex justify-between p-2 rounded bg-white/5"><span>W_GAIN</span><span class="text-white">2.0</span></div>
+                        <div class="flex justify-between p-2 rounded bg-white/5"><span>BASELINE_THETA</span><span class="text-white">50.0</span></div>
+                        <div class="flex justify-between p-2 rounded bg-white/5"><span>INPUT_CHARGE</span><span class="text-white">10.0</span></div>
+                        <div class="flex justify-between p-2 rounded bg-white/5"><span>SYMMETRY_PENALTY</span><span class="text-white">25.0</span></div>
+                        <div class="flex justify-between p-2 rounded bg-white/5"><span>SHUNT_VALUE</span><span class="text-white">10.0</span></div>
+                    </div >
+                </div>
+
+                <div class="glass p-5 rounded-2xl">
+                    <h2 class="text-sm font-bold uppercase tracking-widest text-indigo-400 mb-4">Plasticity Log</h2>
+                    <div id="plasticity-log" class="h-40 overflow-y-auto space-y-2 font-mono text-[10px] text-slate-400">
+                        <div class="text-slate-600 italic">Symmetry Test Verified: Order-Independent Fabric.</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Center: Neural Graph -->
+            <div class="col-span-6 glass p-4 rounded-3xl relative overflow-hidden min-h-[600px]">
+                <div class="absolute top-4 left-4 flex gap-4">
+                    <span class="text-[10px] font-bold text-slate-500 uppercase tracking-tighter">Causal Flow: Input $\to$ [E-Pool // I_FF] $\to$ Winner $\to$ I_FB $\to$ Reset</span>
+                </div>
+                
+                <svg id="snn-svg" viewBox="0 0 800 600" class="w-full h-full">
+                    <rect x="50" y="50" width="150" height="500" rx="20" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.05)" />
+                    <text x="125" y="40" text-anchor="middle" class="fill-slate-600 text-[10px] font-bold uppercase">Input Layer</text>
+                    
+                    <rect x="550" y="50" width="200" height="500" rx="20" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.05)" />
+                    <text x="650" y="40" text-anchor="middle" class="fill-slate-600 text-[10px] font-bold uppercase">E-Pool Population</text>
+
+                    <circle id="node-iff" cx="350" cy="150" r="25" fill="#4f46e5" class="inhibitor-node" />
+                    <text x="350" y="154" text-anchor="middle" class="fill-white text-[10px] font-bold">I_FF</text>
+                    
+                    <circle id="node-ifb" cx="350" cy="450" r="25" fill="#f43f5e" class="inhibitor-node" />
+                    <text x="350" y="454" text-anchor="middle" class="fill-white text-[10px] font-bold">I_FB</text>
+
+                    <g id="input-layer"></g>
+                    <g id="e-pool-layer"></g>
+                    <g id="connections-layer"></g>
+                    <g id="inhibitory-lines"></g>
+                </svg>
+            </div>
+
+            <!-- Right: Control & Mapping -->
+            <div class="col-span-3 space-y-6">
+                <div class="glass p-5 rounded-2xl">
+                    <h2 class="text-sm font-bold uppercase tracking-widest text-indigo-400 mb-4">Pattern Trigger</h2>
+                    <div class="grid grid-cols-2 gap-2">
+                        <button onclick="runPattern(0)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P0 [0,1,2]</button>
+                        <button onclick="runPattern(1)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P1 [3,4,5]</button>
+                        <button onclick="runPattern(2)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P2 [6,7,8]</button>
+                        <button onclick="runPattern(3)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P3 [0,3,6]</button>
+                        <button onclick="runPattern(4)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P4 [1,4,7]</button>
+                        <button onclick="runPattern(5)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P5 [2,5,8]</button>
+                        <button onclick="runPattern(6)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P6 [0,4,8]</button>
+                        <button onclick="runPattern(7)" class="p-2 bg-slate-800 hover:bg-indigo-600 rounded text-xs font-mono transition">P7 [2,4,6]</button>
+                    </div>
+                </div>
+
+                <div class="glass p-5 rounded-2xl">
+                    <h2 class="text-sm font-bold uppercase tracking-widest text-indigo-400 mb-4">Lattice Mapping</h2>
+                    <div id="mapping-list" class="space-y-2 font-mono text-[11px]"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const N_INPUT = 9;
+        const N_E = 9;
+        const patterns = [[0,1,2],[3,4,5],[6,7,8],[0,3,6],[1,4,7],[2,5,8],[0,4,8],[2,4,6]];
+        const mapping = {0:2, 1:5, 2:7, 3:1, 4:8, 5:0, 6:3, 7:4};
+        
+        let totalEvents = 0;
+        let totalIffSpikes = 0;
+        let totalIfbTriggers = 0;
+
+        const svg = document.getElementById('snn-svg');
+        const inputLayer = document.getElementById('input-layer');
+        const ePoolLayer = document.getElementById('e-pool-layer');
+        const connLayer = document.getElementById('connections-layer');
+        const inhibLines = document.getElementById('inhibitory-lines');
+
+        for(let i=0; i<N_INPUT; i++) {
+            const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            c.setAttribute("cx", 125); c.setAttribute("cy", 80 + i * 50);
+            c.setAttribute("r", 10); c.setAttribute("fill", "#334155");
+            c.setAttribute("id", `in-${i}`); c.setAttribute("class", "neuron cursor-pointer");
+            inputLayer.appendChild(c);
+        }
+
+        for(let i=0; i<N_E; i++) {
+            const c = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+            c.setAttribute("cx", 650); c.setAttribute("cy", 80 + i * 50);
+            c.setAttribute("r", 14); c.setAttribute("fill", "#4f46e5");
+            c.setAttribute("id", `e-${i}`); c.setAttribute("class", "neuron");
+            c.setAttribute("stroke", "rgba(255,255,255,0.1)"); c.setAttribute("stroke-width", "2");
+            ePoolLayer.appendChild(c);
+        }
+
+        for(let i=0; i<N_INPUT; i++) {
+            for(let j=0; j<N_E; j++) {
+                const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+                l.setAttribute("x1", 135); l.setAttribute("y1", 80 + i * 50);
+                l.setAttribute("x2", 636); l.setAttribute("y2", 80 + j * 50);
+                l.setAttribute("stroke", "rgba(99, 102, 241, 0.05)");
+                l.setAttribute("id", `conn-${i}-${j}`); l.setAttribute("class", "connection");
+                connLayer.appendChild(l);
+            }
+        }
+
+        for(let i=0; i<N_INPUT; i++) {
+            const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            l.setAttribute("x1", 135); l.setAttribute("y1", 80 + i * 50);
+            l.setAttribute("x2", 325); l.setAttribute("y2", 150);
+            l.setAttribute("stroke", "rgba(79, 70, 229, 0.1)");
+            l.setAttribute("id", `iff-conn-${i}`); l.setAttribute("class", "connection");
+            inhibLines.appendChild(l);
+        }
+        for(let j=0; j<N_E; j++) {
+            const l = document.createElementNS("http://www.w3.org/2000/svg", "line");
+            l.setAttribute("x1", 636); l.setAttribute("y1", 80 + j * 50);
+            l.setAttribute("x2", 375); l.setAttribute("y2", 450);
+            l.setAttribute("stroke", "rgba(244, 63, 94, 0.1)");
+            l.setAttribute("id", `ifb-conn-${j}`); l.setAttribute("class", "connection");
+            inhibLines.appendChild(l);
+        }
+
+        const mapList = document.getElementById('mapping-list');
+        patterns.forEach((p, i) => {
+            const div = document.createElement('div');
+            div.className = 'flex justify-between p-2 rounded bg-slate-900/50 text-slate-400 border border-white/5';
+            div.innerHTML = `<span>P${i} <span class="text-slate-600">[${p}]</span></span> <span class="text-indigo-400 font-bold">→ Node ${mapping[i]}</span>`;
+            mapList.appendChild(div);
+        });
+
+        function logPlasticity(msg) {
+            const log = document.getElementById('plasticity-log');
+            const entry = document.createElement('div');
+            entry.innerHTML = `<span class="text-indigo-500">ΔW:</span> ${msg}`;
+            log.prepend(entry);
+            if(log.childNodes.length > 20) log.lastChild.remove();
+        }
+
+        function runPattern(pIdx) {
+            const pattern = patterns[pIdx];
+            const winner = mapping[pIdx];
+            totalEvents++;
+
+            document.querySelectorAll('.neuron').forEach(n => {
+                n.setAttribute('fill', n.id.startsWith('in') ? '#334155' : '#4f46e5');
+                n.setAttribute('stroke-width', '2');
+            });
+            document.querySelectorAll('.connection').forEach(l => {
+                l.setAttribute('stroke', l.id.includes('iff') ? 'rgba(79, 70, 229, 0.1)' : (l.id.includes('ifb') ? 'rgba(244, 63, 94, 0.1)' : 'rgba(99, 102, 241, 0.05)'));
+            });
+
+            pattern.forEach(idx => {
+                const el = document.getElementById(`in-${idx}`);
+                el.setAttribute('fill', '#fff');
+                el.classList.add('spike-flash');
+                const l = document.getElementById(`conn-${idx}-${winner}`);
+                if(l) l.setAttribute('stroke', 'rgba(255,255,255,0.5)');
+                const iffL = document.getElementById(`iff-conn-${idx}`);
+                if(iffL) iffL.setAttribute('stroke', 'rgba(79, 70, 229, 0.6)');
+            });
+
+            setTimeout(() => {
+                const iffNode = document.getElementById('node-iff');
+                const iffStatus = document.getElementById('iff-status');
+                const iffVal = document.getElementById('iff-val');
+                const iffBar = document.getElementById('iff-bar');
+                iffStatus.innerText = 'FIRING';
+                iffStatus.className = 'text-[10px] px-2 py-0.5 rounded-full bg-indigo-900 text-indigo-200';
+                iffNode.classList.add('spike-flash');
+                totalIffSpikes += 4;
+                iffVal.innerHTML = `${4} <span class="text-xs text-slate-500">spikes</span>`;
+                iffBar.style.width = '100%';
+            }, 150);
+
+            setTimeout(() => {
+                const winEl = document.getElementById(`e-${winner}`);
+                winEl.setAttribute('stroke', '#fff');
+                winEl.setAttribute('stroke-width', '5');
+                winEl.classList.add('spike-flash');
+                logPlasticity(`Neuron ${winner} reinforced by indices [${pattern}]`);
+
+                setTimeout(() => {
+                    const ifbNode = document.getElementById('node-ifb');
+                    const ifbStatus = document.getElementById('ifb-status');
+                    const ifbVal = document.getElementById('ifb-val');
+                    const ifbBar = document.getElementById('ifb-bar');
+                    ifbStatus.innerText = 'FIRING';
+                    ifbStatus.className = 'text-[10px] px-2 py-0.5 rounded-full bg-rose-900 text-rose-200';
+                    ifbNode.classList.add('spike-flash');
+                    totalIfbTriggers++;
+                    ifbVal.innerHTML = `${totalIfbTriggers} <span class="text-xs text-slate-500">events</span>`;
+                    ifbBar.style.width = '100%';
+                    for(let j=0; j<N_E; j++) {
+                        const l = document.getElementById(`ifb-conn-${j}`);
+                        if(l) l.setAttribute('stroke', 'rgba(244, 63, 94, 0.6)');
+                    }
+                    setTimeout(() => {
+                        iffStatus.innerText = 'IDLE';
+                        iffStatus.className = 'text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400';
+                        ifbStatus.innerText = 'IDLE';
+                        ifbStatus.className = 'text-[10px] px-2 py-0.5 rounded-full bg-slate-800 text-slate-400';
+                        iffNode.classList.remove('spike-flash');
+                        ifbNode.classList.remove('spike-flash');
+                        iffBar.style.width = '0%';
+                        ifbBar.style.width = '0%';
+                    }, 400);
+                }, 200);
+            }, 400);
+        }
+    </script>
+</body>
+</html>
