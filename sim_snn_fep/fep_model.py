@@ -2,149 +2,123 @@ import numpy as np
 import json
 
 # --- Configuration Constants ---
-# Geometry
-N_INPUT = 9
-N_E = 9
-N_IFF = 4
-N_IFB = 1  # Global blanket
+# Populations
+N_L1_E = 9
+N_L1_I = 9
+N_L2_E = 8
+N_L2_I = 1
 
-# Arithmetic Values
-INPUT_CHARGE = 10.0
-SHUNT_ABSORPTION_VALUE = 10.0
-W_GAIN = 2.0
-W_LOSS = 0.5
-GLOBAL_BALANCE_FORCE = 1000.0
+# Synaptic Weights
+W_L1E_L1I = -5.0  # L1_E excites L1_I, but L1_I inhibits L1_E (we'll handle signs in logic)
+W_L1I_L1E = -10.0 # Local L1 Inhibition
+W_L1E_L2E_MIN = 10.0
+W_L1E_L2E_MAX = 50.0
+W_L2E_L2I = 20.0   # L2_E excites L2_I
+W_L2I_L2E = -100.0 # Global L2 Inhibition (The Brake)
+W_L2E_L1I = 15.0   # Feedback to L1_I (Squelch)
+
+# Thresholds & Dynamics
+BASELINE_THETA = 50.0
 THETA_UP = 2.0
 THETA_DOWN = 1.0
-BASELINE_THRESHOLD = 50.0
-
-# Developmental Transition Constants
-MAX_CONDUCTANCE = 0.2      # High leak conductance at start
-MIN_CONDUCTANCE = 0.0      # Zero conductance at maturity
-MATURITY_THRESHOLD = 400.0 # Total weight sum for maturation
-RESTING_POTENTIAL = 0.0    # E_L: The value V leaks toward
+W_GAIN = 2.0
+LEAK_RATE = 0.1
 
 class FEPSNN:
     def __init__(self):
-        # State Variables
-        self.v_e = np.zeros(N_E)
-        self.theta_e = np.full(N_E, BASELINE_THRESHOLD)
-        # Moderate initial symmetry breaking to prevent "killing" half the neurons
-        self.theta_e = np.full(N_E, BASELINE_THRESHOLD) + np.random.uniform(-10, 10, N_E)
+        # --- State Variables ---
+        # Layer 1
+        self.v_l1e = np.zeros(N_L1_E)
+        self.theta_l1e = np.full(N_L1_E, BASELINE_THETA)
+        self.v_l1i = np.zeros(N_L1_I)
+        self.theta_l1i = np.full(N_L1_I, BASELINE_THETA * 0.5)
         
-        self.weights = np.random.uniform(10.0, 50.0, (N_E, N_INPUT))
+        # Layer 2
+        self.v_l2e = np.zeros(N_L2_E)
+        self.theta_l2e = np.full(N_L2_E, BASELINE_THETA) + np.random.uniform(-5, 5, N_L2_E)
+        self.v_l2i = np.zeros(N_L2_I)
+        self.theta_l2i = np.full(N_L2_I, BASELINE_THETA * 0.3)
         
-        self.v_iff = np.zeros(N_IFF)
-        self.theta_iff = np.full(N_IFF, BASELINE_THRESHOLD * 0.5)
+        # --- Connectivity ---
+        # L1_E -> L2_E (The learned weights)
+        self.weights_l1e_l2e = np.random.uniform(W_L1E_L2E_MIN, W_L1E_L2E_MAX, (N_L2_E, N_L1_E))
+        
+        # L2_E -> L1_I (Feedback squelch)
+        # Initially random, but we'll keep them dense
+        self.weights_l2e_l1i = np.random.uniform(0, W_L2E_L1I, (N_L1_I, N_L2_E))
 
-    def _capture_state(self, event_type, input_pattern, winner=None):
-        return {
-            "event": event_type,
-            "input": input_pattern.tolist(),
-            "v_e": self.v_e.tolist(),
-            "theta_e": self.theta_e.tolist(),
-            "weights": self.weights.tolist(),
-            "winner": winner
-        }
-
-    def process_event_pattern(self, active_indices):
+    def process_event(self, active_indices):
         """
-        active_indices: A list or array of indices of neurons that spiked.
-        Example: [0, 2, 5] instead of [1, 0, 1, 0, 0, 1...]
+        Biological sequence:
+        1. External Input -> L1_E
+        2. L1_E <-> L1_I (Local competition)
+        3. L1_E -> L2_E (Pattern integration)
+        4. L2_E -> L2_I -> L2_E (Global winner-take-all)
+        5. L2_E (Winner) -> L1_I (Source squelch)
         """
-        trace = []
+        # --- Step 1: External Stimulus ---
+        # No base_charge. Pure synaptic input.
+        self.v_l1e[active_indices] += 50.0 
         
-        # For tracing, we'll convert indices back to a pattern just for the log
-        input_pattern = np.zeros(N_INPUT)
-        input_pattern[active_indices] = 1.0
+        # --- Step 2: L1 Local Dynamics ---
+        # L1_E -> L1_I
+        for i in range(N_L1_E):
+            if self.v_l1e[i] >= self.theta_l1e[i]:
+                self.v_l1i[i] += 20.0 # Excite paired inhibitor
         
-        # Capture Initial State
-        trace.append(self._capture_state("initial", input_pattern))
+        # L1_I -> L1_E (Squelch)
+        for i in range(N_L1_I):
+            if self.v_l1i[i] >= self.theta_l1i[i]:
+                self.v_l1e[i] += W_L1I_L1E
+                self.v_l1i[i] = 0 # Reset
         
-        # --- STEP 0: Developmental Leakage (LIF -> Pure Integrator) ---
-        # Leakage is driven by conductance g_L. g_L is high when weights are low.
-        weight_sums = np.sum(self.weights, axis=1)
-        
-        # Calculate current conductance g_L for each neuron based on maturity
-        g_l = np.clip(
-            MAX_CONDUCTANCE * (1.0 - (weight_sums / MATURITY_THRESHOLD)), 
-            MIN_CONDUCTANCE, 
-            MAX_CONDUCTANCE
-        )
-        
-        # LIF Leakage: dV = g_L * (V - E_L)
-        # We subtract this leakage current from the current membrane potential
-        leakage_current = g_l * (self.v_e - RESTING_POTENTIAL)
-        self.v_e -= leakage_current
-        
-        # Ensure V doesn't drop below resting potential
-        self.v_e = np.maximum(self.v_e, RESTING_POTENTIAL)
-        
-        # --- STEP A: Local Free Energy Assessment & Input Drive ---
-        if len(active_indices) > 0:
+        # --- Step 3: L1_E -> L2_E ---
+        # Only L1 neurons that are currently 'active' (above some threshold) drive L2
+        l1_active = np.where(self.v_l1e > 10)[0]
+        if len(l1_active) > 0:
+            drive = np.sum(self.weights_l1e_l2e[:, l1_active], axis=1)
+            self.v_l2e += drive
 
-            drive = np.sum(self.weights[:, active_indices], axis=1)
-            base_charge = len(active_indices) * INPUT_CHARGE
-            self.v_e += (drive + base_charge)
+        # --- Step 4: L2 Winner-Take-All ---
+        # Instead of "first to hit threshold," we find the neuron with the 
+        # highest "resonance" (voltage relative to threshold) to ensure the 
+        # most conceptually aligned neuron wins.
         
-        # --- STEP B: Feedforward Absorption (I_FF Shunting Gate) ---
-        iff_drive = len(active_indices) * (INPUT_CHARGE / N_INPUT)
-        self.v_iff += iff_drive
+        resonance = self.v_l2e / self.theta_l2e
+        winner = np.argmax(resonance)
         
-        spiking_iff = np.sum(self.v_iff >= self.theta_iff)
-        self.v_e -= (spiking_iff * SHUNT_ABSORPTION_VALUE)
-        self.v_e = np.maximum(self.v_e, 0)
-        
-        # Metrics for I_FF
-        iff_metrics = {
-            "v_iff": self.v_iff.tolist(),
-            "spikes": int(spiking_iff),
-            "drive": float(iff_drive)
-        }
-        
-        # Reset I_FF
-        self.v_iff = np.zeros(N_IFF)
-        
-        # --- STEP C: Evaluation & Learning ---
-        winner = np.argmax(self.v_e)
-        
-        if self.v_e[winner] >= self.theta_e[winner]:
-            # 1. Fire the neuron
-            self.v_e[winner] = 0
-            self.theta_e[winner] += THETA_UP
+        if resonance[winner] >= 1.0:
+            # Trigger L2_I Global Brake
+            self.v_l2i += W_L2E_L2I
+            if self.v_l2i[0] >= self.theta_l2i[0]:
+                self.v_l2e += W_L2I_L2E
+                self.v_l2i[0] = 0
             
-            # 2. Event-Driven Learning (FEP)
-            self.weights[winner, active_indices] += W_GAIN
+            # 1. Hebbian update: Strengthen alignment
+            self.weights_l1e_l2e[winner, l1_active] += W_GAIN
             
-            # Zero-Sum Structural Constraint
-            current_sum = np.sum(self.weights[winner])
-            target_sum = self.theta_e[winner]
-            diff = (current_sum - target_sum) / N_INPUT
-            self.weights[winner] -= diff
+            # 2. Soft Weight Divorce: Prevent "Generalist" Tyrants
+            # Gently weaken the winner's connections to the active set 
+            # so that it must continually specialize to stay the winner.
+            divorce_factor = 0.1 
+            self.weights_l1e_l2e[winner, l1_active] *= (1.0 - divorce_factor)
             
-            # --- STEP D: Feedback Balance (I_FB) ---
-            # Metrics for I_FB: we treat this as a virtual population spike
-            ifb_metrics = {
-                "force_applied": float(GLOBAL_BALANCE_FORCE),
-                "triggered": True
-            }
-            self.v_e -= GLOBAL_BALANCE_FORCE
-            self.v_e = np.maximum(self.v_e, 0) 
+            # 3. Zero-Sum Structural Constraint
+            self.weights_l1e_l2e[winner] -= (np.sum(self.weights_l1e_l2e[winner]) - self.theta_l2e[winner]) / N_L1_E
             
-            # Symmetry Breaking: Penalty to winner
-            self.theta_e[winner] += 25.0 
+            # 4. Symmetry Breaking: Fatigue the winner
+            self.theta_l2e[winner] += THETA_UP
             
-            # Merge inhibitory metrics into the trace
-            state = self._capture_state("e_spike", input_pattern, winner=winner)
-            state["iff_metrics"] = iff_metrics
-            state["ifb_metrics"] = ifb_metrics
-            trace.append(state)
+            # --- Step 5: L2_E (Winner) -> L1_I (Source Squelch) ---
+            self.v_l1i += self.weights_l2e_l1i[:, winner]
+            
+            self.v_l2e[winner] = 0
+            return winner
         else:
-            # No one fired
-            self.theta_e = np.maximum(self.theta_e - THETA_DOWN, BASELINE_THRESHOLD)
-            state = self._capture_state("no_spike", input_pattern)
-            state["iff_metrics"] = iff_metrics
-            state["ifb_metrics"] = {"force_applied": 0.0, "triggered": False}
-            trace.append(state)
-            
-        return trace
+            # Homeostatic scaling: Lower thresholds for the starved
+            self.theta_l2e = np.maximum(self.theta_l2e - THETA_DOWN, BASELINE_THETA * 0.5)
+            return None
+
+        # Decay potentials
+        self.v_l1e *= (1 - LEAK_RATE)
+        self.v_l2e *= (1 - LEAK_RATE)
