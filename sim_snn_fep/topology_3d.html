@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SNN-FEP | 3D Topological Layout</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/0.160.0/three.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/three@0.160.0/examples/js/controls/OrbitControls.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #070709;
+            --panel: rgba(20, 21, 26, 0.85);
+            --border: #272b34;
+            --txt: #e6edf3;
+            --dim: #8b949e;
+            --cyan: #00e0ff;
+            --emerald: #00ffaa;
+            --red: #ff5468;
+            --magenta: #c77dff;
+            --amber: #ffb800;
+        }
+        body { 
+            margin: 0; 
+            background: var(--bg); 
+            color: var(--txt); 
+            font-family: 'Inter', sans-serif; 
+            overflow: hidden; 
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            pointer-events: none;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 16px;
+            pointer-events: auto;
+            backdrop-filter: blur(8px);
+            max-width: 300px;
+        }
+        h1 { 
+            margin: 0 0 8px 0; 
+            font-size: 18px; 
+            font-weight: 700; 
+            letter-spacing: -0.02em; 
+        }
+        .sub { 
+            color: var(--dim); 
+            font-family: 'JetBrains Mono', monospace; 
+            font-size: 11px; 
+            line-height: 1.4;
+        }
+        .legend {
+            margin-top: 12px;
+            font-size: 11px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+        }
+        .swatch {
+            width: 10px;
+            height: 10px;
+            border-radius: 2px;
+        }
+        #stats {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--dim);
+            text-align: right;
+            pointer-events: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="ui">
+        <div class="panel">
+            <h1>SNN&middot;FEP Topology</h1>
+            <div class="sub">3D connectivity map showing the structural layout of L1 Excitatory, L1 Inhibitory, L2 Concept cells, and the L2 Global Brake.</div>
+            <div class="legend">
+                <div class="legend-item"><div class="swatch" style="background:var(--cyan)"></div> L1 Excitatory (Input)</div>
+                <div class="legend-item"><div class="swatch" style="background:var(--red)"></div> L1 Inhibitory (Local)</div>
+                <div class="legend-item"><div class="swatch" style="background:var(--emerald)"></div> L2 Excitatory (Concept)</div>
+                <div class="legend-item"><div class="swatch" style="background:var(--magenta)"></div> L2 Inhibitory (Global Brake)</div>
+            </div>
+        </div>
+    </div>
+    <div id="stats">
+        L1E: 9 | L1I: 9 | L2E: 8 | L2I: 1<br>
+        Orbit View: Right-click to Pan | Left-click to Rotate | Scroll to Zoom
+    </div>
+
+    <script>
+        window.onload = () => {
+            const M = { N_L1E: 9, N_L1I: 9, N_L2E: 8, N_L2I: 1 };
+            const COLORS = { L1E: 0x00e0ff, L1I: 0xff5468, L2E: 0x00ffaa, L2I: 0xc77dff, CONN: 0x3a3f49 };
+
+            const scene = new THREE.Scene();
+            scene.background = new THREE.Color(0x070709);
+            
+            const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            camera.position.set(15, 10, 20);
+
+            const renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            document.body.appendChild(renderer.domElement);
+
+            // Fix: Explicitly check for THREE.OrbitControls or OrbitControls
+            let controls = null;
+            try {
+                if (THREE.OrbitControls) {
+                    controls = new THREE.OrbitControls(camera, renderer.domElement);
+                } else if (typeof OrbitControls !== 'undefined') {
+                    controls = new OrbitControls(camera, renderer.domElement);
+                } else {
+                    console.warn("OrbitControls not found via standard paths, attempting manual assignment...");
+                    // Some versions require the controls to be manually wired
+                }
+            } catch (e) {
+                console.error("OrbitControls initialization failed:", e);
+            }
+
+            if (controls) {
+                controls.enableDamping = true;
+                controls.dampingFactor = 0.05;
+            }
+
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.8);
+            scene.add(ambientLight);
+            const pointLight = new THREE.PointLight(0xffffff, 1);
+            pointLight.position.set(10, 20, 10);
+            scene.add(pointLight);
+
+            const nodes = { L1E: [], L1I: [], L2E: [], L2I: [] };
+            const sphereGeom = new THREE.SphereGeometry(0.4, 16, 16);
+            const boxGeom = new THREE.BoxGeometry(0.6, 0.6, 0.6);
+
+            for (let i = 0; i < M.N_L1E; i++) {
+                const mat = new THREE.Mesh(sphereGeom, new THREE.MeshPhongMaterial({ color: COLORS.L1E }));
+                mat.position.set((i % 3) * 3 - 3, ((i / 3) | 0) * 3 - 3, 0);
+                scene.add(mat);
+                nodes.L1E.push(mat);
+            }
+
+            for (let i = 0; i < M.N_L1I; i++) {
+                const mat = new THREE.Mesh(boxGeom, new THREE.MeshPhongMaterial({ color: COLORS.L1I }));
+                const ref = nodes.L1E[i];
+                mat.position.set(ref.position.x + 1, ref.position.y + 1, 1);
+                scene.add(mat);
+                nodes.L1I.push(mat);
+            }
+
+            for (let j = 0; j < M.N_L2E; j++) {
+                const mat = new THREE.Mesh(sphereGeom, new THREE.MeshPhongMaterial({ color: COLORS.L2E }));
+                mat.position.set(10, (j - (M.N_L2E-1)/2) * 2, 0);
+                scene.add(mat);
+                nodes.L2E.push(mat);
+            }
+
+            for (let k = 0; k < M.N_L2I; k++) {
+                const mat = new THREE.Mesh(boxGeom, new THREE.MeshPhongMaterial({ color: COLORS.L2I }));
+                mat.position.set(15, 0, 0);
+                scene.add(mat);
+                nodes.L2I.push(mat);
+            }
+
+            function createLine(start, end, color, opacity = 0.2) {
+                const points = [start.position, end.position];
+                const geometry = new THREE.BufferGeometry().setFromPoints(points);
+                const material = new THREE.LineBasicMaterial({ color: color, transparent: true, opacity: opacity });
+                const line = new THREE.Line(geometry, material);
+                scene.add(line);
+            }
+
+            nodes.L1E.forEach(n1 => { nodes.L2E.forEach(n2 => createLine(n1, n2, COLORS.CONN, 0.1)); });
+            nodes.L2E.forEach(n2 => { nodes.L1I.forEach(n1i => createLine(n2, n1i, COLORS.L2I, 0.05)); });
+            nodes.L2E.forEach(n2 => { createLine(n2, nodes.L2I[0], COLORS.L2I, 0.3); });
+            nodes.L1E.forEach((n1, i) => { createLine(n1, nodes.L1I[i], COLORS.L1I, 0.4); });
+
+            function animate() {
+                requestAnimationFrame(animate);
+                if (controls) controls.update();
+                renderer.render(scene, camera);
+            }
+
+            window.addEventListener('resize', () => {
+                camera.aspect = window.innerWidth / window.innerHeight;
+                camera.updateProjectionMatrix();
+                renderer.setSize(window.innerWidth, window.innerHeight);
+            });
+
+            animate();
+        };
+    </script>
+</body>
+</html>
