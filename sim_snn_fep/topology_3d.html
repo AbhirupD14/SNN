@@ -188,7 +188,7 @@
                     L1E: new Array(9).fill(0),
                     L1I: new Array(9).fill(0),
                     L2E: new Array(8).fill(0),
-                    L2I: new Array(1).fill(0),
+                    L2I: [0],
                     inputPattern: [],
                     inputPatternDuration: 0,
                     weights: {
@@ -204,6 +204,58 @@
                         gd: new Array(8).fill(false)
                     }
                 };
+
+                function demoSimulation() {
+                    // Get time in seconds
+                    const time = performance.now() / 1000;
+
+                    // Update each neuron population with oscillating values
+                    for (let i = 0; i < window.simulationState.L1E.length; i++) {
+                        window.simulationState.L1E[i] = 0.5 + 0.5 * Math.sin(time * 2 + i);
+                    }
+                    for (let i = 0; i < window.simulationState.L1I.length; i++) {
+                        window.simulationState.L1I[i] = 0.5 + 0.5 * Math.sin(time * 2 + i + Math.PI);
+                    }
+                    for (let i = 0; i < window.simulationState.L2E.length; i++) {
+                        window.simulationState.L2E[i] = 0.5 + 0.5 * Math.sin(time * 1.5 + i);
+                    }
+                    window.simulationState.L2I[0] = 0.5 + 0.5 * Math.sin(time * 1.5 + Math.PI);
+
+                    // Occasionally (1% chance per frame) set random input pattern and reset duration to 500ms
+                    if (Math.random() < 0.01) {
+                        // Set 1-2 unique L1E indices
+                        const numIndices = Math.floor(Math.random() * 2) + 1; // 1 or 2
+                        const indices = new Set();
+                        while (indices.size < numIndices) {
+                            indices.add(Math.floor(Math.random() * 9));
+                        }
+                        window.simulationState.inputPattern = Array.from(indices);
+                        window.simulationState.inputPatternDuration = 500; // ms
+                    }
+
+                    // Decrement inputPatternDuration by 16ms per frame (~60fps)
+                    if (window.simulationState.inputPatternDuration > 0) {
+                        window.simulationState.inputPatternDuration -= 16;
+                        if (window.simulationState.inputPatternDuration <= 0) {
+                            window.simulationState.inputPattern = [];
+                            window.simulationState.inputPatternDuration = 0;
+                        }
+                    }
+
+                    // Reset ff activeConnections to all false each frame
+                    window.simulationState.activeConnections.ff.fill(false);
+
+                    // Occasionally (10% chance per frame) set a random ff connection to true
+                    if (Math.random() < 0.1) {
+                        const randomIndex = Math.floor(Math.random() * (9*8));
+                        window.simulationState.activeConnections.ff[randomIndex] = true;
+                    }
+
+                    // Call setTimeout to loop again
+                    setTimeout(demoSimulation, 16);
+                }
+
+                demoSimulation();
 
                 function demoSimulation() {
                     const now = performance.now();
@@ -490,6 +542,69 @@
             allNodes.forEach(({ mesh }, i) => {
                 mesh.material.emissiveIntensity = 0.10 + 0.08 * Math.sin(t * 1.4 + i * 0.45);
             });
+
+            // ── Simulation State Update ────────────────────────────────────────
+            // Update activation levels (example: oscillating)
+            window.simulationState.L1E.forEach((_, i) => {
+                window.simulationState.L1E[i] = 0.5 + 0.5 * Math.sin(t * 0.5 + i);
+            });
+            window.simulationState.L1I.forEach((_, i) => {
+                window.simulationState.L1I[i] = 0.5 + 0.5 * Math.sin(t * 0.5 + i + Math.PI);
+            });
+            window.simulationState.L2E.forEach((_, j) => {
+                window.simulationState.L2E[j] = 0.5 + 0.5 * Math.sin(t * 0.3 + j * 0.5);
+            });
+            window.simulationState.L2I[0] = 0.5 + 0.5 * Math.sin(t * 0.2);
+
+            // Occasionally set input pattern (every 2 seconds)
+            if (window.simulationState.inputPatternDuration <= 0 && Math.random() < 0.01) {
+                window.simulationState.inputPattern = [Math.floor(Math.random() * 9)];
+                window.simulationState.inputPatternDuration = 500; // ms
+            }
+            if (window.simulationState.inputPatternDuration > 0) {
+                window.simulationState.inputPatternDuration -= 16; // approx 60fps
+                if (window.simulationState.inputPatternDuration <= 0) {
+                    window.simulationState.inputPattern = [];
+                }
+            }
+
+            // Update weights (oscillating)
+            window.simulationState.weights.ff = 0.3 + 0.4 * Math.sin(t * 0.2);
+            window.simulationState.weights.ei = 0.3 + 0.4 * Math.sin(t * 0.2 + Math.PI/2);
+            window.simulationState.weights.sq = 0.3 + 0.4 * Math.sin(t * 0.2 + Math.PI);
+            window.simulationState.weights.gd = 0.3 + 0.4 * Math.sin(t * 0.2 + 3*Math.PI/2);
+
+            // Reset active connections and set some randomly
+            window.simulationState.activeConnections.ff.fill(false);
+            window.simulationState.activeConnections.ei.fill(false);
+            window.simulationState.activeConnections.sq.fill(false);
+            window.simulationState.activeConnections.gd.fill(false);
+
+            // Activate a few random connections for demonstration
+            if (Math.random() < 0.1) {
+                const pre = Math.floor(Math.random() * 9);
+                const post = Math.floor(Math.random() * 8);
+                window.simulationState.activeConnections.ff[pre * 8 + post] = true;
+            }
+            if (Math.random() < 0.1) {
+                const i = Math.floor(Math.random() * 9);
+                window.simulationState.activeConnections.ei[i] = true;
+            }
+            if (Math.random() < 0.1) {
+                const pre = Math.floor(Math.random() * 8);
+                const post = Math.floor(Math.random() * 9);
+                window.simulationState.activeConnections.sq[pre * 9 + post] = true;
+            }
+            if (Math.random() < 0.1) {
+                const i = Math.floor(Math.random() * 8);
+                window.simulationState.activeConnections.gd[i] = true;
+            }
+
+            // Update line opacities based on weights and active connections
+            updateLines(connGroups.ff, window.simulationState.weights.ff, window.simulationState.activeConnections.ff);
+            updateLines(connGroups.ei, window.simulationState.weights.ei, window.simulationState.activeConnections.ei);
+            updateLines(connGroups.sq, window.simulationState.weights.sq, window.simulationState.activeConnections.sq);
+            updateLines(connGroups.gd, window.simulationState.weights.gd, window.simulationState.activeConnections.gd);
 
             controls.update();
             renderer.render(scene, camera);
