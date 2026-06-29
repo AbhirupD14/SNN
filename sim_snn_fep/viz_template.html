@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>SNN-FEP | Symbol Consolidation Dashboard</title>
+<link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#070709; --panel:rgba(20,21,26,.85); --border:#272b34;
+    --txt:#e6edf3; --dim:#8b949e;
+    --cyan:#00e0ff; --emerald:#00ffaa; --amber:#ffb800; --red:#ff5468;
+    --magenta:#c77dff;
+  }
+  *{box-sizing:border-box}
+  body{background:var(--bg);color:var(--txt);font-family:Inter,sans-serif;margin:0;padding:0 0 60px;}
+  #header{padding:18px 28px;border-bottom:1px solid var(--border);
+    background:linear-gradient(to bottom,#13151b,transparent);display:flex;align-items:baseline;gap:18px;flex-wrap:wrap}
+  h1{margin:0;font-size:20px;font-weight:700;letter-spacing:-.02em}
+  .sub{color:var(--dim);font-family:'JetBrains Mono',monospace;font-size:12px}
+  #stagebadge{margin-left:auto;font-family:'JetBrains Mono',monospace;font-size:13px;
+    color:#000;background:var(--cyan);padding:5px 12px;border-radius:6px;font-weight:700}
+  #wrap{display:grid;grid-template-columns:266px 1fr 312px;gap:18px;padding:18px 22px;align-items:start;max-width:1640px;margin:0 auto}
+  .panel{background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;margin-bottom:16px}
+  .ptitle{font-size:11px;text-transform:uppercase;letter-spacing:.12em;color:var(--dim);
+    font-weight:700;margin:0 0 12px;border-bottom:1px solid var(--border);padding-bottom:7px;display:flex;justify-content:space-between}
+  canvas{display:block}
+  #netwrap{background:radial-gradient(circle at 60% 45%,#0e1016,#000);border:1px solid var(--border);
+    border-radius:14px;overflow:hidden;box-shadow:inset 0 0 60px #000}
+  /* controls */
+  #controls{margin:14px 0 0;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:16px}
+  .row{display:flex;align-items:center;gap:14px;flex-wrap:wrap}
+  .row+.row{margin-top:14px}
+  label.lab{font-size:11px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);font-weight:700;min-width:96px}
+  input[type=range]{flex:1;appearance:none;background:#30363d;height:4px;border-radius:2px;outline:none}
+  input[type=range]::-webkit-slider-thumb{appearance:none;width:15px;height:15px;border-radius:50%;
+    background:var(--cyan);cursor:pointer;box-shadow:0 0 8px var(--cyan)}
+  button{background:#1b1f27;color:var(--txt);border:1px solid var(--border);padding:7px 14px;border-radius:6px;
+    cursor:pointer;font-family:Inter;font-weight:600;font-size:13px;transition:.15s}
+  button:hover{background:#262c36;border-color:#5a6472}
+  button.on{background:var(--cyan);color:#000;border-color:var(--cyan)}
+  .pat{padding:6px 10px;font-size:12px;font-family:'JetBrains Mono',monospace}
+  .pat.sel{background:var(--emerald);color:#000;border-color:var(--emerald)}
+  .mono{font-family:'JetBrains Mono',monospace}
+  .small{font-size:11px;color:var(--dim)}
+  /* telemetry */
+  .tcell{display:flex;align-items:center;gap:8px;font-family:'JetBrains Mono',monospace;font-size:11px;margin-bottom:6px}
+  .tdot{width:10px;height:10px;border-radius:50%;flex:none}
+  .tbar{flex:1;height:7px;background:#23272f;border-radius:4px;overflow:hidden;position:relative}
+  .tbar>i{display:block;height:100%;border-radius:4px}
+  .tval{width:88px;text-align:right;color:var(--dim)}
+  /* leak gauges */
+  .gauge{margin-bottom:9px}
+  .glabel{display:flex;justify-content:space-between;font-family:'JetBrains Mono',monospace;font-size:10.5px;margin-bottom:3px}
+  .gtrack{height:9px;background:#23272f;border-radius:5px;overflow:hidden}
+  .gtrack>i{display:block;height:100%;border-radius:5px;transition:width .25s,background .25s}
+  .tag{font-size:9px;padding:1px 5px;border-radius:4px;font-weight:700}
+  .legend{display:flex;flex-wrap:wrap;gap:10px 14px;font-size:10.5px;color:var(--dim);font-family:'JetBrains Mono',monospace;margin-top:10px}
+  .legend span{display:flex;align-items:center;gap:5px}
+  .swatch{width:11px;height:11px;border-radius:3px;display:inline-block}
+  .chk{display:flex;align-items:center;gap:6px;font-size:11px;color:var(--dim);cursor:pointer}
+  #banner{font-family:'JetBrains Mono',monospace;font-size:12px;color:var(--emerald);font-weight:700;
+    letter-spacing:.08em;text-transform:uppercase}
+</style>
+</head>
+<body>
+<div id="header">
+  <h1>SNN&middot;FEP &mdash; Symbol Consolidation</h1>
+  <span class="sub">fixed threshold &bull; gate-widening plasticity &bull; AHP + refractory competition &bull; LIF &rarr; pure integrator</span>
+  <span id="stagebadge"></span>
+</div>
+
+<div id="wrap">
+  <!-- LEFT -->
+  <div>
+    <div class="panel">
+      <div class="ptitle">Input Stimulus <span id="patname" class="mono" style="color:var(--cyan)"></span></div>
+      <div style="display:flex;justify-content:center"><canvas id="inCanvas" width="150" height="150"></canvas></div>
+    </div>
+    <div class="panel">
+      <div class="ptitle">Response to Stimulus <span class="small">drive vs &theta;</span></div>
+      <div id="gauges"></div>
+      <div class="small" style="margin-top:8px;line-height:1.5">
+        Per cell: drive = sum of its gates on the <i>active</i> inputs. The owner's
+        drive grows until one volley meets &theta; (<b style="color:var(--emerald)">integrator</b>);
+        early it is below &theta; so it needs many volleys (<b style="color:var(--amber)">LIF</b>);
+        rivals' gates to these inputs wither (<b style="color:var(--dim)">silent</b>).
+      </div>
+    </div>
+  </div>
+
+  <!-- CENTER -->
+  <div>
+    <div id="netwrap"><canvas id="net" width="920" height="640"></canvas></div>
+    <div id="controls">
+      <div class="row" id="patrow"><label class="lab">Stimulus</label></div>
+      <div class="row">
+        <label class="lab">LIF&rarr;Integ</label>
+        <button id="playBtn" onclick="togglePlay()">&#9654; Play</button>
+        <button onclick="stepBy(-1)">&laquo;</button>
+        <button onclick="stepBy(1)">&raquo;</button>
+        <input type="range" id="step" min="0" value="0">
+        <span id="steplab" class="mono small" style="min-width:170px;text-align:right"></span>
+      </div>
+      <div class="row">
+        <span id="banner"></span>
+        <span style="margin-left:auto;display:flex;gap:16px">
+          <label class="chk"><input type="checkbox" id="cbFb"> feedback squelch</label>
+          <label class="chk"><input type="checkbox" id="cbWeak"> weak gates</label>
+          <label class="chk"><input type="checkbox" id="cbLoop"> loop</label>
+        </span>
+      </div>
+      <div class="legend">
+        <span><i class="swatch" style="background:var(--cyan)"></i>L1<sub>E</sub> excite</span>
+        <span><i class="swatch" style="background:var(--red)"></i>inhibitory</span>
+        <span><i class="swatch" style="background:var(--emerald)"></i>winner / mature</span>
+        <span><i class="swatch" style="background:var(--amber)"></i>L2&rarr;L2<sub>I</sub> brake drive</span>
+        <span><i class="swatch" style="background:var(--magenta)"></i>feedback squelch</span>
+        <span>gate opacity &prop; conductance</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- RIGHT -->
+  <div>
+    <div class="panel">
+      <div class="ptitle">L2 Telemetry <span class="small">V / &theta; / mat</span></div>
+      <div id="telem"></div>
+    </div>
+    <div class="panel">
+      <div class="ptitle">Symbol Frequency <span class="small">last 100 epochs</span></div>
+      <div id="freq"></div>
+    </div>
+    <div class="panel">
+      <div class="ptitle">Maturation <span class="small">maturity &amp; volleys-to-fire</span></div>
+      <canvas id="chart" width="282" height="120"></canvas>
+    </div>
+  </div>
+</div>
+
+<script>
+const DATA = __DATA__;
+const M = DATA.meta;
+const CP = DATA.checkpoints;
+// derived thresholds (constant; only theta_l2e is learned)
+const TH_L1E = M.BASELINE_THETA, TH_L1I = M.BASELINE_THETA*0.5, TH_L2I = M.BASELINE_THETA*0.3;
+
+let pat = M.pattern_order[0];
+let frames = [];             // master timeline: all (checkpoint, step) for this pattern
+let gi = 0;                  // global frame index along the LIF -> integrator arc
+let cp = 0, step = 0;        // derived from frames[gi] each redraw
+let playing = false, raf=null, lastT=0;
+
+// Build the full nascent->mature arc for one pattern: every burst-step of every
+// checkpoint, in training order. Selecting a pattern replays this whole story.
+function buildFrames(){
+  frames = [];
+  for(let c=0;c<CP.length;c++){
+    const tr = CP[c].traces[pat];
+    for(let s=0;s<tr.length;s++) frames.push({cp:c, step:s});
+  }
+  document.getElementById('step').max = frames.length-1;
+}
+
+/* ---------- geometry ---------- */
+const xE=[120,190,260], yE=[170,320,470];
+function posL1E(i){return {x:xE[i%3], y:yE[(i/3)|0]};}
+function posL1I(i){const p=posL1E(i);return {x:p.x+34,y:p.y-34};}
+function posL2E(j){return {x:660, y:90 + j*(460/(M.N_L2E-1))};}
+const posL2I={x:836,y:320};
+
+/* ---------- helpers ---------- */
+function lerp(a,b,t){return a+(b-a)*t;}
+function mix(c1,c2,t){return `rgb(${(lerp(c1[0],c2[0],t))|0},${(lerp(c1[1],c2[1],t))|0},${(lerp(c1[2],c2[2],t))|0})`;}
+const RED=[255,84,104], CYAN=[0,224,255], EMER=[0,255,170], GREY=[60,66,78];
+function matColor(m){return mix(RED,EMER,m);}  // immature red -> mature emerald
+
+function curTrace(){return CP[cp].traces[pat];}
+function curStep(){const t=curTrace();return t[Math.min(step,t.length-1)];}
+
+/* ---------- network canvas ---------- */
+const net=document.getElementById('net'), nx=net.getContext('2d');
+function drawNet(){
+  const c=CP[cp], s=curStep();
+  const W=c.weights_l1e_l2e, FB=c.weights_l2e_l1i, mat=c.maturity, th=c.theta_l2e;
+  const showWeak=document.getElementById('cbWeak').checked;
+  const showFb=document.getElementById('cbFb').checked;
+  nx.clearRect(0,0,920,640);
+
+  // --- feed-forward gates L1_E -> L2_E (behind) ---
+  for(let i=0;i<M.N_L1E;i++){const a=posL1E(i);
+    for(let j=0;j<M.N_L2E;j++){
+      const w=W[j][i], o=w/M.SYNAPTIC_BUDGET;       // 0..~1
+      if(o<0.04 && !showWeak) continue;
+      const b=posL2E(j);
+      const fired = s.spk_l1e.includes(i);
+      nx.strokeStyle=`rgba(0,224,255,${Math.min(0.9,0.06+o*0.9)})`;
+      nx.lineWidth=Math.min(4,0.4+o*4)*(fired?1.6:1);
+      nx.beginPath();nx.moveTo(a.x+15,a.y);nx.lineTo(b.x-20,b.y);nx.stroke();
+    }
+  }
+  // --- feedback squelch L2_E -> L1_I (optional) ---
+  if(showFb){for(let j=0;j<M.N_L2E;j++){const b=posL2E(j);
+    for(let i=0;i<M.N_L1I;i++){const o=FB[i][j]/M.W_L2E_L1I; if(o<0.06)continue;
+      const a=posL1I(i);
+      nx.strokeStyle=`rgba(199,125,255,${0.05+o*0.5})`;nx.lineWidth=0.4+o*2;
+      nx.beginPath();nx.moveTo(b.x-18,b.y);nx.lineTo(a.x+10,a.y);nx.stroke();}}}
+  // --- L2_E <-> L2_I ---
+  for(let j=0;j<M.N_L2E;j++){const b=posL2E(j);
+    nx.strokeStyle='rgba(255,184,0,0.18)';nx.lineWidth=1;
+    nx.beginPath();nx.moveTo(b.x+18,b.y);nx.lineTo(posL2I.x-16,posL2I.y);nx.stroke();}
+  if(s.brake){ // brake fans back to all L2_E
+    for(let j=0;j<M.N_L2E;j++){const b=posL2E(j);
+      nx.strokeStyle='rgba(255,84,104,0.7)';nx.lineWidth=2.5;
+      nx.beginPath();nx.moveTo(posL2I.x-16,posL2I.y);nx.lineTo(b.x+18,b.y);nx.stroke();}}
+
+  // --- L1_E nodes (+paired L1_I) ---
+  const inputSet=new Set(M.patterns[pat]);
+  for(let i=0;i<M.N_L1E;i++){const p=posL1E(i);
+    drawCell(p.x,p.y,15, s.v_l1e[i], TH_L1E, CYAN, s.spk_l1e.includes(i), inputSet.has(i)?CYAN:null);
+    nx.fillStyle='#7d8694';nx.font='9px JetBrains Mono';nx.fillText('E'+i,p.x-7,p.y+24);
+    const q=posL1I(i);
+    drawSquare(q.x,q.y,9, s.v_l1i[i], TH_L1I, RED, s.spk_l1i.includes(i));
+  }
+  // --- L2_E nodes (colored by maturity) ---
+  for(let j=0;j<M.N_L2E;j++){const p=posL2E(j);
+    const isWin = s.l2_fired===j;
+    drawCell(p.x,p.y,18, s.v_l2e[j], th[j], hexToRgb(matColor(mat[j])), isWin, null, mat[j]);
+    nx.fillStyle='#9aa4b2';nx.font='10px JetBrains Mono';nx.fillText('N'+j,p.x-8,p.y-25);
+    // tiny maturity ring
+    nx.strokeStyle=matColor(mat[j]);nx.lineWidth=2.5;nx.beginPath();
+    nx.arc(p.x,p.y,23,-Math.PI/2,-Math.PI/2+mat[j]*Math.PI*2);nx.stroke();
+  }
+  // --- L2_I global inhibitor ---
+  drawSquare(posL2I.x,posL2I.y,18, s.v_l2i[0], TH_L2I, RED, s.brake);
+  nx.fillStyle='#9aa4b2';nx.font='10px JetBrains Mono';nx.fillText('L2 I',posL2I.x-13,posL2I.y-26);
+
+  // layer labels
+  nx.fillStyle='#5a6472';nx.font='700 11px JetBrains Mono';
+  nx.fillText('L1  (input + local inhibition)',70,40);
+  nx.fillText('L2  (concept cells)',600,40);
+}
+function hexToRgb(s){const m=s.match(/\d+/g);return [+m[0],+m[1],+m[2]];}
+function drawCell(x,y,r,v,th,rgb,flash,inputRing,mat){
+  const ratio=Math.max(0,Math.min(v/th,1));
+  if(flash){nx.beginPath();nx.arc(x,y,r+12,0,7);nx.fillStyle='rgba(0,255,170,.28)';nx.fill();
+    nx.strokeStyle='#00ffaa';nx.lineWidth=4;nx.beginPath();nx.arc(x,y,r+4,0,7);nx.stroke();}
+  if(inputRing){nx.strokeStyle='rgba(0,224,255,.9)';nx.lineWidth=2;
+    nx.beginPath();nx.arc(x,y,r+6,0,7);nx.stroke();}
+  // base
+  nx.beginPath();nx.arc(x,y,r,0,7);nx.fillStyle='#12151b';nx.fill();
+  // fill level (membrane)
+  nx.save();nx.beginPath();nx.arc(x,y,r,0,7);nx.clip();
+  nx.fillStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.25+0.65*ratio})`;
+  nx.fillRect(x-r,y+r-2*r*ratio,2*r,2*r*ratio);nx.restore();
+  nx.strokeStyle=v>=th?'#fff':`rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+  nx.lineWidth=v>=th?2.5:1.4;nx.beginPath();nx.arc(x,y,r,0,7);nx.stroke();
+}
+function drawSquare(x,y,r,v,th,rgb,flash){
+  const ratio=Math.max(0,Math.min(v/th,1));
+  if(flash){nx.fillStyle='rgba(255,84,104,.5)';nx.fillRect(x-r-5,y-r-5,2*r+10,2*r+10);}
+  nx.fillStyle='#12151b';nx.fillRect(x-r,y-r,2*r,2*r);
+  nx.fillStyle=`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.25+0.65*ratio})`;
+  nx.fillRect(x-r,y+r-2*r*ratio,2*r,2*r*ratio);
+  nx.strokeStyle=v>=th?'#fff':`rgb(${rgb[0]},${rgb[1]},${rgb[2]})`;
+  nx.lineWidth=v>=th?2.5:1.2;nx.strokeRect(x-r,y-r,2*r,2*r);
+}
+
+/* ---------- input panel ---------- */
+const inC=document.getElementById('inCanvas'),ix=inC.getContext('2d');
+function drawInput(){ix.clearRect(0,0,150,150);const set=new Set(M.patterns[pat]);
+  for(let i=0;i<9;i++){const x=(i%3)*48+5,y=((i/3)|0)*48+5,on=set.has(i);
+    ix.fillStyle=on?'#00e0ff':'#161a22';ix.fillRect(x,y,40,40);
+    ix.strokeStyle='#2a2f39';ix.strokeRect(x,y,40,40);
+    if(on){ix.shadowBlur=12;ix.shadowColor='#00e0ff';ix.strokeStyle='#00e0ff';ix.strokeRect(x+4,y+4,32,32);ix.shadowBlur=0;}}}
+
+/* ---------- gauges (LIF -> integrator, by volleys-to-fire) ---------- */
+function drawGauges(){const c=CP[cp];let h='';
+  const active=M.patterns[pat];          // the active inputs of the SELECTED stimulus
+  const owner=c.winners[pat];            // cell that fires this stimulus at this stage
+  const sf=c.steps_to_fire[pat];
+  for(let j=0;j<M.N_L2E;j++){
+    let drive=0; for(const i of active) drive+=c.weights_l1e_l2e[j][i];
+    const th=c.theta_l2e[j];
+    const suff=drive/th;                  // one-volley sufficiency for THIS stimulus
+    const isOwn=(owner===j);              // only the owner actually fires this stimulus
+    let tag,col;
+    if(isOwn && sf!=null && sf<=2){tag='INTEGRATOR';col='#00ffaa';}
+    else if(isOwn && sf!=null){tag='LIF '+sf+'&times;';col='#ffb800';}  // fires, but slowly
+    else{tag='silent';col='#5a6472';}     // loses the race / gates not aligned
+    const note=(isOwn&&sf!=null)?' &middot; fires':'';
+    const bg=`rgba(${col==='#00ffaa'?'0,255,170':col==='#ffb800'?'255,184,0':'90,100,120'},.16)`;
+    h+=`<div class="gauge" style="${isOwn?'outline:1px solid '+col+';outline-offset:2px;border-radius:6px;padding:2px 3px;':''}">
+        <div class="glabel"><span>N${j} <span class="tag" style="background:${bg};color:${col}">${tag}</span></span>
+        <span>${drive.toFixed(0)}/${th.toFixed(0)}&theta;${note}</span></div>
+        <div class="gtrack"><i style="width:${Math.min(suff,1)*100}%;background:${matColor(Math.min(suff,1))}"></i></div></div>`;}
+  document.getElementById('gauges').innerHTML=h;
+}
+
+/* ---------- telemetry ---------- */
+function drawTelem(){const c=CP[cp],s=curStep();let h='';
+  for(let j=0;j<M.N_L2E;j++){const v=s.v_l2e[j],th=c.theta_l2e[j],m=c.maturity[j];
+    const ratio=Math.max(0,Math.min(v/th,1));const F=Math.max(0,v-th);
+    const win=s.l2_fired===j;
+    h+=`<div class="tcell"><span class="tdot" style="background:${matColor(m)};box-shadow:${win?'0 0 8px #00ffaa':'none'}"></span>
+        <span style="width:24px">N${j}</span>
+        <div class="tbar"><i style="width:${(ratio*100).toFixed(0)}%;background:${win?'#00ffaa':matColor(m)}"></i></div>
+        <span class="tval">V ${v.toFixed(0)}/${th.toFixed(0)}${F>0?' &#9889;':''}</span></div>`;}
+  document.getElementById('telem').innerHTML=h;
+}
+
+/* ---------- frequency ---------- */
+function drawFreq(){const f=DATA.final.win_freq,map=DATA.final.mapping;let h='';
+  // invert mapping: cell -> symbol
+  const owner={};for(const k in map){if(map[k]!=null)owner[map[k]]=k;}
+  const mx=Math.max(...f,0.0001);
+  for(let j=0;j<M.N_L2E;j++){
+    h+=`<div class="tcell"><span style="width:24px">N${j}</span>
+        <div class="tbar"><i style="width:${(f[j]/mx*100).toFixed(0)}%;background:${f[j]>0?'#00e0ff':'#3a3f49'}"></i></div>
+        <span class="tval" style="width:110px;color:${owner[j]?'#e6edf3':'#5a6472'}">${owner[j]||'&mdash;'} ${(f[j]*100).toFixed(0)}%</span></div>`;}
+  document.getElementById('freq').innerHTML=h;
+}
+
+/* ---------- maturation curve + steps-to-fire ramp ---------- */
+const ch=document.getElementById('chart'),cx=ch.getContext('2d');
+function drawChart(){const a=DATA.history.avg_maturity,n=a.length;cx.clearRect(0,0,282,120);
+  cx.strokeStyle='#272b34';cx.lineWidth=1;cx.strokeRect(28,8,246,96);
+  cx.fillStyle='#5a6472';cx.font='9px JetBrains Mono';
+  cx.fillText('1.0',6,14);cx.fillText('0.0',6,104);cx.fillText('epoch',124,118);
+  // avg maturity (emerald, 0..1)
+  cx.beginPath();
+  for(let i=0;i<n;i++){const x=28+i/(n-1)*246,y=104-a[i]*96;i?cx.lineTo(x,y):cx.moveTo(x,y);}
+  cx.strokeStyle='#00ffaa';cx.lineWidth=2;cx.stroke();
+  // steps-to-fire ramp across checkpoints (amber, scaled by T_STEPS) -- LIF->integrator
+  cx.beginPath();let first=true;
+  CP.forEach(c=>{if(c.avg_steps==null)return;const x=28+c.epoch/(M.EPOCHS-1)*246;
+    const y=104-Math.min(c.avg_steps/M.T_STEPS,1)*96;first?(cx.moveTo(x,y),first=false):cx.lineTo(x,y);});
+  cx.strokeStyle='#ffb800';cx.lineWidth=1.5;cx.setLineDash([4,2]);cx.stroke();cx.setLineDash([]);
+  // current checkpoint marker
+  const e=CP[cp].epoch,x=28+e/(M.EPOCHS-1)*246;
+  cx.strokeStyle='#00e0ff';cx.setLineDash([3,3]);cx.beginPath();cx.moveTo(x,8);cx.lineTo(x,104);cx.stroke();cx.setLineDash([]);
+  cx.fillStyle='#00e0ff';cx.beginPath();cx.arc(x,104-a[Math.min(e,n-1)]*96,3,0,7);cx.fill();
+  cx.font='8px JetBrains Mono';cx.fillStyle='#00ffaa';cx.fillText('maturity',32,16);
+  cx.fillStyle='#ffb800';cx.fillText('volleys-to-fire',200,16);
+}
+
+/* ---------- orchestration ---------- */
+function redraw(){
+  gi=Math.max(0,Math.min(gi,frames.length-1));
+  cp=frames[gi].cp; step=frames[gi].step;       // derive checkpoint + burst-step
+  const c=CP[cp],s=curStep();
+  document.getElementById('stagebadge').textContent=`epoch ${c.epoch} · ${c.label}`;
+  document.getElementById('steplab').textContent=`ep ${c.epoch} · t=${step}`;
+  document.getElementById('patname').textContent=pat;
+  document.getElementById('step').value=gi;
+  document.getElementById('banner').innerHTML =
+        s.l2_fired!=null?('SYMBOL FIRED &rarr; N'+s.l2_fired+
+            ' &middot; inhibition wipes free energy '+(s.free_energy||0).toFixed(0)+' &rarr; 0')
+      : s.spk_l1e.length?('L1 volley &rarr; ['+s.spk_l1e.join(',')+']')
+      : 'integrating…';
+  drawNet();drawInput();drawGauges();drawTelem();drawFreq();drawChart();
+}
+function stepBy(d){gi=Math.max(0,Math.min(gi+d,frames.length-1));redraw();}
+function togglePlay(){playing=!playing;const b=document.getElementById('playBtn');
+  b.classList.toggle('on',playing);b.innerHTML=playing?'&#10073;&#10073; Pause':'&#9654; Play';
+  if(playing){lastT=performance.now();raf=requestAnimationFrame(tick);}else cancelAnimationFrame(raf);}
+function tick(now){if(!playing)return;
+  if(now-lastT>360){lastT=now;
+    if(gi<frames.length-1){gi++;}
+    else if(document.getElementById('cbLoop').checked){gi=0;}
+    else{togglePlay();}
+    redraw();}
+  raf=requestAnimationFrame(tick);}
+function selectPattern(name,row){pat=name;buildFrames();gi=0;
+  [...row.querySelectorAll('.pat')].forEach(x=>x.classList.remove('sel'));
+  [...row.querySelectorAll('.pat')].find(x=>x.textContent===name).classList.add('sel');
+  redraw();if(!playing)togglePlay();}   // auto-play the LIF -> integrator arc
+
+/* ---------- build controls ---------- */
+function buildPatterns(){const row=document.getElementById('patrow');
+  M.pattern_order.forEach(name=>{const b=document.createElement('button');
+    b.className='pat'+(name===pat?' sel':'');b.textContent=name;
+    b.onclick=()=>selectPattern(name,row);row.appendChild(b);});}
+document.getElementById('step').oninput=e=>{gi=+e.target.value;if(playing)togglePlay();redraw();};
+['cbFb','cbWeak'].forEach(id=>document.getElementById(id).onchange=redraw);
+
+buildPatterns();buildFrames();redraw();
+</script>
+</body>
+</html>
