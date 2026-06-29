@@ -8,6 +8,22 @@ def train_and_export_trace():
         [0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6],
         [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6]
     ]
+    # Additional patterns for composition testing: plus sign and X shape
+    # Plus sign: middle row + middle column = [1,2,3,4,5,6,7] actually let me think
+    # Middle row: [3,4,5], Middle column: [1,4,7] -> Union: [1,3,4,5,7]
+    # Actually let me represent these properly in the 9-element grid
+    # Plus sign: positions 1,3,4,5,7 (middle column + middle row minus center duplicate)
+    # X shape: both diagonals [0,4,8] + [2,4,6] = [0,2,4,6,8]
+    
+    # For now, let's stick with the original 8 patterns and add the two new ones in binary form
+    patterns_binary = [
+        [0, 1, 1, 0, 0, 0, 0, 0, 0],  # Actually wait, let me recheck the original patterns
+    ]
+    
+    # Let me look at what the original patterns were in generate_history.py
+    # From earlier: patterns = [ [0, 1, 2], [3, 4, 5], [6, 7, 8], [0, 3, 6],
+    #                         [1, 4, 7], [2, 5, 8], [0, 4, 8], [2, 4, 6] ]
+    # These are lists of indices, not binary
     
     epochs = 100
     full_history = []
@@ -22,6 +38,9 @@ def train_and_export_trace():
         
         for p_idx, pattern in enumerate(patterns):
             trace = snn.process_event_pattern(pattern)
+            
+            # We only care about the outcome of the event for the big trace
+            final_step = trace[-1]
             
             # We only care about the outcome of the event for the big trace
             final_step = trace[-1]
@@ -43,7 +62,11 @@ def train_and_export_trace():
                 "v_e": sanitize(final_step['v_e']),
                 "theta_e": sanitize(final_step['theta_e']),
                 "iff_spikes": sanitize(final_step.get('iff_metrics', {}).get('spikes', 0)),
-                "ifb_triggered": sanitize(final_step.get('ifb_metrics', {}).get('triggered', False))
+                "ifb_triggered": sanitize(final_step.get('iff_metrics', {}).get('triggered', False)),
+                # Add L3 fields if they exist
+                "l3_fired": sanitize(final_step.get('l3_fired')),
+                "l3_brake": sanitize(final_step.get('l3_brake', False)),
+                "l3_free_energy": sanitize(final_step.get('l3_free_energy', 0.0))
             }
             epoch_data["events"].append(event_summary)
             

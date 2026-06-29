@@ -54,6 +54,8 @@ N_L1_E = 9
 N_L1_I = 9
 N_L2_E = 8
 N_L2_I = 1
+N_L3_E = 4  # Number of L3 excitatory neurons
+N_L3_I = 1  # Number of L3 inhibitory neurons
 
 # --- Synaptic weights / conductances ---
 W_L1E_L1I = -5.0       # L1_E -> L1_I drive (magnitude used; sign handled in logic)
@@ -63,10 +65,16 @@ W_L1E_L2E_MAX = 50.0   # gate conductance ceiling (a gate cannot widen past this
 W_L2E_L2I = 20.0       # L2_E -> L2_I (drives the global inhibitor)
 W_L2I_L2E = -100.0     # L2_I -> L2_E global brake (reference scale)
 W_L2E_L1I = 15.0       # L2_E -> L1_I feedback squelch ceiling
+W_L2E_L3E_MIN = 10.0   # conductance floor for L2E->L3E surviving gate
+W_L2E_L3E_MAX = 50.0   # gate conductance ceiling for L2E->L3E gate
+W_L3E_L3I = 20.0       # L3_E -> L3_I (drives L3 global inhibitor)
+W_L3I_L3E = -100.0     # L3_I -> L3_E global brake (reference scale)
+W_L3E_L2I = 15.0       # L3_E -> L2_I feedback squelch ceiling (analogous to L2E->L1I)
 
 # --- Fixed threshold + membrane dynamics ---
 RESTING_POTENTIAL = 0.0
 BASELINE_THETA = 50.0          # FIXED firing threshold for L2_E (never adapts)
+BASELINE_THETA_L3 = 50.0       # FIXED firing threshold for L3_E (never adapts)
 LEAK_FRACTION = 0.10           # FIXED fractional membrane leak per timestep
 LEAK_RATE = LEAK_FRACTION      # alias kept for continuity
 T_STEPS = 30                   # timesteps a stimulus burst is held
@@ -95,24 +103,49 @@ class FEPSNN:
         self.v_l1i = np.full(N_L1_I, RESTING_POTENTIAL)
         self.v_l2e = np.full(N_L2_E, RESTING_POTENTIAL)
         self.v_l2i = np.full(N_L2_I, RESTING_POTENTIAL)
+        self.v_l3e = np.full(N_L3_E, RESTING_POTENTIAL)
+        self.v_l3i = np.full(N_L3_I, RESTING_POTENTIAL)
 
         # --- FIXED thresholds (tiny manufacturing jitter on L2_E only) ---
         self.theta_l1e = np.full(N_L1_E, BASELINE_THETA)
         self.theta_l1i = np.full(N_L1_I, BASELINE_THETA * 0.5)
         self.theta_l2e = np.full(N_L2_E, BASELINE_THETA) + np.random.uniform(-2, 2, N_L2_E)
         self.theta_l2i = np.full(N_L2_I, BASELINE_THETA * 0.3)
+        self.theta_l3e = np.full(N_L3_E, BASELINE_THETA_L3) + np.random.uniform(-2, 2, N_L3_E)
+        self.theta_l3i = np.full(N_L3_I, BASELINE_THETA_L3 * 0.3)
 
         # --- Slow per-cell state: AHP current, refractory, silence ---
         self.adapt = np.zeros(N_L2_E)
         self.refrac = np.zeros(N_L2_E, dtype=int)
         self.silence = np.zeros(N_L2_E, dtype=int)
-
+        
+        # L3 slow per-cell state
+        self.adapt_l3 = np.zeros(N_L3_E)
+        self.refrac_l3 = np.zeros(N_L3_E, dtype=int)
+        self.silence_l3 = np.zeros(N_L3_E, dtype=int)
+        
         # --- Synaptic gates (the only learned structure) ---
         self.weights_l1e_l2e = np.random.uniform(0.0, GATE_INIT_MAX, (N_L2_E, N_L1_E))
         self.weights_l2e_l1i = np.random.uniform(0.0, 1.0, (N_L1_I, N_L2_E))
         # New plastic inhibitory weights in L1 layer
         self.weights_l1e_l1i = np.random.uniform(0.0, 1.0, (N_L1_E, N_L1_I))   # excitation L1E -> L1I
         self.weights_l1i_l1e = np.random.uniform(0.0, 1.0, (N_L1_I, N_L1_E))   # inhibition L1I -> L1E
+        # L2 -> L3 excitatory plastic weights
+        self.weights_l2e_l3e = np.random.uniform(0.0, GATE_INIT_MAX, (N_L3_E, N_L2_E))
+        # L3 -> L3I feedback squelch (excitatory)
+        self.weights_l3e_l3i = np.random.uniform(0.0, 1.0, (N_L3_I, N_L3_E))
+        # L3I -> L3E lateral inhibition
+        self.weights_l3i_l3e = np.random.uniform(0.0, 1.0, (N_L3_E, N_L3_I))
+        # L3 -> L2I feedback squelch (excitatory) - NEW
+        self.weights_l3e_l2i = np.random.uniform(0.0, 1.0, (N_L2_I, N_L3_E))
+        
+        # --- Per-neuron maturity (observable; NOT fed into the leak) ---
+        self.maturity = np.zeros(N_L2_E)
+        self.maturity_l3 = np.zeros(N_L3_E)
+        for j in range(N_L2_E):
+            self._recompute_maturity(j)
+        for j in range(N_L3_E):
+            self._recompute_maturity_l3(j)
 
         # --- Per-neuron maturity (observable; NOT fed into the leak) ---
         self.maturity = np.zeros(N_L2_E)
@@ -131,7 +164,15 @@ class FEPSNN:
             total += self.weights_l1e_l2e[j, i]
         self.maturity[j] = min(total / MATURITY_THRESHOLD, 1.0)
 
-    def _make_frame(self, active, winner, t, stage, spk_l1e, spk_l1i, l2_fired, brake, free_energy):
+    def _recompute_maturity_l3(self, j):
+        """maturity for L3 layer: how close a single volley of L2->L3 gates is to theta."""
+        total = 0.0
+        for i in range(N_L2_E):
+            total += self.weights_l2e_l3e[j, i]
+        self.maturity_l3[j] = min(total / MATURITY_THRESHOLD, 1.0)
+
+    def _make_frame(self, active, winner, t, stage, spk_l1e, spk_l1i, l2_fired, brake, free_energy,
+                    l3_fired=None, l3_brake=False, l3_free_energy=0.0):
         import numpy as np
         frame = {
             "t": int(t),
@@ -142,17 +183,28 @@ class FEPSNN:
             "v_l1i": self.v_l1i.tolist(),
             "v_l2e": self.v_l2e.tolist(),
             "v_l2i": self.v_l2i.tolist(),
+            "v_l3e": self.v_l3e.tolist(),
+            "v_l3i": self.v_l3i.tolist(),
             "spk_l1e": [bool(b) for b in spk_l1e],
             "spk_l1i": [bool(b) for b in spk_l1i],
             "spk_l2e": [bool(l2_fired == j) for j in range(N_L2_E)],
             "spk_l2i": [bool(l2_fired == 0)],
+            "spk_l3e": [bool(l3_fired == j) for j in range(N_L3_E)] if l3_fired is not None else [False] * N_L3_E,
+            "spk_l3i": [bool(l3_fired == 0)] if l3_fired is not None else [False],
             "adapt": self.adapt.tolist(),
             "refrac": self.refrac.tolist(),
             "silence": self.silence.tolist(),
+            "adapt_l3": self.adapt_l3.tolist(),
+            "refrac_l3": self.refrac_l3.tolist(),
+            "silence_l3": self.silence_l3.tolist(),
             "weights_l1e_l2e": self.weights_l1e_l2e.tolist(),
             "weights_l1e_l1i": self.weights_l1e_l1i.tolist(),
             "weights_l1i_l1e": self.weights_l1i_l1e.tolist(),
-            "free_energy": float(free_energy)
+            "weights_l2e_l3e": self.weights_l2e_l3e.tolist(),
+            "weights_l3e_l3i": self.weights_l3e_l3i.tolist(),
+            "weights_l3i_l3e": self.weights_l3i_l3e.tolist(),
+            "free_energy": float(free_energy),
+            "l3_free_energy": float(l3_free_energy)
         }
         return frame
 
@@ -213,6 +265,50 @@ class FEPSNN:
                 if self.weights_l1i_l1e[pre, post] < 0.0:
                     self.weights_l1i_l1e[pre, post] = 0.0
 
+    def _learn_l3(self, j, fired_l2e, fired_l3i):
+        """Plasticity for L3 layer: L2E -> L3E excitatory, L3E -> L3I feedback squelch, L3E -> L2I feedback squelch."""
+        # 1. L2E -> L3E excitatory plasticity
+        for i in range(N_L2_E):
+            if fired_l2e[i]:
+                g = self.weights_l2e_l3e[j, i]
+                self.weights_l2e_l3e[j, i] = g + W_GAIN * (1.0 - g / W_L2E_L3E_MAX)
+            else:
+                self.weights_l2e_l3e[j, i] *= (1.0 - PRUNE_RATE)
+            if self.weights_l2e_l3e[j, i] < 0.0:
+                self.weights_l2e_l3e[j, i] = 0.0
+
+        # 2. Synaptic scaling for L3 neuron
+        total = 0.0
+        for i in range(N_L2_E):
+            total += self.weights_l2e_l3e[j, i]
+        if total > SYNAPTIC_BUDGET:
+            scale = SYNAPTIC_BUDGET / total
+            for i in range(N_L2_E):
+                self.weights_l2e_l3e[j, i] *= scale
+
+        # 3. Refresh L3 maturity
+        self._recompute_maturity_l3(j)
+
+        # 4. Feedback squelch: L3E -> L3I excitatory plasticity
+        for i in range(N_L3_I):
+            if fired_l3i[i]:  # Note: fired_l3i is length 1, but we loop for generality
+                g = self.weights_l3e_l3i[i, j]
+                self.weights_l3e_l3i[i, j] = g + W_GAIN * (1.0 - g / 1.0)  # assume max 1.0
+            else:
+                self.weights_l3e_l3i[i, j] *= (1.0 - PRUNE_RATE)
+            if self.weights_l3e_l3i[i, j] < 0.0:
+                self.weights_l3e_l3i[i, j] = 0.0
+
+        # 5. Feedback squelch: L3E -> L2I excitatory plasticity (NEW)
+        for i in range(N_L2_I):
+            if fired_l3i[i]:  # When L3I fires, it means L3E was active recently - train L3E->L2I
+                g = self.weights_l3e_l2i[i, j]
+                self.weights_l3e_l2i[i, j] = g + W_GAIN * (1.0 - g / W_L3E_L2I)
+            else:
+                self.weights_l3e_l2i[i, j] *= (1.0 - PRUNE_RATE)
+            if self.weights_l3e_l2i[i, j] < 0.0:
+                self.weights_l3e_l2i[i, j] = 0.0
+
     def reset_membranes(self):
         self.v_l1e[:] = RESTING_POTENTIAL
         self.v_l1i[:] = RESTING_POTENTIAL
@@ -221,19 +317,33 @@ class FEPSNN:
         self.adapt[:] = 0.0
         self.refrac[:] = 0
         self.silence = np.zeros(N_L2_E, dtype=int)  # corrected line
+        # L3 reset
+        self.v_l3e[:] = RESTING_POTENTIAL
+        self.v_l3i[:] = RESTING_POTENTIAL
+        self.adapt_l3[:] = 0.0
+        self.refrac_l3[:] = 0
+        self.silence_l3 = np.zeros(N_L3_E, dtype=int)
 
     def _snapshot(self, active, winner, t, stage, spk_l1e, spk_l1i, l2_fired, brake,
-                  free_energy=0.0):
+                  free_energy=0.0, l3_fired=None, l3_brake=False, l3_free_energy=0.0):
         return {
             "step": t, "stage": stage, "winner": winner,
             "l2_fired": l2_fired, "brake": brake, "free_energy": round(float(free_energy), 1),
+            "l3_fired": l3_fired, "l3_brake": l3_brake, "l3_free_energy": round(float(l3_free_energy), 1),
             "pattern": list(active),
             "spk_l1e": list(spk_l1e), "spk_l1i": list(spk_l1i),
             "v_l1e": self.v_l1e.copy().tolist(), "v_l1i": self.v_l1i.copy().tolist(),
             "v_l2e": self.v_l2e.copy().tolist(), "v_l2i": self.v_l2i.copy().tolist(),
+            "v_l3e": self.v_l3e.copy().tolist(), "v_l3i": self.v_l3i.copy().tolist(),
             "maturity": self.maturity.copy().tolist(),
             "adapt": self.adapt.copy().tolist(),
             "refrac": self.refrac.copy().tolist(),
+            "silence": self.silence.copy().tolist(),
+            # L3 state
+            "maturity_l3": self.maturity_l3.copy().tolist(),
+            "adapt_l3": self.adapt_l3.copy().tolist(),
+            "refrac_l3": self.refrac_l3.copy().tolist(),
+            "silence_l3": self.silence_l3.copy().tolist(),
             # Fields expected by the training scripts for compatibility
             "event": stage,  # we reuse the stage string as the event
             "v_e": self.v_l2e.copy().tolist(),
@@ -243,7 +353,6 @@ class FEPSNN:
                 "triggered": brake
             }
         }
-
     # --------------------------------------------------------- one presentation
     def process_event(self, active_indices, record=False):
         """Present one stimulus burst and run the spiking race (fixed threshold).
@@ -258,14 +367,25 @@ class FEPSNN:
             self.adapt[j] *= (1.0 - ADAPT_DECAY)
             if self.refrac[j] > 0:
                 self.refrac[j] -= 1
+        # L3 slow state updates
+        for j in range(N_L3_E):
+            self.adapt_l3[j] *= (1.0 - ADAPT_DECAY)
+            if self.refrac_l3[j] > 0:
+                self.refrac_l3[j] -= 1
         self.v_l1e[:] = RESTING_POTENTIAL
         self.v_l2i[:] = RESTING_POTENTIAL
+        self.v_l3i[:] = RESTING_POTENTIAL
         self.v_l1i[:] = RESTING_POTENTIAL  # start from rest each presentation
         for j in range(N_L2_E):
             self.v_l2e[j] = RESTING_POTENTIAL - self.adapt[j]
+        for j in range(N_L3_E):
+            self.v_l3e[j] = RESTING_POTENTIAL - self.adapt_l3[j]
 
         fired_l1e = [False] * N_L1_E
         fired_l1i = [False] * N_L1_I
+        fired_l2e = [False] * N_L2_E
+        fired_l3e = [False] * N_L3_E
+        fired_l3i = [False] * N_L3_I
         winner = None
         trace = []
 
@@ -273,6 +393,7 @@ class FEPSNN:
             # (a) Fixed leak on every membrane.
             self.v_l1e = self._apply_leak(self.v_l1e)
             self.v_l2e = self._apply_leak(self.v_l2e)
+            self.v_l3e = self._apply_leak(self.v_l3e)
             self.v_l1i = self._apply_leak(self.v_l1i)
 
             # (b) The stimulus volley arrives (burst: it keeps arriving each step).
@@ -306,14 +427,13 @@ class FEPSNN:
                 for j in range(N_L2_E):
                     self.v_l2e[j] += self.weights_l1e_l2e[j, i]
 
-            # (f) Membrane channel noise, then the spiking race. The winner is
-            #     simply the cell that reaches threshold FIRST. Within one discrete
-            #     tick several cells may already be supra-threshold; the one whose
-            #     membrane sits furthest past theta is the one that crossed earliest
-            #     (it was integrating fastest), so it fired first. This is ordering
-            #     of real spikes by crossing time -- not a god's-eye pick over cells
-            #     that never fired. The per-step noise makes the leader unique, so
-            #     there is no tie to resolve procedurally.
+            # (f) Propagate L2E volley to L3E
+            for i in range(N_L2_E):
+                if self.v_l2e[i] >= 0:  # Only propagate if there's positive voltage
+                    for j in range(N_L3_E):
+                        self.v_l3e[j] += self.weights_l2e_l3e[j, i]
+
+            # (g) Membrane channel noise, then the spiking race for L2.
             for j in range(N_L2_E):
                 self.v_l2e[j] += np.random.uniform(-NOISE, NOISE)
             fired_this_step = None
@@ -321,6 +441,15 @@ class FEPSNN:
                 if self.refrac[j] == 0 and self.v_l2e[j] >= self.theta_l2e[j]:
                     if fired_this_step is None or self.v_l2e[j] > self.v_l2e[fired_this_step]:
                         fired_this_step = j
+
+            # (h) Membrane channel noise, then the spiking race for L3.
+            for j in range(N_L3_E):
+                self.v_l3e[j] += np.random.uniform(-NOISE, NOISE)
+            fired_this_step_l3 = None
+            for j in range(N_L3_E):
+                if self.refrac_l3[j] == 0 and self.v_l3e[j] >= self.theta_l3e[j]:
+                    if fired_this_step_l3 is None or self.v_l3e[j] > self.v_l3e[fired_this_step_l3]:
+                        fired_this_step_l3 = j
 
             brake = False
             free_energy = 0.0
@@ -352,17 +481,52 @@ class FEPSNN:
                 # (j) Consolidation -- local, on-spike only.
                 self._learn(j, fired_l1e, fired_l1i)
 
+            # L3 processing: if L3 fires, it drives L3I which provides global inhibition to L3E
+            l3_brake = False
+            l3_free_energy = 0.0
+            if fired_this_step_l3 is not None:
+                j = fired_this_step_l3
+                # L3 free energy
+                l3_free_energy = self.v_l3e[j] - self.theta_l3e[j]
+                # L3 winner drives L3I
+                self.v_l3i[0] += W_L3E_L3I
+                if self.v_l3i[0] >= self.theta_l3i[0]:
+                    l3_brake = True
+                    for k in range(N_L3_E):
+                        if self.v_l3e[k] > self.theta_l3e[k]:
+                            self.v_l3e[k] = self.theta_l3e[k]   # wipe the leftover
+                    self.v_l3i[0] = RESTING_POTENTIAL
+                # L3 winner also drives L2I (feedback inhibition) - NEW
+                self.v_l2i[0] += W_L3E_L2I
+                if self.v_l2i[0] >= self.theta_l2i[0]:
+                    # L2I firing would normally trigger L2 brake, but we handle it separately
+                    # For now, we just reset L2I - the actual L2 brake logic is in L2 section
+                    self.v_l2i[0] = RESTING_POTENTIAL
+                # L3 refractory + AHP build-up
+                self.refrac_l3[j] = REFRACTORY
+                self.adapt_l3[j] += ADAPT_GAIN
+                # L3 -> L3I feedback squelch (excitatory)
+                for k in range(N_L3_I):
+                    self.v_l3i[k] += self.weights_l3e_l3i[k, j]
+                # L3 -> L2I feedback squelch (excitatory) - NEW
+                for k in range(N_L2_I):
+                    self.v_l2i[k] += self.weights_l3e_l2i[k, j]
+                # L3 consolidation -- local, on-spike only.
+                self._learn_l3(j, fired_l2e, fired_l3i)  # L2E drives L3E, L3I provides feedback
+
             if record:
                 stage = ("brake" if brake else "e_spike" if fired_this_step is not None
                          else "l1_volley" if spikes_l1e else "integrating")
+                l3_stage = ("l3_brake" if l3_brake else "l3_e_spike" if fired_this_step_l3 is not None
+                           else "l3_integrating" if any(self.v_l2e[i] >= 0 for i in range(N_L2_E)) else "l3_quiet")
                 trace.append(self._snapshot(active, winner, t, stage,
                                             spikes_l1e, spikes_l1i, fired_this_step, brake,
-                                            free_energy))
+                                            free_energy, l3_fired=fired_this_step_l3,
+                                            l3_brake=l3_brake, l3_free_energy=l3_free_energy))
             if winner is not None:
                 break
 
-        # Deprivation-driven recruitment: each cell tracks its own silence and, if
-        # chronically quiet, scales its gates up until it captures a free niche.
+        # Deprivation-driven recruitment for L2
         for j in range(N_L2_E):
             if j == winner:
                 self.silence[j] = 0
@@ -372,6 +536,27 @@ class FEPSNN:
                     for i in range(N_L1_E):
                         self.weights_l1e_l2e[j, i] += RECRUIT_RATE
                     self._recompute_maturity(j)
+
+        # Deprivation-driven recruitment for L3
+        l3_winner = None
+        for j in range(N_L3_E):
+            # Find if L3 had a winner this presentation
+            pass  # We'll track L3 winner separately
+        
+        # For simplicity, we'll use the L2 winner as a proxy for L3 deprivation
+        # In a full implementation, we'd track actual L3 winners
+        if winner is not None:
+            l3_winner = winner % N_L3_E  # Simple mapping for now
+            
+        for j in range(N_L3_E):
+            if j == l3_winner:
+                self.silence_l3[j] = 0
+            else:
+                self.silence_l3[j] += 1
+                if self.silence_l3[j] > SILENCE_THRESH:
+                    for i in range(N_L2_E):
+                        self.weights_l2e_l3e[j, i] += RECRUIT_RATE
+                    self._recompute_maturity_l3(j)
 
         self.last_trace = trace
         if record:

@@ -13,7 +13,9 @@ def generate_simulation_data():
         [0,1,0,0,1,0,0,1,0],  # middle column
         [0,0,1,0,0,1,0,0,1],  # right column
         [1,0,0,0,1,0,0,0,1],  # diagonal \
-        [0,0,1,0,1,0,1,0,0]   # diagonal /
+        [0,0,1,0,1,0,1,0,0],  # diagonal /
+        [0,1,0,1,1,1,0,1,0],  # plus sign (vertical + horizontal middle)
+        [1,0,1,0,1,0,1,0,1]   # X shape (both diagonals)
     ]
     epochs = 20  # enough to see learning
     print(f'Generating simulation data for {epochs} epochs...')
