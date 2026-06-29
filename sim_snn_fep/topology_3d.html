@@ -258,8 +258,13 @@
 
                     function updateLines(lines, weight, active) {
                     lines.forEach((line, i) => {
-                        const baseOpacity = 0.1 + 0.4 * weight;
-                        line.material.opacity = active[i] ? baseOpacity * 2 : baseOpacity;
+                        // Map weight [0,1] to opacity range [0.1, 0.5] (base opacity)
+                        let opacity = 0.1 + 0.4 * weight;
+                        // If this connection is active, boost opacity for signal propagation (to be more visible in Task 5)
+                        if (active && active[i]) {
+                            opacity *= 1.5; // 50% boost
+                        }
+                        line.material.opacity = opacity;
                     });
                 }
 
@@ -501,7 +506,7 @@
                     const flashProgress = 1 - (window.simulationState.inputPatternDuration / 500);
                     const pulse = 0.5 * Math.sin(flashProgress * Math.PI * 4) + 0.5; // 0 to 1
                     mesh.scale.set(1 + 0.5 * pulse, 1 + 0.5 * pulse, 1 + 0.5 * pulse);
-                    break; // Skip normal activation processing
+                    return; // Skip normal activation processing and scale reset
                   }
                   break;
                 case 'L1I': activation = window.simulationState.L1I[i]; break;
