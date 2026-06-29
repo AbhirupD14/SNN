@@ -109,6 +109,9 @@ class FEPSNN:
         # --- Synaptic gates (the only learned structure) ---
         self.weights_l1e_l2e = np.random.uniform(0.0, GATE_INIT_MAX, (N_L2_E, N_L1_E))
         self.weights_l2e_l1i = np.random.uniform(0.0, 1.0, (N_L1_I, N_L2_E))
+        # New plastic inhibitory weights in L1 layer
+        self.weights_l1e_l1i = np.random.uniform(0.0, 1.0, (N_L1_E, N_L1_I))   # excitation L1E -> L1I
+        self.weights_l1i_l1e = np.random.uniform(0.0, 1.0, (N_L1_I, N_L1_E))   # inhibition L1I -> L1E
 
         # --- Per-neuron maturity (observable; NOT fed into the leak) ---
         self.maturity = np.zeros(N_L2_E)
@@ -126,10 +129,14 @@ class FEPSNN:
             total += self.weights_l1e_l2e[j, i]
         self.maturity[j] = min(total / MATURITY_THRESHOLD, 1.0)
 
-    def _learn(self, j, fired_l1e):
+    def _apply_leak(self, v, leak_fraction=LEAK_FRACTION, resting=RESTING_POTENTIAL):
+        """Apply leak to a membrane potential array."""
+        return v - leak_fraction * (v - resting)
+
+    def _learn(self, j, fired_l1e, fired_l1i):
         """Plasticity entirely local to the cell that just fired (Hebbian: a gate
         widens only when its pre-cell was part of the volley that fired its post)."""
-        # 1. Demand-driven widening / heterosynaptic withering, per synapse.
+        # 1. L1E -> L2E excitatory plasticity
         for i in range(N_L1_E):
             if fired_l1e[i]:
                 g = self.weights_l1e_l2e[j, i]
@@ -157,6 +164,28 @@ class FEPSNN:
                 g = self.weights_l2e_l1i[i, j]
                 self.weights_l2e_l1i[i, j] = g + W_GAIN * (1.0 - g / W_L2E_L1I)
 
+        # 5. L1E -> L1I excitatory plasticity (feedforward drive)
+        for pre in range(N_L1_E):   # pre = L1E index
+            for post in range(N_L1_I):  # post = L1I index
+                if fired_l1e[pre] and fired_l1i[post]:
+                    g = self.weights_l1e_l1i[pre, post]
+                    self.weights_l1e_l1i[pre, post] = g + W_GAIN * (1.0 - g / 1.0)  # assume max 1.0
+                else:
+                    self.weights_l1e_l1i[pre, post] *= (1.0 - PRUNE_RATE)
+                if self.weights_l1e_l1i[pre, post] < 0.0:
+                    self.weights_l1e_l1i[pre, post] = 0.0
+
+        # 6. L1I -> L1E inhibitory plasticity (lateral inhibition)
+        for pre in range(N_L1_I):   # pre = L1I index
+            for post in range(N_L1_E):  # post = L1E index
+                if fired_l1i[pre] and fired_l1e[post]:
+                    g = self.weights_l1i_l1e[pre, post]
+                    self.weights_l1i_l1e[pre, post] = g + W_GAIN * (1.0 - g / 1.0)  # assume max 1.0
+                else:
+                    self.weights_l1i_l1e[pre, post] *= (1.0 - PRUNE_RATE)
+                if self.weights_l1i_l1e[pre, post] < 0.0:
+                    self.weights_l1i_l1e[pre, post] = 0.0
+
     def reset_membranes(self):
         self.v_l1e[:] = RESTING_POTENTIAL
         self.v_l1i[:] = RESTING_POTENTIAL
@@ -178,13 +207,21 @@ class FEPSNN:
             "maturity": self.maturity.copy().tolist(),
             "adapt": self.adapt.copy().tolist(),
             "refrac": self.refrac.copy().tolist(),
+            # Fields expected by the training scripts for compatibility
+            "event": stage,  # we reuse the stage string as the event
+            "v_e": self.v_l2e.copy().tolist(),
+            "theta_e": self.theta_l2e.copy().tolist(),
+            "iff_metrics": {
+                "spikes": len(spk_l1i),
+                "triggered": brake
+            }
         }
 
     # --------------------------------------------------------- one presentation
-    def process_event(self, active_indices, record=False, plastic=True):
+    def process_event(self, active_indices, record=False):
         """Present one stimulus burst and run the spiking race (fixed threshold).
         Returns the cell that consolidated the symbol this time, or None.
-        plastic=False freezes all learning so the network can be observed."""
+        Learning is always enabled (plastic=True)."""
         active = list(active_indices)
 
         # Fresh trial for the fast membranes. The cell starts hyperpolarised by its
@@ -196,20 +233,20 @@ class FEPSNN:
                 self.refrac[j] -= 1
         self.v_l1e[:] = RESTING_POTENTIAL
         self.v_l2i[:] = RESTING_POTENTIAL
-        self.v_l1i *= 0.5
+        self.v_l1i[:] = RESTING_POTENTIAL  # start from rest each presentation
         for j in range(N_L2_E):
             self.v_l2e[j] = RESTING_POTENTIAL - self.adapt[j]
 
         fired_l1e = [False] * N_L1_E
+        fired_l1i = [False] * N_L1_I
         winner = None
         trace = []
 
         for t in range(T_STEPS):
             # (a) Fixed leak on every membrane.
-            for i in range(N_L1_E):
-                self.v_l1e[i] -= LEAK_FRACTION * (self.v_l1e[i] - RESTING_POTENTIAL)
-            for j in range(N_L2_E):
-                self.v_l2e[j] -= LEAK_FRACTION * (self.v_l2e[j] - RESTING_POTENTIAL)
+            self.v_l1e = self._apply_leak(self.v_l1e)
+            self.v_l2e = self._apply_leak(self.v_l2e)
+            self.v_l1i = self._apply_leak(self.v_l1i)
 
             # (b) The stimulus volley arrives (burst: it keeps arriving each step).
             for i in active:
@@ -222,15 +259,20 @@ class FEPSNN:
                     spikes_l1e.append(i)
                     fired_l1e[i] = True
                     self.v_l1e[i] = RESTING_POTENTIAL
-                    self.v_l1i[i] += abs(W_L1E_L1I)
+                    # drive L1I via excitatory weights
+                    for k in range(N_L1_I):
+                        self.v_l1i[k] += self.weights_l1e_l1i[i, k]
 
             # (d) L1_I spikes -> local lateral inhibition of paired L1_E.
             spikes_l1i = []
             for k in range(N_L1_I):
                 if self.v_l1i[k] >= self.theta_l1i[k]:
                     spikes_l1i.append(k)
-                    self.v_l1e[k] += W_L1I_L1E
+                    fired_l1i[k] = True
                     self.v_l1i[k] = RESTING_POTENTIAL
+                    # inhibit L1E via inhibitory weights
+                    for i in range(N_L1_E):
+                        self.v_l1e[i] -= self.weights_l1i_l1e[k, i]   # subtractive inhibition
 
             # (e) Propagate the L1_E volley to L2_E, one synapse at a time.
             for i in spikes_l1e:
@@ -281,8 +323,7 @@ class FEPSNN:
                 for k in range(N_L1_I):
                     self.v_l1i[k] += self.weights_l2e_l1i[k, j]
                 # (j) Consolidation -- local, on-spike only.
-                if plastic:
-                    self._learn(j, fired_l1e)
+                self._learn(j, fired_l1e, fired_l1i)
 
             if record:
                 stage = ("brake" if brake else "e_spike" if fired_this_step is not None
@@ -295,16 +336,15 @@ class FEPSNN:
 
         # Deprivation-driven recruitment: each cell tracks its own silence and, if
         # chronically quiet, scales its gates up until it captures a free niche.
-        if plastic:
-            for j in range(N_L2_E):
-                if j == winner:
-                    self.silence[j] = 0
-                else:
-                    self.silence[j] += 1
-                    if self.silence[j] > SILENCE_THRESH:
-                        for i in range(N_L1_E):
-                            self.weights_l1e_l2e[j, i] += RECRUIT_RATE
-                        self._recompute_maturity(j)
+        for j in range(N_L2_E):
+            if j == winner:
+                self.silence[j] = 0
+            else:
+                self.silence[j] += 1
+                if self.silence[j] > SILENCE_THRESH:
+                    for i in range(N_L1_E):
+                        self.weights_l1e_l2e[j, i] += RECRUIT_RATE
+                    self._recompute_maturity(j)
 
         self.last_trace = trace
         return winner
@@ -320,9 +360,17 @@ class FEPSNN:
         self.v_l1i[:] = RESTING_POTENTIAL
         save_ref = self.refrac.copy()
         self.refrac[:] = 0
-        self.process_event(active_indices, record=True, plastic=False)
+        self.process_event(active_indices, record=True)  # learning always on
         self.refrac[:] = save_ref
         for s in self.last_trace:
             if s["l2_fired"] is not None:
                 return s["step"] + 1, s["l2_fired"]
         return None, None
+
+    # Convenience method used by training scripts
+    # Convenience method used by training scripts
+    def process_event_pattern(self, pattern):
+        """Given a binary list/array pattern, return the trace of a single presentation."""
+        active = [i for i, val in enumerate(pattern) if val != 0]
+        self.process_event(active, record=True)
+        return self.last_trace
