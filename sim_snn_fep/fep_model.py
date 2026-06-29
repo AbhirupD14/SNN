@@ -44,6 +44,7 @@ The behavioural picture (LIF -> pure integrator), exactly as intended:
       stays below threshold -- only specialists fire fast;
     * a chronically silent cell up-scales its own gates (deprivation-driven
       scaling) until it captures a free niche.
+
 """
 
 import numpy as np
@@ -119,6 +120,7 @@ class FEPSNN:
             self._recompute_maturity(j)
 
         self.last_trace = []
+        self._frames = []   # for recording all frames when record=True
 
     # ---------------------------------------------------------------- helpers
     def _recompute_maturity(self, j):
@@ -128,6 +130,31 @@ class FEPSNN:
         for i in range(N_L1_E):
             total += self.weights_l1e_l2e[j, i]
         self.maturity[j] = min(total / MATURITY_THRESHOLD, 1.0)
+
+    def _make_frame(self, active, winner, t, stage, spk_l1e, spk_l1i, l2_fired, brake, free_energy):
+        import numpy as np
+        frame = {
+            "t": int(t),
+            "stage": stage,
+            "winner": int(winner) if winner is not None else None,
+            "pattern": [1 if i in active else 0 for i in range(N_L1_E)],
+            "v_l1e": self.v_l1e.tolist(),
+            "v_l1i": self.v_l1i.tolist(),
+            "v_l2e": self.v_l2e.tolist(),
+            "v_l2i": self.v_l2i.tolist(),
+            "spk_l1e": [bool(b) for b in spk_l1e],
+            "spk_l1i": [bool(b) for b in spk_l1i],
+            "spk_l2e": [bool(l2_fired == j) for j in range(N_L2_E)],
+            "spk_l2i": [bool(l2_fired == 0)],
+            "adapt": self.adapt.tolist(),
+            "refrac": self.refrac.tolist(),
+            "silence": self.silence.tolist(),
+            "weights_l1e_l2e": self.weights_l1e_l2e.tolist(),
+            "weights_l1e_l1i": self.weights_l1e_l1i.tolist(),
+            "weights_l1i_l1e": self.weights_l1i_l1e.tolist(),
+            "free_energy": float(free_energy)
+        }
+        return frame
 
     def _apply_leak(self, v, leak_fraction=LEAK_FRACTION, resting=RESTING_POTENTIAL):
         """Apply leak to a membrane potential array."""
@@ -193,7 +220,7 @@ class FEPSNN:
         self.v_l2i[:] = RESTING_POTENTIAL
         self.adapt[:] = 0.0
         self.refrac[:] = 0
-        self.silence[:] = 0
+        self.silence = np.zeros(N_L2_E, dtype=int)  # corrected line
 
     def _snapshot(self, active, winner, t, stage, spk_l1e, spk_l1i, l2_fired, brake,
                   free_energy=0.0):
@@ -272,7 +299,7 @@ class FEPSNN:
                     self.v_l1i[k] = RESTING_POTENTIAL
                     # inhibit L1E via inhibitory weights
                     for i in range(N_L1_E):
-                        self.v_l1e[i] -= self.weights_l1i_l1e[k, i]   # subtractive inhibition
+                        self.v_l1e[i] -= self.weights_l1i_l1e[k, i]
 
             # (e) Propagate the L1_E volley to L2_E, one synapse at a time.
             for i in spikes_l1e:
@@ -347,6 +374,8 @@ class FEPSNN:
                     self._recompute_maturity(j)
 
         self.last_trace = trace
+        if record:
+            self._frames.extend(trace)
         return winner
 
     # --------------------------------------------------------------- probing
@@ -367,7 +396,6 @@ class FEPSNN:
                 return s["step"] + 1, s["l2_fired"]
         return None, None
 
-    # Convenience method used by training scripts
     # Convenience method used by training scripts
     def process_event_pattern(self, pattern):
         """Given a binary list/array pattern, return the trace of a single presentation."""

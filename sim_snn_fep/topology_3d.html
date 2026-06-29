@@ -230,7 +230,7 @@
     <div id="ui">
         <div class="panel">
             <h1>SNN&middot;FEP Topology</h1>
-            <div class="sub">3D connectivity map — four neuron populations arranged by layer depth. Hover over any node for details.</div>
+            <div class="sub">3D connectivity map   four neuron populations arranged by layer depth. Hover over any node for details.</div>
             <div class="legend">
                 <div class="legend-item"><div class="swatch-circle" style="background:var(--cyan)"></div>  L1 Excitatory (Input)</div>
                 <div class="legend-item"><div class="swatch-box"    style="background:var(--red)"></div>   L1 Inhibitory (Local)</div>
@@ -243,22 +243,22 @@
             <label class="toggle-row">
                 <input type="checkbox" id="tog-ff" checked>
                 <span class="conn-swatch" style="background:var(--cyan)"></span>
-                L1E → L2E &nbsp;Feedforward
+                L1E   L2E &nbsp;Feedforward
             </label>
             <label class="toggle-row">
                 <input type="checkbox" id="tog-ei" checked>
                 <span class="conn-swatch" style="background:var(--red)"></span>
-                L1E ↔ L1I &nbsp;Paired Local
+                L1E   L1I &nbsp;Paired Local
             </label>
             <label class="toggle-row">
                 <input type="checkbox" id="tog-sq" checked>
                 <span class="conn-swatch" style="background:var(--amber)"></span>
-                L2E → L1I &nbsp;Feedback Squelch
+                L2E   L1I &nbsp;Feedback Squelch
             </label>
             <label class="toggle-row">
                 <input type="checkbox" id="tog-gd" checked>
                 <span class="conn-swatch" style="background:var(--magenta)"></span>
-                L2E ↔ L2I &nbsp;Global Brake Loop
+                L2E   L2I &nbsp;Global Brake Loop
             </label>
         </div>
     </div>
@@ -277,7 +277,7 @@
           import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
           console.log("THREE:", THREE, "OrbitControls:", OrbitControls);
   
-                  // ── Simulation State ────────────────────────────────────────────────────────────────
+                  //    Simulation State                                                                 
                   window.simulationState = {
                       L1E: new Array(9).fill(0),
                       L1I: new Array(9).fill(0),
@@ -326,7 +326,7 @@
                           });
                       }
   
-                  // ── Scene ────────────────────────────────────────────────────────────────
+                  //    Scene                                                                 
                   const scene = new THREE.Scene();
           scene.background = new THREE.Color(0x070709);
           scene.fog = new THREE.FogExp2(0x070709, 0.018);
@@ -345,7 +345,7 @@
           controls.target.set(0, 0, 7);
           camera.lookAt(0, 0, 7);
   
-          // ── Lights ───────────────────────────────────────────────────────────────
+          //    Lights                                                                
           scene.add(new THREE.AmbientLight(0xffffff, 0.55));
           const pl1 = new THREE.PointLight(0x00e0ff, 2.0, 60);
           pl1.position.set(-6, 10, 2);
@@ -354,15 +354,15 @@
           pl2.position.set(6, -6, 16);
           scene.add(pl2);
   
-          // ── Layout constants ─────────────────────────────────────────────────────
-          // Each layer lives at its own Z depth — this is the core 3D topology insight.
+          //    Layout constants                                                      
+          // Each layer lives at its own Z depth   this is the core 3D topology insight.
           const Z = { L1E: 0, L1I: 6, L2E: 13, L2I: 19 };
           const C = {
               L1E: 0x00e0ff, L1I: 0xff5468, L2E: 0x00ffaa, L2I: 0xc77dff,
               FF: 0x00e0ff, EI: 0xff5468, SQ: 0xffb800, GD: 0xc77dff,
           };
   
-          // ── Layer planes (visual depth cues) ─────────────────────────────────────
+          //    Layer planes (visual depth cues)                                      
           function addLayerPlane(z, color) {
               const geom = new THREE.PlaneGeometry(18, 18);
               const mat = new THREE.MeshBasicMaterial({
@@ -384,7 +384,7 @@
           addLayerPlane(Z.L2E, C.L2E);
           addLayerPlane(Z.L2I, C.L2I);
   
-          // ── Layer labels (canvas sprites, always face camera) ────────────────────
+          //    Layer labels (canvas sprites, always face camera)                     
           function makeLabel(text, color) {
               const canvas = document.createElement('canvas');
               canvas.width = 320; canvas.height = 64;
@@ -401,17 +401,17 @@
               return sprite;
           }
           [
-              { text: 'L1 · Excitatory',  z: Z.L1E, c: '#00e0ff' },
-              { text: 'L1 · Inhibitory',  z: Z.L1I, c: '#ff5468' },
-              { text: 'L2 · Concept',     z: Z.L2E, c: '#00ffaa' },
-              { text: 'L2 · Global Brake',z: Z.L2I, c: '#c77dff' },
+              { text: 'L1   Excitatory',  z: Z.L1E, c: '#00e0ff' },
+              { text: 'L1   Inhibitory',  z: Z.L1I, c: '#ff5468' },
+              { text: 'L2   Concept',     z: Z.L2E, c: '#00ffaa' },
+              { text: 'L2   Global Brake',z: Z.L2I, c: '#c77dff' },
           ].forEach(({ text, z, c }) => {
               const s = makeLabel(text, c);
               s.position.set(-10, 8.5, z);
               scene.add(s);
           });
   
-          // ── Node factory ─────────────────────────────────────────────────────────
+          //    Node factory                                                          
           const allNodes = [];   // { mesh, name, desc, type }
           const sphereG = new THREE.SphereGeometry(0.38, 20, 20);
           const boxG    = new THREE.BoxGeometry(0.56, 0.56, 0.56);
@@ -427,39 +427,39 @@
               return mesh;
           }
   
-          // L1E — 3×3 grid, z = 0
+          // L1E   3 3 grid, z = 0
           const nodesL1E = [];
           for (let i = 0; i < 9; i++) {
               const x = (i % 3 - 1) * 3.8;
               const y = (Math.floor(i / 3) - 1) * 3.8;
               nodesL1E.push(makeNode(sphereG, C.L1E, x, y, Z.L1E,
-                  `L1E[${i}]`, `Input excitatory · grid pos (${i%3}, ${Math.floor(i/3)})`, 'L1E'));
+                  `L1E[${i}]`, `Input excitatory   grid pos (${i%3}, ${Math.floor(i/3)})`, 'L1E'));
           }
   
-          // L1I — same xy layout as L1E, z = 6 (paired local inhibitors)
+          // L1I   same xy layout as L1E, z = 6 (paired local inhibitors)
           const nodesL1I = [];
           for (let i = 0; i < 9; i++) {
               const x = (i % 3 - 1) * 3.8;
               const y = (Math.floor(i / 3) - 1) * 3.8;
               nodesL1I.push(makeNode(boxG, C.L1I, x, y, Z.L1I,
-                  `L1I[${i}]`, `Local inhibitory · paired with L1E[${i}]`, 'L1I'));
+                  `L1I[${i}]`, `Local inhibitory   paired with L1E[${i}]`, 'L1I'));
           }
   
-          // L2E — two columns of 4, z = 13
+          // L2E   two columns of 4, z = 13
           const nodesL2E = [];
           for (let j = 0; j < 8; j++) {
               const col = (j < 4 ? -2.5 : 2.5);
               const row = (j % 4 - 1.5) * 2.8;
               nodesL2E.push(makeNode(sphereG, C.L2E, col, row, Z.L2E,
-                  `L2E[${j}]`, `Concept neuron · competes to claim a pattern`, 'L2E'));
+                  `L2E[${j}]`, `Concept neuron   competes to claim a pattern`, 'L2E'));
           }
   
-          // L2I — single global brake node, z = 19
+          // L2I   single global brake node, z = 19
           const nodesL2I = [];
           nodesL2I.push(makeNode(boxG, C.L2I, 0, 0, Z.L2I,
-              'L2I[0]', 'Global inhibitor · quenches co-firing rivals', 'L2I'));
+              'L2I[0]', 'Global inhibitor   quenches co-firing rivals', 'L2I'));
   
-          // ── Connection factory ───────────────────────────────────────────────────
+          //    Connection factory                                                    
           const connGroups = { ff: [], ei: [], sq: [], gd: [] };
   
           function addLine(p1, p2, color, opacity, group) {
@@ -471,31 +471,31 @@
               connGroups[group].push(line);
           }
   
-          // L1E ↔ L1I — paired local connections
+          // L1E   L1I   paired local connections
           nodesL1E.forEach((n, i) => {
               addLine(n.position, nodesL1I[i].position, C.EI, 0.55, 'ei');
           });
   
-          // L1E → L2E — feedforward (all-to-all, 72 lines, keep very dim)
+          // L1E   L2E   feedforward (all-to-all, 72 lines, keep very dim)
           nodesL1E.forEach(n1e => {
               nodesL2E.forEach(n2e => {
                   addLine(n1e.position, n2e.position, C.FF, 0.07, 'ff');
               });
           });
   
-          // L2E → L1I — feedback squelch (all-to-all, 72 lines, very dim)
+          // L2E   L1I   feedback squelch (all-to-all, 72 lines, very dim)
           nodesL2E.forEach(n2e => {
               nodesL1I.forEach(n1i => {
                   addLine(n2e.position, n1i.position, C.SQ, 0.04, 'sq');
               });
           });
   
-          // L2E ↔ L2I — global brake loop
+          // L2E   L2I   global brake loop
           nodesL2E.forEach(n2e => {
               addLine(n2e.position, nodesL2I[0].position, C.GD, 0.45, 'gd');
           });
   
-          // ── Toggle controls ──────────────────────────────────────────────────────
+          //    Toggle controls                                                       
           function wireToggle(id, key) {
               document.getElementById(id).addEventListener('change', e => {
                   connGroups[key].forEach(l => { l.visible = e.target.checked; });
@@ -506,7 +506,7 @@
           wireToggle('tog-sq', 'sq');
           wireToggle('tog-gd', 'gd');
   
-          // ── Raycasting hover tooltip ─────────────────────────────────────────────
+          //    Raycasting hover tooltip                                              
           const raycaster = new THREE.Raycaster();
           const mouse = new THREE.Vector2();
           const tooltip = document.getElementById('tooltip');
@@ -537,14 +537,14 @@
               }
           });
   
-          // ── Resize ───────────────────────────────────────────────────────────────
+          //    Resize                                                                
           window.addEventListener('resize', () => {
               camera.aspect = window.innerWidth / window.innerHeight;
               camera.updateProjectionMatrix();
               renderer.setSize(window.innerWidth, window.innerHeight);
           });
   
-          // ── Animation loop ────────────────────────────────────────────────────────
+          //    Animation loop                                                         
           const clock = new THREE.Clock();
           function animate() {
             console.log("animate called");
@@ -579,7 +579,7 @@
                 mesh.scale.set(1, 1, 1);
               });
   
-              // ── Simulation State Update ────────────────────────────────────────
+              //    Simulation State Update                                         
               // Update activation levels (example: oscillating)
               window.simulationState.L1E.forEach((_, i) => {
                   window.simulationState.L1E[i] = 0.5 + 0.5 * Math.sin(t * 0.5 + i);
