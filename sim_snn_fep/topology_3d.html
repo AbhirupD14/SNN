@@ -12,7 +12,6 @@
     }
     </script>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
-    <link rel="icon" href="data:," />
     <style>
         :root {
             --bg: #070709;
@@ -271,13 +270,15 @@
     </div>
 
     <script type="module">
+        // Imports MUST be the first lines evaluated inside a module script
+        import * as THREE from 'three';
+        import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+
         try {
             console.log("Script loaded");
-            import * as THREE from 'three';
-            import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
             console.log("THREE:", THREE, "OrbitControls:", OrbitControls);
 
-            //  Layout constants (Moved up to avoid ReferenceErrors in updateLines)                                      
+            //  Layout constants                                     
             const Z = { L1E: 0, L1I: 6, L2E: 13, L2I: 19 };
             const C = {
                 L1E: 0x00e0ff, L1I: 0xff5468, L2E: 0x00ffaa, L2I: 0xc77dff,
@@ -309,19 +310,15 @@
             function updateLines(lines, weight, active, connectionType) {
                 const time = performance.now() * 0.001; // seconds
                 lines.forEach((line, i) => {
-                    // Get base color for this connection type
                     const baseColorHex = C[connectionType.toUpperCase()];
-                    // Map weight [0,1] to opacity range [0.1, 0.5] (base opacity)
                     let opacity = 0.1 + 0.4 * weight;
                     let colorHex = baseColorHex;
-                    // If this connection is active, apply a pulsating boost for signal propagation
                     if (active && active[i]) {
-                        // Pulsating boost: varies with time and line index to create a traveling wave effect
                         const pulse = 0.5 + 0.5 * Math.sin(time * 10 + i * 0.5);
-                        let boost = 1.0 + pulse * 0.5; // default boost
+                        let boost = 1.0 + pulse * 0.5;
                         if (connectionType === 'ei') {
-                            colorHex = 0xff0000; // bright red for active inhibitory
-                            boost = 1.0 + pulse * 0.8; // enhanced boost for inhibitory
+                            colorHex = 0xff0000;
+                            boost = 1.0 + pulse * 0.8;
                         }
                         opacity *= boost;
                     }
@@ -472,14 +469,14 @@
                 addLine(n.position, nodesL1I[i].position, C.EI, 0.55, 'ei');
             });
 
-            // L1E   L2E   feedforward (all-to-all, 72 lines, keep very dim)
+            // L1E   L2E   feedforward
             nodesL1E.forEach(n1e => {
                 nodesL2E.forEach(n2e => {
                     addLine(n1e.position, n2e.position, C.FF, 0.07, 'ff');
                 });
             });
 
-            // L2E   L1I   feedback squelch (all-to-all, 72 lines, very dim)
+            // L2E   L1I   feedback squelch
             nodesL2E.forEach(n2e => {
                 nodesL1I.forEach(n1i => {
                     addLine(n2e.position, n1i.position, C.SQ, 0.04, 'sq');
@@ -553,7 +550,6 @@
                     switch (type) {
                         case 'L1E': 
                             activation = window.simulationState.L1E[i]; 
-                            // Input pattern flashing for L1E neurons
                             if (window.simulationState.inputPattern.includes(i)) {
                                 mesh.material.emissiveIntensity = 1.0;
                                 const flashProgress = 1 - (window.simulationState.inputPatternDuration / 500);
@@ -633,7 +629,7 @@
             }
             animate();
         } catch (e) {
-            console.error("Error in script:", e);
+            console.error("Error running application:", e);
         }
     </script>
 </body>
