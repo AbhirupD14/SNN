@@ -133,9 +133,100 @@
             pointer-events: none;
             line-height: 1.8;
         }
+        /* Legend styles */
+        #legend {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 30;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+            max-width: 280px;
+            font-family: 'Inter', sans-serif;
+            color: var(--txt);
+            font-size: 11px;
+            line-height: 1.5;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+        }
+        #legend .legend-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--txt);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #legend .legend-section {
+            margin-bottom: 14px;
+        }
+        #legend .legend-subtitle {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--dim);
+            margin-bottom: 8px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        #legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            color: var(--txt);
+            font-size: 11px;
+        }
+        #legend .legend-note {
+            font-size: 10px;
+            color: var(--dim);
+            margin-top: 6px;
+            padding-left: 20px;
+            font-style: italic;
+        }
+        #legend .swatch-circle { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        #legend .swatch-box    { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+        #legend .conn-swatch {
+            display: inline-block;
+            width: 22px;
+            height: 2px;
+            border-radius: 1px;
+            flex-shrink: 0;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
     </style>
 </head>
 <body>
+    <div id="legend">
+        <div class="legend-title">Visual Encoding Legend</div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Neuron Types</div>
+            <div class="legend-item"><div class="swatch-circle" style="background:var(--cyan)"></div> L1E: Excitatory (Layer 1)</div>
+            <div class="legend-item"><div class="swatch-box" style="background:var(--red)"></div> L1I: Inhibitory (Layer 1)</div>
+            <div class="legend-item"><div class="swatch-circle" style="background:var(--emerald)"></div> L2E: Excitatory (Layer 2)</div>
+            <div class="legend-item"><div class="swatch-box" style="background:var(--magenta)"></div> L2I: Inhibitory (Layer 2)</div>
+            <div class="legend-note">Note: Emissive intensity represents activation level (0 to 1).</div>
+        </div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Connection Types</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--cyan)"></span> FF: Feedforward</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--red)"></span> EI: Paired Local</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--amber)"></span> SQ: Feedback Squelch</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--magenta)"></span> GD: Global Brake Loop</div>
+            <div class="legend-note">Note: Opacity represents synaptic weight (0 to 1). Active connections pulsate (enhanced for inhibitory).</div>
+        </div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Special Features</div>
+            <div class="legend-item">Input pattern: L1E neurons flash brightly and pulse in scale.</div>
+            <div class="legend-item">Signal propagation: Active connections pulsate in opacity.</div>
+            <div class="legend-item">Inhibition visualization: Active EI connections appear bright red (<span style="color:#ff0000">#ff0000</span>) with enhanced pulsation.</div>
+        </div>
+    </div>
     <div id="ui">
         <div class="panel">
             <h1>SNN&middot;FEP Topology</h1>
