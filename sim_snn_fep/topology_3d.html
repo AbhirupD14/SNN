@@ -256,17 +256,26 @@
                 // Start the demo simulation loop
                 demoSimulation();
 
-                    function updateLines(lines, weight, active) {
+                    function updateLines(lines, weight, active, connectionType) {
                         const time = performance.now() * 0.001; // seconds
                         lines.forEach((line, i) => {
+                            // Get base color for this connection type
+                            const baseColorHex = C[connectionType.toUpperCase()];
                             // Map weight [0,1] to opacity range [0.1, 0.5] (base opacity)
                             let opacity = 0.1 + 0.4 * weight;
+                            let colorHex = baseColorHex;
                             // If this connection is active, apply a pulsating boost for signal propagation
                             if (active && active[i]) {
                                 // Pulsating boost: varies with time and line index to create a traveling wave effect
                                 const pulse = 0.5 + 0.5 * Math.sin(time * 10 + i * 0.5);
-                                opacity *= (1.0 + pulse * 0.5); // boost up to 1.5x
+                                let boost = 1.0 + pulse * 0.5; // default boost
+                                if (connectionType === 'ei') {
+                                    colorHex = 0xff0000; // bright red for active inhibitory
+                                    boost = 1.0 + pulse * 0.8; // enhanced boost for inhibitory
+                                }
+                                opacity *= boost;
                             }
+                            line.material.color.set(new THREE.Color(colorHex));
                             line.material.opacity = opacity;
                         });
                     }
@@ -581,10 +590,10 @@
             }
 
             // Update line opacities based on weights and active connections
-            updateLines(connGroups.ff, window.simulationState.weights.ff, window.simulationState.activeConnections.ff);
-            updateLines(connGroups.ei, window.simulationState.weights.ei, window.simulationState.activeConnections.ei);
-            updateLines(connGroups.sq, window.simulationState.weights.sq, window.simulationState.activeConnections.sq);
-            updateLines(connGroups.gd, window.simulationState.weights.gd, window.simulationState.activeConnections.gd);
+            updateLines(connGroups.ff, window.simulationState.weights.ff, window.simulationState.activeConnections.ff, 'ff');
+            updateLines(connGroups.ei, window.simulationState.weights.ei, window.simulationState.activeConnections.ei, 'ei');
+            updateLines(connGroups.sq, window.simulationState.weights.sq, window.simulationState.activeConnections.sq, 'sq');
+            updateLines(connGroups.gd, window.simulationState.weights.gd, window.simulationState.activeConnections.gd, 'gd');
 
             controls.update();
             renderer.render(scene, camera);
