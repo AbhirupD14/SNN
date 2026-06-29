@@ -1,0 +1,654 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SNN-FEP | 3D Topological Layout</title>
+    <!-- ES module import map: the only way to use OrbitControls with Three.js r125+ -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.160.0/examples/jsm/"
+      }
+    }
+    </script>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg: #070709;
+            --panel: rgba(20, 21, 26, 0.88);
+            --border: #272b34;
+            --txt: #e6edf3;
+            --dim: #8b949e;
+            --cyan: #00e0ff;
+            --emerald: #00ffaa;
+            --red: #ff5468;
+            --magenta: #c77dff;
+            --amber: #ffb800;
+        }
+        * { box-sizing: border-box; }
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--txt);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+        }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            pointer-events: none;
+            user-select: none;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 14px;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+            max-width: 270px;
+        }
+        h1 {
+            margin: 0 0 6px 0;
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .sub {
+            color: var(--dim);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            line-height: 1.6;
+        }
+        .legend {
+            margin-top: 12px;
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 5px;
+            color: var(--txt);
+        }
+        .swatch-circle { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .swatch-box    { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+        .panel-title {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--dim);
+            margin-bottom: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+        }
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 7px;
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            cursor: pointer;
+            color: var(--txt);
+        }
+        .toggle-row input[type=checkbox] { cursor: pointer; accent-color: var(--cyan); }
+        .conn-swatch {
+            display: inline-block;
+            width: 22px;
+            height: 2px;
+            border-radius: 1px;
+            flex-shrink: 0;
+            vertical-align: middle;
+        }
+        #tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(10, 11, 16, 0.94);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--txt);
+            display: none;
+            z-index: 20;
+            white-space: nowrap;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+            line-height: 1.6;
+        }
+        #stats {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--dim);
+            text-align: right;
+            pointer-events: none;
+            line-height: 1.8;
+        }
+        /* Legend styles */
+        #legend {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 30;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+            max-width: 280px;
+            font-family: 'Inter', sans-serif;
+            color: var(--txt);
+            font-size: 11px;
+            line-height: 1.5;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+        }
+        #legend .legend-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--txt);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #legend .legend-section {
+            margin-bottom: 14px;
+        }
+        #legend .legend-subtitle {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--dim);
+            margin-bottom: 8px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        #legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            color: var(--txt);
+            font-size: 11px;
+        }
+        #legend .legend-note {
+            font-size: 10px;
+            color: var(--dim);
+            margin-top: 6px;
+            padding-left: 20px;
+            font-style: italic;
+        }
+        #legend .swatch-circle { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        #legend .swatch-box    { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+        #legend .conn-swatch {
+            display: inline-block;
+            width: 22px;
+            height: 2px;
+            border-radius: 1px;
+            flex-shrink: 0;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
+    </style>
+</head>
+<body>
+    <div id="legend">
+        <div class="legend-title">Visual Encoding Legend</div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Neuron Types</div>
+            <div class="legend-item"><div class="swatch-circle" style="background:var(--cyan)"></div> L1E: Excitatory (Layer 1)</div>
+            <div class="legend-item"><div class="swatch-box" style="background:var(--red)"></div> L1I: Inhibitory (Layer 1)</div>
+            <div class="legend-item"><div class="swatch-circle" style="background:var(--emerald)"></div> L2E: Excitatory (Layer 2)</div>
+            <div class="legend-item"><div class="swatch-box" style="background:var(--magenta)"></div> L2I: Inhibitory (Layer 2)</div>
+            <div class="legend-note">Note: Emissive intensity represents activation level (0 to 1).</div>
+        </div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Connection Types</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--cyan)"></span> FF: Feedforward</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--red)"></span> EI: Paired Local</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--amber)"></span> SQ: Feedback Squelch</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--magenta)"></span> GD: Global Brake Loop</div>
+            <div class="legend-note">Note: Opacity represents synaptic weight (0 to 1). Active connections pulsate (enhanced for inhibitory).</div>
+        </div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Special Features</div>
+            <div class="legend-item">Input pattern: L1E neurons flash brightly and pulse in scale.</div>
+            <div class="legend-item">Signal propagation: Active connections pulsate in opacity.</div>
+            <div class="legend-item">Inhibition visualization: Active EI connections appear bright red (<span style="color:#ff0000">#ff0000</span>) with enhanced pulsation.</div>
+        </div>
+    </div>
+    <div id="ui">
+        <div class="panel">
+            <h1>SNN&middot;FEP Topology</h1>
+            <div class="sub">3D connectivity map — four neuron populations arranged by layer depth. Hover over any node for details.</div>
+            <div class="legend">
+                <div class="legend-item"><div class="swatch-circle" style="background:var(--cyan)"></div>  L1 Excitatory (Input)</div>
+                <div class="legend-item"><div class="swatch-box"    style="background:var(--red)"></div>   L1 Inhibitory (Local)</div>
+                <div class="legend-item"><div class="swatch-circle" style="background:var(--emerald)"></div> L2 Excitatory (Concept)</div>
+                <div class="legend-item"><div class="swatch-box"    style="background:var(--magenta)"></div> L2 Inhibitory (Global Brake)</div>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">Connection Visibility</div>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-ff" checked>
+                <span class="conn-swatch" style="background:var(--cyan)"></span>
+                L1E → L2E &nbsp;Feedforward
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-ei" checked>
+                <span class="conn-swatch" style="background:var(--red)"></span>
+                L1E ↔ L1I &nbsp;Paired Local
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-sq" checked>
+                <span class="conn-swatch" style="background:var(--amber)"></span>
+                L2E → L1I &nbsp;Feedback Squelch
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-gd" checked>
+                <span class="conn-swatch" style="background:var(--magenta)"></span>
+                L2E ↔ L2I &nbsp;Global Brake Loop
+            </label>
+        </div>
+    </div>
+
+    <div id="tooltip"></div>
+
+    <div id="stats">
+        L1E &times;9 &nbsp;&middot;&nbsp; L1I &times;9 &nbsp;&middot;&nbsp; L2E &times;8 &nbsp;&middot;&nbsp; L2I &times;1<br>
+        Left-drag: Rotate &nbsp;&middot;&nbsp; Right-drag: Pan &nbsp;&middot;&nbsp; Scroll: Zoom
+    </div>
+
+    <script type="module">
+        try {
+          console.log("Script loaded");
+          import * as THREE from 'three';
+          import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+          console.log("THREE:", THREE, "OrbitControls:", OrbitControls);
+  
+                  // ── Simulation State ────────────────────────────────────────────────────────────────
+                  window.simulationState = {
+                      L1E: new Array(9).fill(0),
+                      L1I: new Array(9).fill(0),
+                      L2E: new Array(8).fill(0),
+                      L2I: new Array(1).fill(0),
+                      inputPattern: [],
+                      inputPatternDuration: 0,
+                      weights: {
+                          ff: 0.5,
+                          ei: 0.5,
+                          sq: 0.3,
+                          gd: 0.4
+                      },
+                      activeConnections: {
+                          ff: new Array(9*8).fill(false),
+                          ei: new Array(9).fill(false),
+                          sq: new Array(8*9).fill(false),
+                          gd: new Array(8).fill(false)
+                      };
+                  
+  
+  
+                  // Start the demo simulation loop
+  
+                      function updateLines(lines, weight, active, connectionType) {
+                          const time = performance.now() * 0.001; // seconds
+                          lines.forEach((line, i) => {
+                              // Get base color for this connection type
+                              const baseColorHex = C[connectionType.toUpperCase()];
+                              // Map weight [0,1] to opacity range [0.1, 0.5] (base opacity)
+                              let opacity = 0.1 + 0.4 * weight;
+                              let colorHex = baseColorHex;
+                              // If this connection is active, apply a pulsating boost for signal propagation
+                              if (active && active[i]) {
+                                  // Pulsating boost: varies with time and line index to create a traveling wave effect
+                                  const pulse = 0.5 + 0.5 * Math.sin(time * 10 + i * 0.5);
+                                  let boost = 1.0 + pulse * 0.5; // default boost
+                                  if (connectionType === 'ei') {
+                                      colorHex = 0xff0000; // bright red for active inhibitory
+                                      boost = 1.0 + pulse * 0.8; // enhanced boost for inhibitory
+                                  }
+                                  opacity *= boost;
+                              }
+                              line.material.color.set(new THREE.Color(colorHex));
+                              line.material.opacity = opacity;
+                          });
+                      }
+  
+                  // ── Scene ────────────────────────────────────────────────────────────────
+                  const scene = new THREE.Scene();
+          scene.background = new THREE.Color(0x070709);
+          scene.fog = new THREE.FogExp2(0x070709, 0.018);
+  
+          const camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.1, 200);
+          camera.position.set(0, 10, 30);
+  
+          const renderer = new THREE.WebGLRenderer({ antialias: true });
+          renderer.setSize(window.innerWidth, window.innerHeight);
+          renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+          document.body.appendChild(renderer.domElement);
+  
+          const controls = new OrbitControls(camera, renderer.domElement);
+          controls.enableDamping = true;
+          controls.dampingFactor = 0.06;
+          controls.target.set(0, 0, 7);
+          camera.lookAt(0, 0, 7);
+  
+          // ── Lights ───────────────────────────────────────────────────────────────
+          scene.add(new THREE.AmbientLight(0xffffff, 0.55));
+          const pl1 = new THREE.PointLight(0x00e0ff, 2.0, 60);
+          pl1.position.set(-6, 10, 2);
+          scene.add(pl1);
+          const pl2 = new THREE.PointLight(0x00ffaa, 1.5, 60);
+          pl2.position.set(6, -6, 16);
+          scene.add(pl2);
+  
+          // ── Layout constants ─────────────────────────────────────────────────────
+          // Each layer lives at its own Z depth — this is the core 3D topology insight.
+          const Z = { L1E: 0, L1I: 6, L2E: 13, L2I: 19 };
+          const C = {
+              L1E: 0x00e0ff, L1I: 0xff5468, L2E: 0x00ffaa, L2I: 0xc77dff,
+              FF: 0x00e0ff, EI: 0xff5468, SQ: 0xffb800, GD: 0xc77dff,
+          };
+  
+          // ── Layer planes (visual depth cues) ─────────────────────────────────────
+          function addLayerPlane(z, color) {
+              const geom = new THREE.PlaneGeometry(18, 18);
+              const mat = new THREE.MeshBasicMaterial({
+                  color, transparent: true, opacity: 0.03,
+                  side: THREE.DoubleSide, depthWrite: false,
+              });
+              const plane = new THREE.Mesh(geom, mat);
+              plane.position.set(0, 0, z);
+              scene.add(plane);
+  
+              const edges = new THREE.EdgesGeometry(geom);
+              const edgeMat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.12 });
+              const frame = new THREE.LineSegments(edges, edgeMat);
+              frame.position.set(0, 0, z);
+              scene.add(frame);
+          }
+          addLayerPlane(Z.L1E, C.L1E);
+          addLayerPlane(Z.L1I, C.L1I);
+          addLayerPlane(Z.L2E, C.L2E);
+          addLayerPlane(Z.L2I, C.L2I);
+  
+          // ── Layer labels (canvas sprites, always face camera) ────────────────────
+          function makeLabel(text, color) {
+              const canvas = document.createElement('canvas');
+              canvas.width = 320; canvas.height = 64;
+              const ctx = canvas.getContext('2d');
+              ctx.clearRect(0, 0, 320, 64);
+              ctx.fillStyle = color;
+              ctx.font = 'bold 26px "JetBrains Mono", monospace';
+              ctx.textAlign = 'left';
+              ctx.fillText(text, 8, 44);
+              const tex = new THREE.CanvasTexture(canvas);
+              const mat = new THREE.SpriteMaterial({ map: tex, transparent: true, opacity: 0.75 });
+              const sprite = new THREE.Sprite(mat);
+              sprite.scale.set(5.5, 1.1, 1);
+              return sprite;
+          }
+          [
+              { text: 'L1 · Excitatory',  z: Z.L1E, c: '#00e0ff' },
+              { text: 'L1 · Inhibitory',  z: Z.L1I, c: '#ff5468' },
+              { text: 'L2 · Concept',     z: Z.L2E, c: '#00ffaa' },
+              { text: 'L2 · Global Brake',z: Z.L2I, c: '#c77dff' },
+          ].forEach(({ text, z, c }) => {
+              const s = makeLabel(text, c);
+              s.position.set(-10, 8.5, z);
+              scene.add(s);
+          });
+  
+          // ── Node factory ─────────────────────────────────────────────────────────
+          const allNodes = [];   // { mesh, name, desc, type }
+          const sphereG = new THREE.SphereGeometry(0.38, 20, 20);
+          const boxG    = new THREE.BoxGeometry(0.56, 0.56, 0.56);
+  
+          function makeNode(geom, color, x, y, z, name, desc, type) {
+              const mat = new THREE.MeshPhongMaterial({
+                  color, emissive: color, emissiveIntensity: 0.15, shininess: 90,
+              });
+              const mesh = new THREE.Mesh(geom, mat);
+              mesh.position.set(x, y, z);
+              scene.add(mesh);
+              allNodes.push({ mesh, name, desc, type });
+              return mesh;
+          }
+  
+          // L1E — 3×3 grid, z = 0
+          const nodesL1E = [];
+          for (let i = 0; i < 9; i++) {
+              const x = (i % 3 - 1) * 3.8;
+              const y = (Math.floor(i / 3) - 1) * 3.8;
+              nodesL1E.push(makeNode(sphereG, C.L1E, x, y, Z.L1E,
+                  `L1E[${i}]`, `Input excitatory · grid pos (${i%3}, ${Math.floor(i/3)})`, 'L1E'));
+          }
+  
+          // L1I — same xy layout as L1E, z = 6 (paired local inhibitors)
+          const nodesL1I = [];
+          for (let i = 0; i < 9; i++) {
+              const x = (i % 3 - 1) * 3.8;
+              const y = (Math.floor(i / 3) - 1) * 3.8;
+              nodesL1I.push(makeNode(boxG, C.L1I, x, y, Z.L1I,
+                  `L1I[${i}]`, `Local inhibitory · paired with L1E[${i}]`, 'L1I'));
+          }
+  
+          // L2E — two columns of 4, z = 13
+          const nodesL2E = [];
+          for (let j = 0; j < 8; j++) {
+              const col = (j < 4 ? -2.5 : 2.5);
+              const row = (j % 4 - 1.5) * 2.8;
+              nodesL2E.push(makeNode(sphereG, C.L2E, col, row, Z.L2E,
+                  `L2E[${j}]`, `Concept neuron · competes to claim a pattern`, 'L2E'));
+          }
+  
+          // L2I — single global brake node, z = 19
+          const nodesL2I = [];
+          nodesL2I.push(makeNode(boxG, C.L2I, 0, 0, Z.L2I,
+              'L2I[0]', 'Global inhibitor · quenches co-firing rivals', 'L2I'));
+  
+          // ── Connection factory ───────────────────────────────────────────────────
+          const connGroups = { ff: [], ei: [], sq: [], gd: [] };
+  
+          function addLine(p1, p2, color, opacity, group) {
+              const pts = [p1.clone(), p2.clone()];
+              const geom = new THREE.BufferGeometry().setFromPoints(pts);
+              const mat  = new THREE.LineBasicMaterial({ color, transparent: true, opacity });
+              const line = new THREE.Line(geom, mat);
+              scene.add(line);
+              connGroups[group].push(line);
+          }
+  
+          // L1E ↔ L1I — paired local connections
+          nodesL1E.forEach((n, i) => {
+              addLine(n.position, nodesL1I[i].position, C.EI, 0.55, 'ei');
+          });
+  
+          // L1E → L2E — feedforward (all-to-all, 72 lines, keep very dim)
+          nodesL1E.forEach(n1e => {
+              nodesL2E.forEach(n2e => {
+                  addLine(n1e.position, n2e.position, C.FF, 0.07, 'ff');
+              });
+          });
+  
+          // L2E → L1I — feedback squelch (all-to-all, 72 lines, very dim)
+          nodesL2E.forEach(n2e => {
+              nodesL1I.forEach(n1i => {
+                  addLine(n2e.position, n1i.position, C.SQ, 0.04, 'sq');
+              });
+          });
+  
+          // L2E ↔ L2I — global brake loop
+          nodesL2E.forEach(n2e => {
+              addLine(n2e.position, nodesL2I[0].position, C.GD, 0.45, 'gd');
+          });
+  
+          // ── Toggle controls ──────────────────────────────────────────────────────
+          function wireToggle(id, key) {
+              document.getElementById(id).addEventListener('change', e => {
+                  connGroups[key].forEach(l => { l.visible = e.target.checked; });
+              });
+          }
+          wireToggle('tog-ff', 'ff');
+          wireToggle('tog-ei', 'ei');
+          wireToggle('tog-sq', 'sq');
+          wireToggle('tog-gd', 'gd');
+  
+          // ── Raycasting hover tooltip ─────────────────────────────────────────────
+          const raycaster = new THREE.Raycaster();
+          const mouse = new THREE.Vector2();
+          const tooltip = document.getElementById('tooltip');
+          const meshList = allNodes.map(n => n.mesh);
+  
+          const typeColors = { L1E: '#00e0ff', L1I: '#ff5468', L2E: '#00ffaa', L2I: '#c77dff' };
+  
+          window.addEventListener('mousemove', e => {
+              mouse.x =  (e.clientX / window.innerWidth)  * 2 - 1;
+              mouse.y = -(e.clientY / window.innerHeight) * 2 + 1;
+  
+              raycaster.setFromCamera(mouse, camera);
+              const hits = raycaster.intersectObjects(meshList);
+  
+              if (hits.length > 0) {
+                  const info = allNodes.find(n => n.mesh === hits[0].object);
+                  if (info) {
+                      const col = typeColors[info.type];
+                      tooltip.style.display = 'block';
+                      tooltip.style.left = (e.clientX + 16) + 'px';
+                      tooltip.style.top  = (e.clientY - 12) + 'px';
+                      tooltip.innerHTML =
+                          `<span style="color:${col};font-weight:700">${info.name}</span><br>` +
+                          `<span style="color:#8b949e">${info.desc}</span>`;
+                  }
+              } else {
+                  tooltip.style.display = 'none';
+              }
+          });
+  
+          // ── Resize ───────────────────────────────────────────────────────────────
+          window.addEventListener('resize', () => {
+              camera.aspect = window.innerWidth / window.innerHeight;
+              camera.updateProjectionMatrix();
+              renderer.setSize(window.innerWidth, window.innerHeight);
+          });
+  
+          // ── Animation loop ────────────────────────────────────────────────────────
+          const clock = new THREE.Clock();
+          function animate() {
+            console.log("animate called");
+              requestAnimationFrame(animate);
+              const t = clock.getElapsedTime();
+  
+              // Neuron activity visualization based on simulation state
+              allNodes.forEach(({ mesh, type }, i) => {
+                let activation = 0;
+                switch (type) {
+                  case 'L1E': 
+                    activation = window.simulationState.L1E[i]; 
+                    // Input pattern flashing for L1E neurons
+                    if (window.simulationState.inputPattern.includes(i)) {
+                      // Flash: increase emissiveIntensity to max and add a pulsating scale
+                      mesh.material.emissiveIntensity = 1.0;
+                      // Pulsating scale based on inputPatternDuration
+                      const flashProgress = 1 - (window.simulationState.inputPatternDuration / 500);
+                      const pulse = 0.5 * Math.sin(flashProgress * Math.PI * 4) + 0.5; // 0 to 1
+                      mesh.scale.set(1 + 0.5 * pulse, 1 + 0.5 * pulse, 1 + 0.5 * pulse);
+                      return; // Skip normal activation processing and scale reset
+                    }
+                    break;
+                  case 'L1I': activation = window.simulationState.L1I[i]; break;
+                  case 'L2E': activation = window.simulationState.L2E[i]; break;
+                  case 'L2I': activation = window.simulationState.L2I[0]; break;
+                }
+                // Map activation [0,1] to emissiveIntensity range [0.1, 0.9]
+                const emissiveIntensity = 0.1 + 0.8 * activation;
+                mesh.material.emissiveIntensity = emissiveIntensity;
+                // Reset scale if not flashing (or for non-L1E neurons)
+                mesh.scale.set(1, 1, 1);
+              });
+  
+              // ── Simulation State Update ────────────────────────────────────────
+              // Update activation levels (example: oscillating)
+              window.simulationState.L1E.forEach((_, i) => {
+                  window.simulationState.L1E[i] = 0.5 + 0.5 * Math.sin(t * 0.5 + i);
+              });
+              window.simulationState.L1I.forEach((_, i) => {
+                  window.simulationState.L1I[i] = 0.5 + 0.5 * Math.sin(t * 0.5 + i + Math.PI);
+              });
+              window.simulationState.L2E.forEach((_, j) => {
+                  window.simulationState.L2E[j] = 0.5 + 0.5 * Math.sin(t * 0.3 + j * 0.5);
+              });
+              window.simulationState.L2I[0] = 0.5 + 0.5 * Math.sin(t * 0.2);
+  
+              // Occasionally set input pattern (every 2 seconds)
+              if (window.simulationState.inputPatternDuration <= 0 && Math.random() < 0.01) {
+                  window.simulationState.inputPattern = [Math.floor(Math.random() * 9)];
+                  window.simulationState.inputPatternDuration = 500; // ms
+              }
+              if (window.simulationState.inputPatternDuration > 0) {
+                  window.simulationState.inputPatternDuration -= 16; // approx 60fps
+                  if (window.simulationState.inputPatternDuration <= 0) {
+                      window.simulationState.inputPattern = [];
+                  }
+              }
+  
+              // Update weights (oscillating)
+              window.simulationState.weights.ff = 0.3 + 0.4 * Math.sin(t * 0.2);
+              window.simulationState.weights.ei = 0.3 + 0.4 * Math.sin(t * 0.2 + Math.PI/2);
+              window.simulationState.weights.sq = 0.3 + 0.4 * Math.sin(t * 0.2 + Math.PI);
+              window.simulationState.weights.gd = 0.3 + 0.4 * Math.sin(t * 0.2 + 3*Math.PI/2);
+  
+              // Reset active connections and set some randomly
+              window.simulationState.activeConnections.ff.fill(false);
+              window.simulationState.activeConnections.ei.fill(false);
+              window.simulationState.activeConnections.sq.fill(false);
+              window.simulationState.activeConnections.gd.fill(false);
+  
+              // Activate a few random connections for demonstration
+              if (Math.random() < 0.1) {
+                  const pre = Math.floor(Math.random() * 9);
+                  const post = Math.floor(Math.random() * 8);
+                  window.simulationState.activeConnections.ff[pre * 8 + post] = true;
+              }
+              if (Math.random() < 0.1) {
+                  const i = Math.floor(Math.random() * 9);
+                  window.simulationState.activeConnections.ei[i] = true;
+              }
+              if (Math.random() < 0.1) {
+                  const pre = Math.floor(Math.random() * 8);
+                  const post = Math.floor(Math.random() * 9);
+                  window.simulationState.activeConnections.sq[pre * 9 + post] = true;
+              }
+              if (Math.random() < 0.1) {
+                  const i = Math.floor(Math.random() * 8);
+                  window.simulationState.activeConnections.gd[i] = true;
+              }
+  
+              // Update line opacities based on weights and active connections
+              updateLines(connGroups.ff, window.simulationState.weights.ff, window.simulationState.activeConnections.ff, 'ff');
+              updateLines(connGroups.ei, window.simulationState.weights.ei, window.simulationState.activeConnections.ei, 'ei');
+              updateLines(connGroups.sq, window.simulationState.weights.sq, window.simulationState.activeConnections.sq, 'sq');
+              updateLines(connGroups.gd, window.simulationState.weights.gd, window.simulationState.activeConnections.gd, 'gd');
+  
+              controls.update();
+              renderer.render(scene, camera);
+          }
+          animate();
+        } catch (e) {
+          console.error("Error in script:", e);
+        }
+    </script>
+</body>
+</html>

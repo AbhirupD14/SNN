@@ -94,6 +94,8 @@ ADAPT_GAIN = 18.0              # AHP charge added to a cell each time it fires
 ADAPT_DECAY = 0.30             # fractional recovery of the AHP current per presentation
 SILENCE_THRESH = 10            # presentations of silence before a cell up-scales
 RECRUIT_RATE = 0.5             # gate increment per presentation while deprived
+
+
 class FEPSNN:
     def __init__(self):
         # --- Membrane potentials (transient within a presentation) ---
@@ -134,6 +136,8 @@ class FEPSNN:
         self.weights_l3e_l3i = np.random.uniform(0.0, 1.0, (N_L3_I, N_L3_E))
         # L3I -> L3E lateral inhibition
         self.weights_l3i_l3e = np.random.uniform(0.0, 1.0, (N_L3_E, N_L3_I))
+        # L3 -> L2I feedback squelch (excitatory) - NEW
+        self.weights_l3e_l2i = np.random.uniform(0.0, 1.0, (N_L2_I, N_L3_E))
         
         # --- Per-neuron maturity (observable; NOT fed into the leak) ---
         self.maturity = np.zeros(N_L2_E)
@@ -262,7 +266,7 @@ class FEPSNN:
                     self.weights_l1i_l1e[pre, post] = 0.0
 
     def _learn_l3(self, j, fired_l2e, fired_l3i):
-        """Plasticity for L3 layer: L2E -> L3E excitatory, L3E -> L3I feedback squelch."""
+        """Plasticity for L3 layer: L2E -> L3E excitatory, L3E -> L3I feedback squelch, L3E -> L2I feedback squelch."""
         # 1. L2E -> L3E excitatory plasticity
         for i in range(N_L2_E):
             if fired_l2e[i]:
@@ -294,6 +298,16 @@ class FEPSNN:
                 self.weights_l3e_l3i[i, j] *= (1.0 - PRUNE_RATE)
             if self.weights_l3e_l3i[i, j] < 0.0:
                 self.weights_l3e_l3i[i, j] = 0.0
+
+        # 5. Feedback squelch: L3E -> L2I excitatory plasticity (NEW)
+        for i in range(N_L2_I):
+            if fired_l3i[i]:  # When L3I fires, it means L3E was active recently - train L3E->L2I
+                g = self.weights_l3e_l2i[i, j]
+                self.weights_l3e_l2i[i, j] = g + W_GAIN * (1.0 - g / W_L3E_L2I)
+            else:
+                self.weights_l3e_l2i[i, j] *= (1.0 - PRUNE_RATE)
+            if self.weights_l3e_l2i[i, j] < 0.0:
+                self.weights_l3e_l2i[i, j] = 0.0
 
     def reset_membranes(self):
         self.v_l1e[:] = RESTING_POTENTIAL
@@ -482,12 +496,21 @@ class FEPSNN:
                         if self.v_l3e[k] > self.theta_l3e[k]:
                             self.v_l3e[k] = self.theta_l3e[k]   # wipe the leftover
                     self.v_l3i[0] = RESTING_POTENTIAL
+                # L3 winner also drives L2I (feedback inhibition) - NEW
+                self.v_l2i[0] += W_L3E_L2I
+                if self.v_l2i[0] >= self.theta_l2i[0]:
+                    # L2I firing would normally trigger L2 brake, but we handle it separately
+                    # For now, we just reset L2I - the actual L2 brake logic is in L2 section
+                    self.v_l2i[0] = RESTING_POTENTIAL
                 # L3 refractory + AHP build-up
                 self.refrac_l3[j] = REFRACTORY
                 self.adapt_l3[j] += ADAPT_GAIN
                 # L3 -> L3I feedback squelch (excitatory)
                 for k in range(N_L3_I):
                     self.v_l3i[k] += self.weights_l3e_l3i[k, j]
+                # L3 -> L2I feedback squelch (excitatory) - NEW
+                for k in range(N_L2_I):
+                    self.v_l2i[k] += self.weights_l3e_l2i[k, j]
                 # L3 consolidation -- local, on-spike only.
                 self._learn_l3(j, fired_l2e, fired_l3i)  # L2E drives L3E, L3I provides feedback
 

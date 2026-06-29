@@ -69,7 +69,6 @@ W_L2E_L3E_MIN = 10.0   # conductance floor for L2E->L3E surviving gate
 W_L2E_L3E_MAX = 50.0   # gate conductance ceiling for L2E->L3E gate
 W_L3E_L3I = 20.0       # L3_E -> L3_I (drives L3 global inhibitor)
 W_L3I_L3E = -100.0     # L3_I -> L3_E global brake (reference scale)
-W_L3E_L2I = 15.0       # L3_E -> L2_I feedback squelch ceiling (analogous to L2E->L1I)
 
 # --- Fixed threshold + membrane dynamics ---
 RESTING_POTENTIAL = 0.0
@@ -94,6 +93,8 @@ ADAPT_GAIN = 18.0              # AHP charge added to a cell each time it fires
 ADAPT_DECAY = 0.30             # fractional recovery of the AHP current per presentation
 SILENCE_THRESH = 10            # presentations of silence before a cell up-scales
 RECRUIT_RATE = 0.5             # gate increment per presentation while deprived
+
+
 class FEPSNN:
     def __init__(self):
         # --- Membrane potentials (transient within a presentation) ---
