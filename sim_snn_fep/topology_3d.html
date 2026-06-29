@@ -257,16 +257,19 @@
                 demoSimulation();
 
                     function updateLines(lines, weight, active) {
-                    lines.forEach((line, i) => {
-                        // Map weight [0,1] to opacity range [0.1, 0.5] (base opacity)
-                        let opacity = 0.1 + 0.4 * weight;
-                        // If this connection is active, boost opacity for signal propagation (to be more visible in Task 5)
-                        if (active && active[i]) {
-                            opacity *= 1.5; // 50% boost
-                        }
-                        line.material.opacity = opacity;
-                    });
-                }
+                        const time = performance.now() * 0.001; // seconds
+                        lines.forEach((line, i) => {
+                            // Map weight [0,1] to opacity range [0.1, 0.5] (base opacity)
+                            let opacity = 0.1 + 0.4 * weight;
+                            // If this connection is active, apply a pulsating boost for signal propagation
+                            if (active && active[i]) {
+                                // Pulsating boost: varies with time and line index to create a traveling wave effect
+                                const pulse = 0.5 + 0.5 * Math.sin(time * 10 + i * 0.5);
+                                opacity *= (1.0 + pulse * 0.5); // boost up to 1.5x
+                            }
+                            line.material.opacity = opacity;
+                        });
+                    }
 
                 // ── Scene ────────────────────────────────────────────────────────────────
                 const scene = new THREE.Scene();
