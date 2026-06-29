@@ -188,7 +188,7 @@
                     L1E: new Array(9).fill(0),
                     L1I: new Array(9).fill(0),
                     L2E: new Array(8).fill(0),
-                    L2I: [0],
+                    L2I: new Array(1).fill(0),
                     inputPattern: [],
                     inputPatternDuration: 0,
                     weights: {
@@ -205,104 +205,6 @@
                     }
                 };
 
-                function demoSimulation() {
-                    // Get time in seconds
-                    const time = performance.now() / 1000;
-
-                    // Update each neuron population with oscillating values
-                    for (let i = 0; i < window.simulationState.L1E.length; i++) {
-                        window.simulationState.L1E[i] = 0.5 + 0.5 * Math.sin(time * 2 + i);
-                    }
-                    for (let i = 0; i < window.simulationState.L1I.length; i++) {
-                        window.simulationState.L1I[i] = 0.5 + 0.5 * Math.sin(time * 2 + i + Math.PI);
-                    }
-                    for (let i = 0; i < window.simulationState.L2E.length; i++) {
-                        window.simulationState.L2E[i] = 0.5 + 0.5 * Math.sin(time * 1.5 + i);
-                    }
-                    window.simulationState.L2I[0] = 0.5 + 0.5 * Math.sin(time * 1.5 + Math.PI);
-
-                    // Occasionally (1% chance per frame) set random input pattern and reset duration to 500ms
-                    if (Math.random() < 0.01) {
-                        // Set 1-2 unique L1E indices
-                        const numIndices = Math.floor(Math.random() * 2) + 1; // 1 or 2
-                        const indices = new Set();
-                        while (indices.size < numIndices) {
-                            indices.add(Math.floor(Math.random() * 9));
-                        }
-                        window.simulationState.inputPattern = Array.from(indices);
-                        window.simulationState.inputPatternDuration = 500; // ms
-                    }
-
-                    // Decrement inputPatternDuration by 16ms per frame (~60fps)
-                    if (window.simulationState.inputPatternDuration > 0) {
-                        window.simulationState.inputPatternDuration -= 16;
-                        if (window.simulationState.inputPatternDuration <= 0) {
-                            window.simulationState.inputPattern = [];
-                            window.simulationState.inputPatternDuration = 0;
-                        }
-                    }
-
-                    // Reset ff activeConnections to all false each frame
-                    window.simulationState.activeConnections.ff.fill(false);
-
-                    // Occasionally (10% chance per frame) set a random ff connection to true
-                    if (Math.random() < 0.1) {
-                        const randomIndex = Math.floor(Math.random() * (9*8));
-                        window.simulationState.activeConnections.ff[randomIndex] = true;
-                    }
-
-                    // Call setTimeout to loop again
-                    setTimeout(demoSimulation, 16);
-                }
-
-                demoSimulation();
-
-                function demoSimulation() {
-                    const now = performance.now();
-                    const time = now / 1000; // in seconds
-
-                    // Oscillate activation levels for demo
-                    for (let i = 0; i < window.simulationState.L1E.length; i++) {
-                        window.simulationState.L1E[i] = 0.5 + 0.5 * Math.sin(time * 0.1 + i);
-                    }
-                    for (let i = 0; i < window.simulationState.L1I.length; i++) {
-                        window.simulationState.L1I[i] = 0.5 + 0.5 * Math.sin(time * 0.1 + i + 100);
-                    }
-                    for (let i = 0; i < window.simulationState.L2E.length; i++) {
-                        window.simulationState.L2E[i] = 0.5 + 0.5 * Math.sin(time * 0.1 + i + 200);
-                    }
-                    window.simulationState.L2I[0] = 0.5 + 0.5 * Math.sin(time * 0.1 + 300);
-
-                    // Occasionally (1% chance per frame) set random input pattern
-                    if (Math.random() < 0.01) {
-                        const numPatterns = Math.floor(Math.random() * 2) + 1; // 1 or 2
-                        const indices = new Set();
-                        while (indices.size < numPatterns) {
-                            indices.add(Math.floor(Math.random() * 9));
-                        }
-                        window.simulationState.inputPattern = Array.from(indices);
-                        window.simulationState.inputPatternDuration = 500; // milliseconds
-                    }
-
-                    // Decrement inputPatternDuration by 16ms per frame (~60fps)
-                    window.simulationState.inputPatternDuration -= 16;
-                    if (window.simulationState.inputPatternDuration <= 0) {
-                        window.simulationState.inputPattern = [];
-                        window.simulationState.inputPatternDuration = 0;
-                    }
-
-                    // Reset ff activeConnections to all false each frame
-                    window.simulationState.activeConnections.ff.fill(false);
-
-                    // Occasionally (10% chance per frame) set a random ff connection to true
-                    if (Math.random() < 0.1) {
-                        const randomIndex = Math.floor(Math.random() * (9*8));
-                        window.simulationState.activeConnections.ff[randomIndex] = true;
-                    }
-
-                    // Continue the loop
-                    setTimeout(demoSimulation, 16);
-                }
 
                 // Start the demo simulation loop
                 demoSimulation();
@@ -538,9 +440,18 @@
             requestAnimationFrame(animate);
             const t = clock.getElapsedTime();
 
-            // Gentle breathing pulse on all nodes
-            allNodes.forEach(({ mesh }, i) => {
-                mesh.material.emissiveIntensity = 0.10 + 0.08 * Math.sin(t * 1.4 + i * 0.45);
+            // Neuron activity visualization based on simulation state
+            allNodes.forEach(({ mesh, type }, i) => {
+              let activation = 0;
+              switch (type) {
+                case 'L1E': activation = window.simulationState.L1E[i]; break;
+                case 'L1I': activation = window.simulationState.L1I[i]; break;
+                case 'L2E': activation = window.simulationState.L2E[i]; break;
+                case 'L2I': activation = window.simulationState.L2I[0]; break;
+              }
+              // Map activation [0,1] to emissiveIntensity range [0.1, 0.9]
+              const emissiveIntensity = 0.1 + 0.8 * activation;
+              mesh.material.emissiveIntensity = emissiveIntensity;
             });
 
             // ── Simulation State Update ────────────────────────────────────────
