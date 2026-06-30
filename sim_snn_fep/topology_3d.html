@@ -14,199 +14,261 @@
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
-            --bg: #070709; --panel: rgba(20,21,26,0.90); --border: #272b34;
-            --txt: #e6edf3; --dim: #8b949e;
-            --cyan: #00e0ff; --emerald: #00ffaa; --red: #ff5468;
-            --magenta: #c77dff; --amber: #ffb800; --yellow: #ffe040;
+            --bg: #070709;
+            --panel: rgba(20, 21, 26, 0.88);
+            --border: #272b34;
+            --txt: #e6edf3;
+            --dim: #8b949e;
+            --cyan: #00e0ff;
+            --emerald: #00ffaa;
+            --red: #ff5468;
+            --magenta: #c77dff;
+            --amber: #ffb800;
         }
         * { box-sizing: border-box; }
-        body { margin:0; background:var(--bg); color:var(--txt); font-family:'Inter',sans-serif; overflow:hidden; }
-
-        /* left column */
-        #ui { position:absolute; top:20px; left:20px; z-index:10; pointer-events:none; user-select:none; }
-        .panel { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; margin-bottom:14px; pointer-events:auto; backdrop-filter:blur(10px); max-width:255px; }
-        h1 { margin:0 0 6px; font-size:17px; font-weight:700; letter-spacing:-0.02em; }
-        .sub { color:var(--dim); font-family:'JetBrains Mono',monospace; font-size:10px; line-height:1.6; }
-        .panel-legend { margin-top:12px; font-size:10px; font-family:'JetBrains Mono',monospace; }
-        .legend-item { display:flex; align-items:center; gap:8px; margin-bottom:5px; }
-        .sw-c { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
-        .sw-b { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
-        .panel-title { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:10px; font-family:'JetBrains Mono',monospace; font-weight:700; }
-        .toggle-row { display:flex; align-items:center; gap:8px; margin-bottom:7px; font-size:10px; font-family:'JetBrains Mono',monospace; cursor:pointer; color:var(--txt); }
-        .toggle-row input[type=checkbox] { cursor:pointer; accent-color:var(--cyan); }
-        .csw { display:inline-block; width:22px; height:2px; border-radius:1px; flex-shrink:0; vertical-align:middle; }
-
-        /* right sim panel */
-        #sim-panel { position:absolute; top:20px; right:20px; z-index:10; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:16px; backdrop-filter:blur(10px); min-width:240px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--txt); }
-        .sim-title { font-size:10px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:12px; font-weight:700; }
-        .sim-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:7px; gap:12px; }
-        .sim-label { color:var(--dim); }
-        .sim-value { font-weight:700; }
-
-        /* stage badge */
-        .stage-badge { display:inline-block; padding:2px 8px; border-radius:4px; font-size:10px; font-weight:700; }
-        .s-idle   { background:#1a2030; color:var(--dim); }
-        .s-input  { background:#002840; color:var(--cyan); }
-        .s-volley { background:#001830; color:#60c0ff; }
-        .s-spike  { background:#003020; color:var(--emerald); }
-        .s-brake  { background:#2a1040; color:var(--magenta); }
-        .s-learn  { background:#2a2000; color:var(--yellow); }
-        .s-switch { background:#1a1a20; color:var(--dim); }
-
-        /* ── Pattern picker ── */
-        #pat-grid-btns { display:grid; grid-template-columns:1fr 1fr; gap:5px; margin-bottom:8px; }
-        .pat-btn {
-            background:#12131a; border:1px solid var(--border); border-radius:7px;
-            color:var(--dim); font-family:'JetBrains Mono',monospace; font-size:10px;
-            padding:6px 8px; cursor:pointer; display:flex; align-items:center; gap:6px;
-            transition:border-color .15s,color .15s;
+        body {
+            margin: 0;
+            background: var(--bg);
+            color: var(--txt);
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
         }
-        .pat-btn:hover { border-color:#444; color:var(--txt); }
-        .pat-btn.active { border-color:var(--cyan); color:var(--cyan); background:rgba(0,224,255,0.08); }
-        .pat-mini { display:grid; grid-template-columns:repeat(3,1fr); gap:1px; flex-shrink:0; }
-        .pat-cell { width:5px; height:5px; border-radius:1px; background:#2a2b30; }
-        .pat-cell.on { background:var(--cyan); }
-        .auto-row { display:flex; align-items:center; gap:7px; font-size:10px; font-family:'JetBrains Mono',monospace; color:var(--dim); margin-top:6px; }
-        .auto-row input { accent-color:var(--cyan); }
-        /* ── Owner display ── */
-        #owner-badge { font-family:'JetBrains Mono',monospace; font-size:11px; font-weight:700; display:inline-flex; align-items:center; gap:5px; }
-        .owner-dot { width:8px; height:8px; border-radius:50%; background:var(--yellow); flex-shrink:0; animation:pulse-dot 0.9s ease-in-out infinite; }
-        @keyframes pulse-dot { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.5;transform:scale(1.5)} }
-
-        /* 3×3 pattern grid */
-        #pattern-grid { display:grid; grid-template-columns:repeat(3,1fr); gap:4px; margin:10px 0 10px; }
-        .gc { width:22px; height:22px; border-radius:4px; border:1px solid var(--border); background:#12131a; transition:background .1s,box-shadow .1s; }
-        .gc.active { background:var(--cyan); border-color:var(--cyan); box-shadow:0 0 8px var(--cyan); }
-
-        /* LIF progress bar */
-        #lif-section { margin-top:8px; }
-        .lif-label { font-size:10px; color:var(--dim); margin-bottom:4px; display:flex; justify-content:space-between; }
-        .lif-bar-bg { height:6px; background:#1a1b20; border-radius:3px; overflow:hidden; margin-bottom:8px; }
-        .lif-bar-fill { height:100%; border-radius:3px; background:linear-gradient(90deg,var(--cyan),var(--emerald)); transition:width .4s; }
-
-        /* maturity bars */
-        #maturity-bars { margin-top:8px; }
-        .mat-title { font-size:10px; color:var(--dim); margin-bottom:4px; }
-        .mat-row { display:flex; align-items:center; gap:5px; margin-bottom:3px; font-size:9px; color:var(--dim); }
-        .mat-lbl { width:34px; text-align:right; flex-shrink:0; }
-        .mat-bar-bg { flex:1; height:4px; background:#1a1b20; border-radius:2px; overflow:hidden; }
-        .mat-bar-fill { height:100%; border-radius:2px; background:var(--emerald); transition:width .3s; }
-
-        /* burst progress dots */
-        #burst-dots { display:flex; gap:4px; margin:8px 0 4px; flex-wrap:wrap; }
-        .bdot { width:8px; height:8px; border-radius:50%; border:1px solid var(--border); background:#12131a; transition:background .1s; }
-        .bdot.done { background:var(--emerald); border-color:var(--emerald); }
-        .bdot.cur  { background:var(--cyan);    border-color:var(--cyan); }
-
-        /* controls */
-        .ctrl-row { display:flex; gap:8px; align-items:center; margin-top:10px; }
-        .ctrl-btn { background:#1a1b20; border:1px solid var(--border); border-radius:6px; color:var(--txt); font-family:'JetBrains Mono',monospace; font-size:11px; padding:4px 10px; cursor:pointer; flex-shrink:0; }
-        .ctrl-btn:hover { border-color:var(--cyan); color:var(--cyan); }
-        .spd-lbl { color:var(--dim); font-size:10px; flex-shrink:0; }
-        input[type=range] { accent-color:var(--cyan); flex:1; min-width:0; }
-        #sound-note { font-size:10px; color:var(--dim); margin-top:8px; }
-
-        /* tooltip */
-        #tooltip { position:absolute; pointer-events:none; background:rgba(10,11,16,.94); border:1px solid var(--border); border-radius:8px; padding:8px 12px; font-family:'JetBrains Mono',monospace; font-size:11px; color:var(--txt); display:none; z-index:20; white-space:nowrap; box-shadow:0 4px 24px rgba(0,0,0,.6); line-height:1.6; }
-
-        /* bottom-right */
-        #stats { position:absolute; bottom:20px; right:20px; font-family:'JetBrains Mono',monospace; font-size:10px; color:var(--dim); text-align:right; pointer-events:none; line-height:1.8; }
-
-        /* legend bottom-left */
-        #legend { position:fixed; bottom:20px; left:20px; z-index:30; background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:14px; pointer-events:auto; backdrop-filter:blur(10px); max-width:270px; font-family:'Inter',sans-serif; color:var(--txt); font-size:11px; line-height:1.5; }
-        #legend .leg-title { font-size:12px; font-weight:700; margin-bottom:10px; }
-        #legend .leg-sec { margin-bottom:10px; }
-        #legend .leg-sub { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin-bottom:6px; font-family:'JetBrains Mono',monospace; }
-        #legend .leg-row { display:flex; align-items:center; gap:7px; margin-bottom:4px; font-size:11px; }
-        #legend .lsc { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
-        #legend .lsb { width:10px; height:10px; border-radius:2px; flex-shrink:0; }
-        #legend .lsl { display:inline-block; width:20px; height:2px; border-radius:1px; flex-shrink:0; }
+        #ui {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            z-index: 10;
+            pointer-events: none;
+            user-select: none;
+        }
+        .panel {
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            margin-bottom: 14px;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+            max-width: 270px;
+        }
+        h1 {
+            margin: 0 0 6px 0;
+            font-size: 17px;
+            font-weight: 700;
+            letter-spacing: -0.02em;
+        }
+        .sub {
+            color: var(--dim);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            line-height: 1.6;
+        }
+        .legend {
+            margin-top: 12px;
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 5px;
+            color: var(--txt);
+        }
+        .swatch-circle { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        .swatch-box    { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+        .panel-title {
+            font-size: 10px;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--dim);
+            margin-bottom: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+        }
+        .toggle-row {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 7px;
+            font-size: 10px;
+            font-family: 'JetBrains Mono', monospace;
+            cursor: pointer;
+            color: var(--txt);
+        }
+        .toggle-row input[type=checkbox] { cursor: pointer; accent-color: var(--cyan); }
+        .conn-swatch {
+            display: inline-block;
+            width: 22px;
+            height: 2px;
+            border-radius: 1px;
+            flex-shrink: 0;
+            vertical-align: middle;
+        }
+        #tooltip {
+            position: absolute;
+            pointer-events: none;
+            background: rgba(10, 11, 16, 0.94);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 8px 12px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 11px;
+            color: var(--txt);
+            display: none;
+            z-index: 20;
+            white-space: nowrap;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+            line-height: 1.6;
+        }
+        #stats {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 10px;
+            color: var(--dim);
+            text-align: right;
+            pointer-events: none;
+            line-height: 1.8;
+        }
+        /* Legend styles */
+        #legend {
+            position: fixed;
+            top: 10px;
+            left: 10px;
+            z-index: 30;
+            background: var(--panel);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px;
+            pointer-events: auto;
+            backdrop-filter: blur(10px);
+            max-width: 280px;
+            font-family: 'Inter', sans-serif;
+            color: var(--txt);
+            font-size: 11px;
+            line-height: 1.5;
+            box-shadow: 0 4px 24px rgba(0,0,0,0.6);
+        }
+        #legend .legend-title {
+            font-size: 13px;
+            font-weight: 700;
+            margin-bottom: 12px;
+            color: var(--txt);
+            display: flex;
+            align-items: center;
+            gap: 6px;
+        }
+        #legend .legend-section {
+            margin-bottom: 14px;
+        }
+        #legend .legend-subtitle {
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.08em;
+            color: var(--dim);
+            margin-bottom: 8px;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        #legend .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 4px;
+            color: var(--txt);
+            font-size: 11px;
+        }
+        #legend .legend-note {
+            font-size: 10px;
+            color: var(--dim);
+            margin-top: 6px;
+            padding-left: 20px;
+            font-style: italic;
+        }
+        #legend .swatch-circle { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+        #legend .swatch-box    { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+        #legend .conn-swatch {
+            display: inline-block;
+            width: 22px;
+            height: 2px;
+            border-radius: 1px;
+            flex-shrink: 0;
+            vertical-align: middle;
+            margin-right: 4px;
+        }
     </style>
 </head>
 <body>
-
-<!-- legend -->
-<div id="legend">
-    <div class="leg-title">Visual Encoding</div>
-    <div class="leg-sec">
-        <div class="leg-sub">Neurons (glow = membrane charge)</div>
-        <div class="leg-row"><div class="lsc" style="background:var(--cyan)"></div> L1E — Excitatory Input (fires from pattern)</div>
-        <div class="leg-row"><div class="lsb" style="background:var(--red)"></div> L1I — Paired Local Inhibitory (dims to red)</div>
-        <div class="leg-row"><div class="lsc" style="background:var(--emerald)"></div> L2E — Concept Neurons <span style="color:var(--yellow)">(→yellow near threshold)</span></div>
-        <div class="leg-row"><div class="lsb" style="background:var(--magenta)"></div> L2I — Global Brake (fires on winner)</div>
-    </div>
-    <div class="leg-sec">
-        <div class="leg-sub">Connections (brightness = weight)</div>
-        <div class="leg-row"><span class="lsl" style="background:var(--cyan)"></span> FF: L1E→L2E feedforward (grows with Hebbian learning)</div>
-        <div class="leg-row"><span class="lsl" style="background:var(--red)"></span> EI: L1E↔L1I lateral inhibition</div>
-        <div class="leg-row"><span class="lsl" style="background:var(--amber)"></span> SQ: L2E→L1I feedback squelch</div>
-        <div class="leg-row"><span class="lsl" style="background:var(--magenta)"></span> GD: L2E→L2I global brake</div>
-    </div>
-    <div class="leg-sec">
-        <div class="leg-sub">Particles = charge in flight</div>
-        <div class="leg-row" style="color:var(--cyan)">● Cyan: excitatory volley (L1E→L2E)</div>
-        <div class="leg-row" style="color:var(--red)">● Red: inhibitory volley (→L1I)</div>
-        <div class="leg-row" style="color:var(--magenta)">● Magenta: brake signal (L2E→L2I)</div>
-        <div class="leg-row" style="color:var(--yellow)">● Yellow: learning flash (weight updated)</div>
-    </div>
-</div>
-
-<!-- left panel -->
-<div id="ui">
-    <div class="panel">
-        <h1>SNN&middot;FEP Topology</h1>
-        <div class="sub">Burst-mode learning: same pattern shown 10× in a row, mimicking spaced repetition. Watch L2E neurons charge up slowly at first (LIF) then fire instantly (pure integrator) as gates widen.</div>
-        <div class="panel-legend">
-            <div class="legend-item"><div class="sw-c" style="background:var(--cyan)"></div>  L1E  Excitatory Input</div>
-            <div class="legend-item"><div class="sw-b" style="background:var(--red)"></div>   L1I  Local Inhibitory</div>
-            <div class="legend-item"><div class="sw-c" style="background:var(--emerald)"></div> L2E  Concept Neuron</div>
-            <div class="legend-item"><div class="sw-b" style="background:var(--magenta)"></div> L2I  Global Brake</div>
+    <div id="legend">
+        <div class="legend-title">Visual Encoding Legend</div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Neuron Types</div>
+            <div class="legend-item"><div class="swatch-circle" style="background:var(--cyan)"></div> L1E: Excitatory (Layer 1)</div>
+            <div class="legend-item"><div class="swatch-box" style="background:var(--red)"></div> L1I: Inhibitory (Layer 1)</div>
+            <div class="legend-item"><div class="swatch-circle" style="background:var(--emerald)"></div> L2E: Excitatory (Layer 2)</div>
+            <div class="legend-item"><div class="swatch-box" style="background:var(--magenta)"></div> L2I: Inhibitory (Layer 2)</div>
+            <div class="legend-note">Note: Emissive intensity represents activation level (0 to 1).</div>
+        </div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Connection Types</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--cyan)"></span> FF: Feedforward</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--red)"></span> EI: Paired Local</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--amber)"></span> SQ: Feedback Squelch</div>
+            <div class="legend-item"><span class="conn-swatch" style="background:var(--magenta)"></span> GD: Global Brake Loop</div>
+            <div class="legend-note">Note: Opacity represents synaptic weight (0 to 1). Active connections pulsate (enhanced for inhibitory).</div>
+        </div>
+        <div class="legend-section">
+            <div class="legend-subtitle">Special Features</div>
+            <div class="legend-item">Input pattern: L1E neurons flash brightly and pulse in scale.</div>
+            <div class="legend-item">Signal propagation: Active connections pulsate in opacity.</div>
+            <div class="legend-item">Inhibition visualization: Active EI connections appear bright red (<span style="color:#ff0000">#ff0000</span>) with enhanced pulsation.</div>
         </div>
     </div>
-    <div class="panel">
-        <div class="panel-title">Connection Visibility</div>
-        <label class="toggle-row"><input type="checkbox" id="tog-ff" checked><span class="csw" style="background:var(--cyan)"></span>L1E→L2E  Feedforward</label>
-        <label class="toggle-row"><input type="checkbox" id="tog-ei" checked><span class="csw" style="background:var(--red)"></span>L1E↔L1I  Paired Local</label>
-        <label class="toggle-row"><input type="checkbox" id="tog-sq" checked><span class="csw" style="background:var(--amber)"></span>L2E→L1I  Squelch</label>
-        <label class="toggle-row"><input type="checkbox" id="tog-gd" checked><span class="csw" style="background:var(--magenta)"></span>L2E→L2I  Brake Loop</label>
-    </div>
-</div>
-
-<!-- pattern picker — fixed bottom-right so it never collides with the legend -->
-<div id="pat-picker-panel" style="position:fixed;bottom:20px;right:20px;z-index:30;background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:14px;backdrop-filter:blur(10px);min-width:240px;">
-    <div class="panel-title">Pattern Select</div>
-    <div id="pat-grid-btns"><!-- filled by JS --></div>
-    <label class="auto-row">
-        <input type="checkbox" id="tog-auto" checked>
-        Auto-cycle patterns
-    </label>
-</div>
-
-<!-- right sim panel -->
-<div id="sim-panel">
-    <div class="sim-title">Live Simulation</div>
-    <div class="sim-row"><span class="sim-label">Epoch</span>    <span class="sim-value" id="s-epoch">0</span></div>
-    <div class="sim-row"><span class="sim-label">Pattern</span>  <span class="sim-value" id="s-pattern">—</span></div>
-    <div class="sim-row"><span class="sim-label">Stage</span>    <span id="s-stage"><span class="stage-badge s-idle">IDLE</span></span></div>
-    <div class="sim-row"><span class="sim-label">Step</span>     <span class="sim-value" id="s-step">—</span></div>
-    <div class="sim-row"><span class="sim-label">Winner</span>   <span class="sim-value" id="s-winner" style="color:var(--emerald)">—</span></div>
-    <div class="sim-row">
-        <span class="sim-label">Learned by</span>
-        <span id="owner-badge">—</span>
-    </div>
-
-    <!-- burst progress dots -->
-    <div style="font-size:10px;color:var(--dim);margin-top:4px">Burst reps</div>
-    <div id="burst-dots"></div>
-
-    <!-- 3×3 input grid -->
-    <div id="pattern-grid">
-        <div class="gc" id="gc-0"></div><div class="gc" id="gc-1"></div><div class="gc" id="gc-2"></div>
-        <div class="gc" id="gc-3"></div><div class="gc" id="gc-4"></div><div class="gc" id="gc-5"></div>
-        <div class="gc" id="gc-6"></div><div class="gc" id="gc-7"></div><div class="gc" id="gc-8"></div>
+    <div id="ui">
+        <div class="panel">
+            <h1>SNN&middot;FEP Topology</h1>
+            <div class="sub">3D connectivity map   four neuron populations arranged by layer depth. Hover over any node for details.</div>
+            <div class="legend">
+                <div class="legend-item"><div class="swatch-circle" style="background:var(--cyan)"></div>  L1 Excitatory (Input)</div>
+                <div class="legend-item"><div class="swatch-box"    style="background:var(--red)"></div>   L1 Inhibitory (Local)</div>
+                <div class="legend-item"><div class="swatch-circle" style="background:var(--emerald)"></div> L2 Excitatory (Concept)</div>
+                <div class="legend-item"><div class="swatch-box"    style="background:var(--magenta)"></div> L2 Inhibitory (Global Brake)</div>
+            </div>
+        </div>
+        <div class="panel">
+            <div class="panel-title">Connection Visibility</div>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-ff" checked>
+                <span class="conn-swatch" style="background:var(--cyan)"></span>
+                L1E   L2E &nbsp;Feedforward
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-ei" checked>
+                <span class="conn-swatch" style="background:var(--red)"></span>
+                L1E   L1I &nbsp;Paired Local
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-sq" checked>
+                <span class="conn-swatch" style="background:var(--amber)"></span>
+                L2E   L1I &nbsp;Feedback Squelch
+            </label>
+            <label class="toggle-row">
+                <input type="checkbox" id="tog-gd" checked>
+                <span class="conn-swatch" style="background:var(--magenta)"></span>
+                L2E   L2I &nbsp;Global Brake Loop
+            </label>
+        </div>
     </div>
 
-<<<<<<< Updated upstream
+    <div id="tooltip"></div>
+
+    <div id="stats">
+        L1E &times;9 &nbsp;&middot;&nbsp; L1I &times;9 &nbsp;&middot;&nbsp; L2E &times;8 &nbsp;&middot;&nbsp; L2I &times;1<br>
+        Left-drag: Rotate &nbsp;&middot;&nbsp; Right-drag: Pan &nbsp;&middot;&nbsp; Scroll: Zoom
+    </div>
+
     <script type="module">
         // Imports MUST be the first lines evaluated inside a module script
         import * as THREE from 'three';
@@ -568,808 +630,7 @@
             animate();
         } catch (e) {
             console.error("Error running application:", e);
-=======
-    <!-- LIF → integrator progress -->
-    <div id="lif-section">
-        <div class="lif-label">
-            <span>LIF → Pure Integrator</span>
-            <span id="s-steps" style="color:var(--yellow)">— steps</span>
-        </div>
-        <div class="lif-bar-bg"><div class="lif-bar-fill" id="lif-fill" style="width:0%"></div></div>
-    </div>
-
-    <!-- per-neuron maturity -->
-    <div id="maturity-bars">
-        <div class="mat-title">L2E gate maturity</div>
-    </div>
-
-    <!-- controls -->
-    <div class="ctrl-row">
-        <button class="ctrl-btn" id="btn-pause">Pause</button>
-        <span class="spd-lbl">Speed</span>
-        <input type="range" id="speed-slider" min="1" max="10" value="3">
-    </div>
-    <div id="sound-note">Click scene to enable sound</div>
-</div>
-
-<div id="tooltip"></div>
-<div id="stats">
-    L1E ×9 &nbsp;·&nbsp; L1I ×9 &nbsp;·&nbsp; L2E ×8 &nbsp;·&nbsp; L2I ×1<br>
-    Left-drag: Rotate &nbsp;·&nbsp; Right-drag: Pan &nbsp;·&nbsp; Scroll: Zoom
-</div>
-
-<script type="module">
-import * as THREE from 'three';
-import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-
-// ═══════════════════════════════════════════════════════════════════
-// SNN — exact mirror of fep_model.py
-// ═══════════════════════════════════════════════════════════════════
-const N_L1E=9, N_L1I=9, N_L2E=8;
-const BASELINE_THETA = 50.0;
-const THETA_L1I      = BASELINE_THETA * 0.5;   // 25
-const THETA_L2I      = BASELINE_THETA * 0.3;   // 15
-const LEAK_FRACTION  = 0.10;
-const T_STEPS        = 30;
-const EXT_INPUT      = 50.0;
-const NOISE          = 0.5;
-const W_GAIN         = 6.0;
-const PRUNE_RATE     = 0.45;
-const SYNAPTIC_BUDGET= 50.0;
-const W_L1E_L2E_MAX  = 50.0;
-const W_L2E_L2I      = 20.0;
-const GATE_INIT_MAX  = 4.0;
-const REFRACTORY     = 1;
-const ADAPT_GAIN     = 18.0;
-const ADAPT_DECAY    = 0.30;
-const SILENCE_THRESH = 10;
-const RECRUIT_RATE   = 0.5;
-
-const PATTERNS = [
-    { name:'Row 0',   active:[0,1,2] },
-    { name:'Row 1',   active:[3,4,5] },
-    { name:'Row 2',   active:[6,7,8] },
-    { name:'Col 0',   active:[0,3,6] },
-    { name:'Col 1',   active:[1,4,7] },
-    { name:'Col 2',   active:[2,5,8] },
-    { name:'Diag \\', active:[0,4,8] },
-    { name:'Diag /',  active:[2,4,6] },
-];
-const N_PATS = PATTERNS.length;
-
-class SNN {
-    constructor() {
-        this.v_l1e  = new Float64Array(N_L1E);
-        this.v_l1i  = new Float64Array(N_L1I);
-        this.v_l2e  = new Float64Array(N_L2E);
-        this.v_l2i  = new Float64Array(1);
-        this.theta_l2e = Float64Array.from({length:N_L2E},
-            () => BASELINE_THETA + (Math.random()*4-2));
-        this.adapt   = new Float64Array(N_L2E);
-        this.refrac  = new Int32Array(N_L2E);
-        this.silence = new Int32Array(N_L2E);
-        // w_ff[j][i]   = L1E[i] → L2E[j]
-        this.w_ff     = Array.from({length:N_L2E}, () =>
-            Float64Array.from({length:N_L1E}, () => Math.random()*GATE_INIT_MAX));
-        // w_sq[k][j]   = L2E[j] → L1I[k]
-        this.w_sq     = Array.from({length:N_L1I}, () =>
-            Float64Array.from({length:N_L2E}, () => Math.random()));
-        // w_ei_exc[i][k] = L1E[i] → L1I[k]  (initial small but grow with Hebbian)
-        this.w_ei_exc = Array.from({length:N_L1E}, () =>
-            Float64Array.from({length:N_L1I}, () => Math.random()*3.0));
-        // w_ei_inh[k][i] = L1I[k] → L1E[i]
-        this.w_ei_inh = Array.from({length:N_L1I}, () =>
-            Float64Array.from({length:N_L1E}, () => Math.random()*3.0));
-        this.maturity = new Float64Array(N_L2E);
-        this._recomputeAll();
-    }
-
-    _recomputeMaturity(j) {
-        let s=0; for (let i=0;i<N_L1E;i++) s+=this.w_ff[j][i];
-        this.maturity[j] = Math.min(s/BASELINE_THETA, 1.0);
-    }
-    _recomputeAll() { for (let j=0;j<N_L2E;j++) this._recomputeMaturity(j); }
-    _leak(v) { for (let i=0;i<v.length;i++) v[i] *= (1-LEAK_FRACTION); }
-
-    _learn(j, fired_l1e) {
-        for (let i=0;i<N_L1E;i++) {
-            if (fired_l1e[i]) {
-                const g=this.w_ff[j][i];
-                this.w_ff[j][i]=g+W_GAIN*(1-g/W_L1E_L2E_MAX);
-            } else {
-                this.w_ff[j][i] *= (1-PRUNE_RATE);
-            }
-            if (this.w_ff[j][i]<0) this.w_ff[j][i]=0;
->>>>>>> Stashed changes
         }
-        let tot=0; for (let i=0;i<N_L1E;i++) tot+=this.w_ff[j][i];
-        if (tot>SYNAPTIC_BUDGET) {
-            const sc=SYNAPTIC_BUDGET/tot;
-            for (let i=0;i<N_L1E;i++) this.w_ff[j][i]*=sc;
-        }
-        this._recomputeMaturity(j);
-    }
-
-    // Returns array of step frames for animation playback
-    processEvent(activeSet) {
-        for (let j=0;j<N_L2E;j++) {
-            this.adapt[j] *= (1-ADAPT_DECAY);
-            if (this.refrac[j]>0) this.refrac[j]--;
-        }
-        this.v_l1e.fill(0); this.v_l1i.fill(0); this.v_l2i.fill(0);
-        for (let j=0;j<N_L2E;j++) this.v_l2e[j]=-this.adapt[j];
-
-        const fired_l1e = new Uint8Array(N_L1E);
-        let winner=null;
-        const frames=[];
-
-        for (let t=0;t<T_STEPS;t++) {
-            this._leak(this.v_l1e);
-            this._leak(this.v_l2e);
-            this._leak(this.v_l1i);
-
-            for (const i of activeSet) this.v_l1e[i]+=EXT_INPUT;
-
-            // L1E spikes → drive L1I
-            const spk_l1e=[];
-            for (let i=0;i<N_L1E;i++) {
-                if (this.v_l1e[i]>=BASELINE_THETA) {
-                    spk_l1e.push(i);
-                    fired_l1e[i]=1;
-                    this.v_l1e[i]=0;
-                    for (let k=0;k<N_L1I;k++) this.v_l1i[k]+=this.w_ei_exc[i][k];
-                }
-            }
-
-            // L1I spikes → inhibit L1E
-            const spk_l1i=[];
-            for (let k=0;k<N_L1I;k++) {
-                if (this.v_l1i[k]>=THETA_L1I) {
-                    spk_l1i.push(k);
-                    this.v_l1i[k]=0;
-                    for (let i=0;i<N_L1E;i++) this.v_l1e[i]-=this.w_ei_inh[k][i];
-                }
-            }
-
-            // feedforward volley → L2E
-            for (const i of spk_l1e)
-                for (let j=0;j<N_L2E;j++) this.v_l2e[j]+=this.w_ff[j][i];
-
-            // noise + race
-            for (let j=0;j<N_L2E;j++) this.v_l2e[j]+=(Math.random()-.5)*2*NOISE;
-            let fired=null;
-            for (let j=0;j<N_L2E;j++) {
-                if (this.refrac[j]===0 && this.v_l2e[j]>=this.theta_l2e[j])
-                    if (fired===null || this.v_l2e[j]>this.v_l2e[fired]) fired=j;
-            }
-
-            let brake=false;
-            let learned=false;
-            if (fired!==null) {
-                if (winner===null) winner=fired;
-                this.v_l2i[0]+=W_L2E_L2I;
-                if (this.v_l2i[0]>=THETA_L2I) {
-                    brake=true;
-                    for (let k=0;k<N_L2E;k++)
-                        if (this.v_l2e[k]>this.theta_l2e[k]) this.v_l2e[k]=this.theta_l2e[k];
-                    this.v_l2i[0]=0;
-                }
-                this.refrac[fired]=REFRACTORY;
-                this.adapt[fired]+=ADAPT_GAIN;
-                for (let k=0;k<N_L1I;k++) this.v_l1i[k]+=this.w_sq[k][fired];
-                this._learn(fired, fired_l1e);
-                learned=true;
-            }
-
-            const stage = learned ? 'learn'
-                        : brake   ? 'brake'
-                        : fired!==null ? 'e_spike'
-                        : spk_l1e.length>0 ? 'l1_volley'
-                        : 'integrating';
-
-            frames.push({
-                t, stage, winner, fired_l2e:fired, brake, learned,
-                spk_l1e:[...spk_l1e],
-                spk_l1i:[...spk_l1i],
-                v_l2e:  Array.from(this.v_l2e),
-                v_l1e:  Array.from(this.v_l1e),
-                v_l1i:  Array.from(this.v_l1i),
-                // weight snapshot taken after _learn, so learning is visible on this frame
-                w_ff_snap: this.w_ff.map(r=>Array.from(r)),
-                maturity:  Array.from(this.maturity),
-            });
-
-            if (winner!==null) break;
-        }
-
-        // deprivation-driven recruitment
-        for (let j=0;j<N_L2E;j++) {
-            if (j===winner) { this.silence[j]=0; }
-            else {
-                this.silence[j]++;
-                if (this.silence[j]>SILENCE_THRESH) {
-                    for (let i=0;i<N_L1E;i++) this.w_ff[j][i]+=RECRUIT_RATE;
-                    this._recomputeMaturity(j);
-                }
-            }
-        }
-        return frames;
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Audio
-// ═══════════════════════════════════════════════════════════════════
-let audioCtx=null;
-function ensureAudio() {
-    if (!audioCtx) { audioCtx=new(window.AudioContext||window.webkitAudioContext)(); }
-    if (audioCtx.state==='suspended') audioCtx.resume();
-    document.getElementById('sound-note').textContent='Sound: ON';
-}
-document.addEventListener('click', ensureAudio, {once:true});
-
-function tone(freq,dur,type='sine',vol=0.08) {
-    if (!audioCtx) return;
-    const o=audioCtx.createOscillator(), g=audioCtx.createGain();
-    o.type=type; o.frequency.setValueAtTime(freq,audioCtx.currentTime);
-    g.gain.setValueAtTime(vol,audioCtx.currentTime);
-    g.gain.exponentialRampToValueAtTime(0.001,audioCtx.currentTime+dur);
-    o.connect(g); g.connect(audioCtx.destination);
-    o.start(); o.stop(audioCtx.currentTime+dur);
-}
-// sounds: pitched per L1I index to make inhibition audible
-function sndL1E()       { tone(1100,0.025,'square',0.03); }
-function sndL1I(k)      { tone(200+k*15,0.07,'triangle',0.04); }
-function sndWinner(j)   { tone(293+j*44,0.38,'sine',0.13); }
-function sndBrake()     { tone(65,0.20,'sawtooth',0.07); }
-function sndLearn()     { tone(880,0.12,'sine',0.06); tone(1100,0.12,'sine',0.04); }
-
-// ═══════════════════════════════════════════════════════════════════
-// THREE.js
-// ═══════════════════════════════════════════════════════════════════
-const C = { L1E:0x00e0ff,L1I:0xff5468,L2E:0x00ffaa,L2I:0xc77dff, FF:0x00e0ff,EI:0xff5468,SQ:0xffb800,GD:0xc77dff };
-const Z = { L1E:0,L1I:6,L2E:13,L2I:19 };
-
-const scene=new THREE.Scene();
-scene.background=new THREE.Color(0x070709);
-scene.fog=new THREE.FogExp2(0x070709,0.018);
-
-const camera=new THREE.PerspectiveCamera(55,innerWidth/innerHeight,0.1,200);
-camera.position.set(0,10,30);
-
-const renderer=new THREE.WebGLRenderer({antialias:true});
-renderer.setSize(innerWidth,innerHeight);
-renderer.setPixelRatio(Math.min(devicePixelRatio,2));
-document.body.appendChild(renderer.domElement);
-
-const controls=new OrbitControls(camera,renderer.domElement);
-controls.enableDamping=true; controls.dampingFactor=0.06;
-controls.target.set(0,0,7);
-
-scene.add(new THREE.AmbientLight(0xffffff,0.55));
-const pl1=new THREE.PointLight(0x00e0ff,2.0,60); pl1.position.set(-6,10,2); scene.add(pl1);
-const pl2=new THREE.PointLight(0x00ffaa,1.5,60); pl2.position.set(6,-6,16); scene.add(pl2);
-
-function addLayerPlane(z,color) {
-    const g=new THREE.PlaneGeometry(18,18);
-    const p=new THREE.Mesh(g,new THREE.MeshBasicMaterial({color,transparent:true,opacity:.03,side:THREE.DoubleSide,depthWrite:false}));
-    p.position.set(0,0,z); scene.add(p);
-    const fr=new THREE.LineSegments(new THREE.EdgesGeometry(g),new THREE.LineBasicMaterial({color,transparent:true,opacity:.12}));
-    fr.position.set(0,0,z); scene.add(fr);
-}
-addLayerPlane(Z.L1E,C.L1E); addLayerPlane(Z.L1I,C.L1I);
-addLayerPlane(Z.L2E,C.L2E); addLayerPlane(Z.L2I,C.L2I);
-
-function makeLabel(text,color) {
-    const cv=document.createElement('canvas'); cv.width=320; cv.height=64;
-    const ctx=cv.getContext('2d');
-    ctx.fillStyle=color; ctx.font='bold 26px "JetBrains Mono",monospace'; ctx.fillText(text,8,44);
-    const sp=new THREE.Sprite(new THREE.SpriteMaterial({map:new THREE.CanvasTexture(cv),transparent:true,opacity:.75}));
-    sp.scale.set(5.5,1.1,1); return sp;
-}
-[{t:'L1  Excitatory',z:Z.L1E,c:'#00e0ff'},{t:'L1  Inhibitory',z:Z.L1I,c:'#ff5468'},
- {t:'L2  Concept',z:Z.L2E,c:'#00ffaa'},{t:'L2  Global Brake',z:Z.L2I,c:'#c77dff'}]
-.forEach(({t,z,c})=>{ const s=makeLabel(t,c); s.position.set(-10,8.5,z); scene.add(s); });
-
-// ── Nodes ────────────────────────────────────────────────────────
-const allNodes=[];
-const sphereG=new THREE.SphereGeometry(.38,20,20);
-const boxG   =new THREE.BoxGeometry(.56,.56,.56);
-
-function makeNode(geom,baseColor,x,y,z,name,desc,type,popIdx) {
-    const mat=new THREE.MeshPhongMaterial({color:baseColor,emissive:new THREE.Color(baseColor),emissiveIntensity:.15,shininess:90});
-    const mesh=new THREE.Mesh(geom,mat);
-    mesh.position.set(x,y,z); scene.add(mesh);
-    allNodes.push({mesh,name,desc,type,popIdx,baseColor});
-    return mesh;
-}
-
-const nodesL1E=[],nodesL1I=[],nodesL2E=[],nodesL2I=[];
-for (let i=0;i<9;i++) nodesL1E.push(makeNode(sphereG,C.L1E,(i%3-1)*3.8,(Math.floor(i/3)-1)*3.8,Z.L1E,`L1E[${i}]`,`Input excitatory — grid (${i%3},${Math.floor(i/3)})`,'L1E',i));
-for (let i=0;i<9;i++) nodesL1I.push(makeNode(boxG,C.L1I,(i%3-1)*3.8,(Math.floor(i/3)-1)*3.8,Z.L1I,`L1I[${i}]`,`Local inhibitory — paired with L1E[${i}]`,'L1I',i));
-for (let j=0;j<8;j++) nodesL2E.push(makeNode(sphereG,C.L2E,j<4?-2.5:2.5,(j%4-1.5)*2.8,Z.L2E,`L2E[${j}]`,`Concept neuron — competes in spiking race`,'L2E',j));
-nodesL2I.push(makeNode(boxG,C.L2I,0,0,Z.L2I,'L2I[0]','Global inhibitor — quenches co-firing rivals','L2I',0));
-
-// ── Owner tori — rotating golden ring around each L2E node ────────────
-// Becomes visible + pulses when that neuron has learned the current pattern
-const ownerTori = nodesL2E.map(n => {
-    const torus = new THREE.Mesh(
-        new THREE.TorusGeometry(0.72, 0.075, 8, 28),
-        new THREE.MeshBasicMaterial({ color: 0xffe040, transparent: true, opacity: 0, depthWrite: false })
-    );
-    torus.position.copy(n.position);
-    scene.add(torus);
-    return torus;
-});
-
-// ── Connections ──────────────────────────────────────────────────
-// index: ff[i*N_L2E+j], ei[i], sq[j*N_L1I+k], gd[j]
-const connGroups={ff:[],ei:[],sq:[],gd:[]};
-function addLine(p1,p2,color,opacity,group) {
-    const g=new THREE.BufferGeometry().setFromPoints([p1.clone(),p2.clone()]);
-    const m=new THREE.LineBasicMaterial({color,transparent:true,opacity,depthWrite:false});
-    const l=new THREE.Line(g,m); scene.add(l); connGroups[group].push(l);
-}
-nodesL1E.forEach((n,i)=>addLine(n.position,nodesL1I[i].position,C.EI,0.35,'ei'));
-nodesL1E.forEach((n1e)=>nodesL2E.forEach((n2e)=>addLine(n1e.position,n2e.position,C.FF,0.04,'ff')));
-nodesL2E.forEach((n2e)=>nodesL1I.forEach((n1i)=>addLine(n2e.position,n1i.position,C.SQ,0.02,'sq')));
-nodesL2E.forEach(n2e=>addLine(n2e.position,nodesL2I[0].position,C.GD,0.30,'gd'));
-
-['ff','ei','sq','gd'].forEach(k=>{
-    document.getElementById('tog-'+k).addEventListener('change',e=>{
-        connGroups[k].forEach(l=>l.visible=e.target.checked);
-    });
-});
-
-// ── Tooltip ─────────────────────────────────────────────────────
-const raycaster=new THREE.Raycaster();
-const mouse=new THREE.Vector2();
-const tooltip=document.getElementById('tooltip');
-const meshList=allNodes.map(n=>n.mesh);
-const typeColors={L1E:'#00e0ff',L1I:'#ff5468',L2E:'#00ffaa',L2I:'#c77dff'};
-window.addEventListener('mousemove',e=>{
-    mouse.x=(e.clientX/innerWidth)*2-1;
-    mouse.y=-(e.clientY/innerHeight)*2+1;
-    raycaster.setFromCamera(mouse,camera);
-    const hits=raycaster.intersectObjects(meshList);
-    if (hits.length>0) {
-        const info=allNodes.find(n=>n.mesh===hits[0].object);
-        if (info) {
-            const col=typeColors[info.type];
-            tooltip.style.cssText=`display:block;left:${e.clientX+16}px;top:${e.clientY-12}px`;
-            tooltip.innerHTML=`<span style="color:${col};font-weight:700">${info.name}</span><br><span style="color:#8b949e">${info.desc}</span>`;
-        }
-    } else tooltip.style.display='none';
-});
-window.addEventListener('resize',()=>{
-    camera.aspect=innerWidth/innerHeight; camera.updateProjectionMatrix();
-    renderer.setSize(innerWidth,innerHeight);
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// Particle system — pool of small spheres for charge-in-flight
-// ═══════════════════════════════════════════════════════════════════
-const POOL_SIZE=150;
-const pGeom=new THREE.SphereGeometry(0.11,6,6);
-const pPool=[];       // available meshes
-const pActive=[];     // { mesh, from, to, t0, dur }
-
-for (let p=0;p<POOL_SIZE;p++) {
-    const m=new THREE.Mesh(pGeom,new THREE.MeshBasicMaterial({color:0xffffff}));
-    m.visible=false; scene.add(m); pPool.push(m);
-}
-
-function spawnPulse(from,to,color,dur=320) {
-    const m=pPool.find(x=>!x.visible);
-    if (!m) return;
-    m.material.color.setHex(color);
-    m.visible=true;
-    pActive.push({mesh:m,from:from.clone(),to:to.clone(),t0:performance.now(),dur});
-}
-
-function tickParticles(now) {
-    for (let i=pActive.length-1;i>=0;i--) {
-        const p=pActive[i];
-        const t=Math.min((now-p.t0)/p.dur,1);
-        p.mesh.position.lerpVectors(p.from,p.to,t);
-        if (t>=1) { p.mesh.visible=false; pActive.splice(i,1); }
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// UI helpers
-// ═══════════════════════════════════════════════════════════════════
-const STAGE_CSS ={integrating:'s-idle',l1_volley:'s-volley',e_spike:'s-spike',brake:'s-brake',learn:'s-learn'};
-const STAGE_TXT ={integrating:'INTEGRATING',l1_volley:'L1 VOLLEY',e_spike:'E SPIKE',brake:'BRAKE',learn:'LEARNING'};
-
-function setStage(key,fallback='') {
-    const cls=STAGE_CSS[key]||'s-idle', txt=STAGE_TXT[key]||fallback||key.toUpperCase();
-    document.getElementById('s-stage').innerHTML=`<span class="stage-badge ${cls}">${txt}</span>`;
-}
-function setGrid(active) {
-    for (let i=0;i<9;i++) document.getElementById('gc-'+i).className='gc'+(active.includes(i)?' active':'');
-}
-
-// burst dots
-const BURST_REPS=10;
-{
-    const bd=document.getElementById('burst-dots');
-    for (let r=0;r<BURST_REPS;r++) { const d=document.createElement('div'); d.className='bdot'; d.id='bd-'+r; bd.appendChild(d); }
-}
-function updateBurstDots(rep) {
-    for (let r=0;r<BURST_REPS;r++) {
-        const d=document.getElementById('bd-'+r);
-        d.className='bdot'+(r<rep?' done':r===rep?' cur':'');
-    }
-}
-
-// maturity bars
-const matBarFills=[];
-{
-    const mb=document.getElementById('maturity-bars');
-    for (let j=0;j<N_L2E;j++) {
-        const row=document.createElement('div'); row.className='mat-row';
-        row.innerHTML=`<span class="mat-lbl">E[${j}]</span><div class="mat-bar-bg"><div class="mat-bar-fill" id="mf-${j}" style="width:0%"></div></div>`;
-        mb.appendChild(row); matBarFills.push(document.getElementById('mf-'+j));
-    }
-}
-function updateMaturity(mat) {
-    for (let j=0;j<N_L2E;j++) matBarFills[j].style.width=`${Math.round(mat[j]*100)}%`;
-}
-
-// LIF bar: maps steps-to-fire → how far along LIF→integrator axis
-// T_STEPS steps = fully LIF (0%), 1 step = pure integrator (100%)
-function updateLIFBar(steps) {
-    if (steps===null) return;
-    document.getElementById('s-steps').textContent=`${steps} step${steps!==1?'s':''}`;
-    const pct=Math.round((1-Math.min(steps,T_STEPS)/T_STEPS)*100);
-    document.getElementById('lif-fill').style.width=pct+'%';
-}
-
-const colorYellow=new THREE.Color(0xffe040);
-const colorWhite =new THREE.Color(0xffffff);
-
-// ═══════════════════════════════════════════════════════════════════
-// applyFrame — push one simulation step into the 3D scene
-// ═══════════════════════════════════════════════════════════════════
-function applyFrame(frame, pat, snn) {
-    const activeSet=new Set(pat.active);
-    const now=performance.now();
-
-    // ── L1E: glow = v/theta; flash white on spike ──────────────
-    nodesL1E.forEach((mesh,i)=>{
-        const spiked=frame.spk_l1e.includes(i);
-        const inPat =activeSet.has(i);
-        const norm  =Math.min(Math.max(frame.v_l1e[i]/BASELINE_THETA,0),1);
-        mesh.material.emissive.setHex(spiked?0xffffff:C.L1E);
-        mesh.material.emissiveIntensity=spiked?2.2:(inPat?0.3+0.65*norm:0.08+0.3*norm);
-        mesh.scale.setScalar(spiked?1.7:(inPat?1.1+0.3*norm:1.0));
-    });
-
-    // ── L1I: glow = v/theta even without spiking (makes charge visible) ──
-    nodesL1I.forEach((mesh,k)=>{
-        const spiked=frame.spk_l1i.includes(k);
-        const norm  =Math.min(Math.max(frame.v_l1i[k]/THETA_L1I,0),1.5);
-        // color shifts from dim red toward bright red as charge builds
-        mesh.material.emissive.setHex(spiked?0xffaaaa:C.L1I);
-        mesh.material.emissiveIntensity=spiked?2.2:0.08+0.75*norm;
-        mesh.scale.setScalar(spiked?1.7:1.0+0.4*norm);
-    });
-
-    // ── L2E: dim green→yellow→white as membrane approaches threshold ──
-    nodesL2E.forEach((mesh,j)=>{
-        const isFired=frame.fired_l2e===j;
-        const v=frame.v_l2e[j];
-        const theta=snn.theta_l2e[j];
-        const norm=Math.min(Math.max(v/theta,0),1.2);
-        if (isFired) {
-            mesh.material.emissive.setHex(0xffffff);
-            mesh.material.emissiveIntensity=3.0;
-            mesh.scale.setScalar(2.0);
-        } else if (norm>0.65) {
-            // approaching threshold: shift green→yellow
-            const t=(norm-0.65)/0.35;
-            mesh.material.emissive.copy(new THREE.Color(C.L2E).lerp(colorYellow,Math.min(t,1)));
-            mesh.material.emissiveIntensity=0.3+1.0*norm;
-            mesh.scale.setScalar(1.0+0.5*norm);
-        } else {
-            mesh.material.emissive.setHex(C.L2E);
-            mesh.material.emissiveIntensity=0.08+0.4*norm;
-            mesh.scale.setScalar(1.0+0.15*norm);
-        }
-    });
-
-    // ── L2I: bright magenta on brake ────────────────────────────
-    const brNode=nodesL2I[0];
-    brNode.material.emissive.setHex(frame.brake?0xffffff:C.L2I);
-    brNode.material.emissiveIntensity=frame.brake?3.0:0.12;
-    brNode.scale.setScalar(frame.brake?2.2:1.0);
-
-    // ── FF lines: opacity ∝ weight; bright flash on active spikes ──
-    const wff=frame.w_ff_snap;
-    connGroups.ff.forEach((line,idx)=>{
-        const l1ei=Math.floor(idx/N_L2E), l2ej=idx%N_L2E;
-        const normW=wff[l2ej][l1ei]/W_L1E_L2E_MAX;
-        const active=frame.spk_l1e.includes(l1ei);
-        // if this is a learning step and these are the active connections → extra bright
-        const isLearnConn=frame.learned && frame.fired_l2e===l2ej && active;
-        line.material.opacity=isLearnConn?0.95:(0.02+0.28*normW+(active?0.38:0));
-        line.material.color.setHex(isLearnConn?0xffe040:(active?0x80ffff:C.FF));
-    });
-
-    // ── EI lines: flash on spike ─────────────────────────────────
-    connGroups.ei.forEach((line,i)=>{
-        const active=frame.spk_l1e.includes(i)||frame.spk_l1i.includes(i);
-        line.material.opacity=active?0.95:0.20;
-        line.material.color.setHex(active?0xff2040:C.EI);
-    });
-
-    // ── GD lines: flash on brake ──────────────────────────────────
-    connGroups.gd.forEach((line,j)=>{
-        const active=frame.fired_l2e===j||frame.brake;
-        line.material.opacity=active?0.90:0.18;
-        line.material.color.setHex(active?0xff80ff:C.GD);
-    });
-
-    // ── SQ lines: flash from winning L2E ─────────────────────────
-    connGroups.sq.forEach((line,idx)=>{
-        const l2ej=Math.floor(idx/N_L1I);
-        const active=frame.fired_l2e===l2ej;
-        line.material.opacity=active?0.50:0.02;
-    });
-
-    // ── Charge-flow particles ────────────────────────────────────
-    // L1E spikes → fan out to L2E (weighted) and to paired L1I
-    for (const i of frame.spk_l1e) {
-        // to paired L1I (inhibitory lateral path)
-        spawnPulse(nodesL1E[i].position, nodesL1I[i].position, 0xff4466, 180);
-        // to L2E — only for connections with some weight (avoids visual clutter)
-        for (let j=0;j<N_L2E;j++) {
-            if (wff[j][i]/W_L1E_L2E_MAX > 0.04) {
-                spawnPulse(nodesL1E[i].position, nodesL2E[j].position, 0x20d0ff, 340);
-            }
-        }
-    }
-    // L1I spikes → inhibitory signal back to L1E space
-    for (const k of frame.spk_l1i) {
-        spawnPulse(nodesL1I[k].position, nodesL1E[k].position, 0xff2020, 160);
-    }
-    // Winner L2E → L2I brake signal
-    if (frame.fired_l2e!==null) {
-        spawnPulse(nodesL2E[frame.fired_l2e].position, nodesL2I[0].position, 0xcc44ff, 280);
-    }
-    // Learning flash: winner → all L1E that contributed (highlight weight update)
-    if (frame.learned && frame.fired_l2e!==null) {
-        for (const i of frame.spk_l1e) {
-            spawnPulse(nodesL2E[frame.fired_l2e].position, nodesL1E[i].position, 0xffe040, 400);
-        }
-    }
-
-    // ── Maturity & LIF bar ───────────────────────────────────────
-    updateMaturity(frame.maturity);
-
-    // ── Status text ─────────────────────────────────────────────
-    document.getElementById('s-step').textContent=frame.t;
-    setStage(frame.stage);
-    document.getElementById('s-winner').textContent=frame.winner!==null?`L2E[${frame.winner}]`:'—';
-
-    // ── Audio ────────────────────────────────────────────────────
-    if (frame.spk_l1e.length>0) sndL1E();
-    frame.spk_l1i.forEach(k=>sndL1I(k));
-    if (frame.fired_l2e!==null) sndWinner(frame.fired_l2e);
-    if (frame.brake) sndBrake();
-    if (frame.learned) sndLearn();
-}
-
-// showInput — display pattern on L1E before simulation runs,
-// weight-colored FF lines so you can see learned structure
-function showInput(pat, snn) {
-    const activeSet=new Set(pat.active);
-    const wff=snn.w_ff;
-
-    nodesL1E.forEach((mesh,i)=>{
-        const inPat=activeSet.has(i);
-        mesh.material.emissive.setHex(C.L1E);
-        mesh.material.emissiveIntensity=inPat?1.1:0.08;
-        mesh.scale.setScalar(inPat?1.3:1.0);
-    });
-    nodesL1I.forEach(mesh=>{ mesh.material.emissive.setHex(C.L1I); mesh.material.emissiveIntensity=0.08; mesh.scale.setScalar(1.0); });
-    const own = patternOwner[patIdx];
-    nodesL2E.forEach((mesh,j)=>{
-        if (j===own) {
-            // owner glows gold even at rest — makes the learned neuron unmissable
-            mesh.material.emissive.setHex(0xffe040);
-            mesh.material.emissiveIntensity=0.9;
-            mesh.scale.setScalar(1.35);
-        } else {
-            mesh.material.emissive.setHex(C.L2E);
-            mesh.material.emissiveIntensity=0.08;
-            mesh.scale.setScalar(1.0);
-        }
-    });
-    nodesL2I[0].material.emissive.setHex(C.L2I); nodesL2I[0].material.emissiveIntensity=0.08; nodesL2I[0].scale.setScalar(1.0);
-
-    // FF: show current learned weights as brightness
-    connGroups.ff.forEach((line,idx)=>{
-        const l1ei=Math.floor(idx/N_L2E), l2ej=idx%N_L2E;
-        const normW=wff[l2ej][l1ei]/W_L1E_L2E_MAX;
-        const inPat=activeSet.has(l1ei);
-        line.material.opacity=0.02+0.32*normW+(inPat?0.15:0);
-        line.material.color.setHex(inPat?0x40c8ff:C.FF);
-    });
-    connGroups.ei.forEach((line,i)=>{ line.material.opacity=activeSet.has(i)?0.55:0.18; line.material.color.setHex(C.EI); });
-    connGroups.gd.forEach(line=>{ line.material.opacity=0.18; line.material.color.setHex(C.GD); });
-    connGroups.sq.forEach(line=>line.material.opacity=0.02);
-
-    updateMaturity(Array.from(snn.maturity));
-    setGrid(pat.active);
-    document.getElementById('s-pattern').textContent=pat.name;
-    document.getElementById('s-step').textContent='—';
-    document.getElementById('s-winner').textContent='—';
-    setStage('input','INPUT');
-}
-
-// ═══════════════════════════════════════════════════════════════════
-// Burst-based state machine
-//
-//  'show'    → display the pattern on L1E for INPUT_MS
-//  'run'     → play back simulation frames
-//  'repause' → brief gap between reps of the SAME pattern (REPAUSE_MS)
-//  'switch'  → longer gap before NEXT pattern (SWITCH_MS)
-//
-// Biological rationale: humans (and SNNs in this model) learn through
-// repeated exposure. Showing the same pattern BURST_REPS times in a
-// row lets you watch the L2E winner go from many steps → 1 step.
-// ═══════════════════════════════════════════════════════════════════
-const snn=new SNN();
-
-// ── Win history → pattern ownership ──────────────────────────────────
-// winHistory[patIdx][l2eIdx] = # of times that L2E neuron won for this pattern.
-// A neuron "owns" a pattern once it has won it at least 3 times.
-const winHistory   = Array.from({length:N_PATS}, ()=>new Array(N_L2E).fill(0));
-const patternOwner = new Array(N_PATS).fill(null); // null | L2E index
-
-function recordWin(pIdx, winner) {
-    if (winner===null) return;
-    winHistory[pIdx][winner]++;
-    const maxW = Math.max(...winHistory[pIdx]);
-    if (maxW>=3) patternOwner[pIdx] = winHistory[pIdx].indexOf(maxW);
-}
-
-function updateOwnerUI(pIdx) {
-    const own = patternOwner[pIdx];
-    const el = document.getElementById('owner-badge');
-    if (own!==null) {
-        el.innerHTML=`<span class="owner-dot"></span><span style="color:var(--yellow)">L2E[${own}]</span>`;
-        // also tint that neuron's maturity bar gold
-        matBarFills.forEach((f,j)=>{ f.style.background = j===own ? 'var(--yellow)' : 'var(--emerald)'; });
-    } else {
-        el.textContent='—';
-        matBarFills.forEach(f=>f.style.background='var(--emerald)');
-    }
-}
-
-// ── Pattern picker buttons ────────────────────────────────────────────
-let autoMode = true;
-const ppGrid = document.getElementById('pat-grid-btns');
-PATTERNS.forEach((pat,i)=>{
-    const btn = document.createElement('button');
-    btn.className = 'pat-btn' + (i===0?' active':'');
-    btn.id = 'pb-'+i;
-    const cells = Array.from({length:9},(_,ci)=>
-        `<span class="pat-cell${pat.active.includes(ci)?' on':''}"></span>`).join('');
-    btn.innerHTML = `<span class="pat-mini">${cells}</span><span>${pat.name}</span>`;
-    btn.addEventListener('click',()=>{
-        patIdx=i; burstRep=0; phase='show'; phaseStart=performance.now();
-        autoMode=false;
-        document.getElementById('tog-auto').checked=false;
-        document.querySelectorAll('.pat-btn').forEach((b,bi)=>b.classList.toggle('active',bi===i));
-        updateOwnerUI(i);
-    });
-    ppGrid.appendChild(btn);
-});
-
-document.getElementById('tog-auto').addEventListener('change',e=>{ autoMode=e.target.checked; });
-
-let epoch=0, patIdx=0, burstRep=0;
-let phase='show', phaseStart=performance.now();
-let frames=[], frameIdx=0, lastStep=0;
-let paused=false;
-let frameDelay=150;   // ms per simulation step; updated by slider
-
-const INPUT_MS  =500;
-const REPAUSE_MS=300;
-const SWITCH_MS =1400;
-
-document.getElementById('btn-pause').addEventListener('click',()=>{
-    paused=!paused;
-    document.getElementById('btn-pause').textContent=paused?'Resume':'Pause';
-});
-document.getElementById('speed-slider').addEventListener('input',e=>{
-    frameDelay=Math.round(280/parseInt(e.target.value));
-});
-
-// ═══════════════════════════════════════════════════════════════════
-// Main loop
-// ═══════════════════════════════════════════════════════════════════
-function animate() {
-    requestAnimationFrame(animate);
-    const now=performance.now();
-    tickParticles(now);
-
-    if (!paused) {
-        const pat=PATTERNS[patIdx];
-
-        if (phase==='show') {
-            showInput(pat,snn);
-            updateBurstDots(burstRep);
-            if (now-phaseStart>INPUT_MS) {
-                frames=snn.processEvent(pat.active);
-                frameIdx=0; lastStep=now;
-                phase='run';
-            }
-
-        } else if (phase==='run') {
-            if (frameIdx<frames.length) {
-                if (now-lastStep>frameDelay) {
-                    applyFrame(frames[frameIdx],pat,snn);
-                    frameIdx++; lastStep=now;
-                }
-            } else {
-                // presentation finished — record steps to fire and update ownership
-                const stfIdx = frames.findIndex(f=>f.fired_l2e!==null);
-                const stf    = stfIdx>=0 ? stfIdx+1 : T_STEPS;
-                const winner = stfIdx>=0 ? frames[stfIdx].winner : null;
-                updateLIFBar(stf);
-                recordWin(patIdx, winner);
-                updateOwnerUI(patIdx);
-                updateBurstDots(burstRep+1);
-                burstRep++;
-                if (burstRep<BURST_REPS) {
-                    phase='repause'; phaseStart=now;
-                } else {
-                    burstRep=0;
-                    phase='switch'; phaseStart=now;
-                }
-            }
-
-        } else if (phase==='repause') {
-            document.getElementById('s-stage').innerHTML='<span class="stage-badge s-switch">NEXT REP</span>';
-            if (now-phaseStart>REPAUSE_MS) { phase='show'; phaseStart=now; }
-
-        } else if (phase==='switch') {
-            document.getElementById('s-stage').innerHTML='<span class="stage-badge s-switch">SWITCHING</span>';
-            if (now-phaseStart>SWITCH_MS) {
-                if (autoMode) {
-                    patIdx=(patIdx+1)%N_PATS;
-                    if (patIdx===0) { epoch++; document.getElementById('s-epoch').textContent=epoch; }
-                    // keep picker buttons in sync
-                    document.querySelectorAll('.pat-btn').forEach((b,bi)=>b.classList.toggle('active',bi===patIdx));
-                    updateOwnerUI(patIdx);
-                }
-                burstRep=0;
-                phase='show'; phaseStart=now;
-            }
-        }
-    }
-
-    // ── Owner torus animation — spins + pulses when neuron owns the pattern ──
-    const curOwner = patternOwner[patIdx];
-    ownerTori.forEach((torus,j)=>{
-        if (j===curOwner) {
-            torus.material.opacity = 0.50 + 0.38*Math.sin(now/260);
-            torus.rotation.y += 0.022;
-            torus.rotation.z += 0.011;
-        } else {
-            // fade out smoothly when not current owner
-            torus.material.opacity = Math.max(0, torus.material.opacity - 0.04);
-        }
-    });
-
-    controls.update();
-    renderer.render(scene,camera);
-}
-animate();
-</script>
+    </script>
 </body>
 </html>
