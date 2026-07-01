@@ -130,9 +130,10 @@ class Neuron:
             v_pre = float(self.potential)
             self.potential -= w                    # linear discharge: V = V - w
             v_post = float(self.potential)
-            # Normalized closeness to firing at inhibition time (clip below 0 so a
-            # hyperpolarized membrane never drives negative learning).
-            p = max(v_pre / theta, 0.0) if theta > 0 else 0.0
+            # Normalized closeness to firing at inhibition time, clamped to [0, 1]:
+            # a hyperpolarized membrane never drives negative learning, and a
+            # neuron already at/above threshold caps the drive at p = 1.
+            p = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
             if w_max > 0:
                 dw = self.inhibitory_learning_rate * p * (1.0 - w / w_max)
             else:

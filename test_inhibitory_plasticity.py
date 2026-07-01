@@ -36,7 +36,7 @@ from cortical_column_flexible import CorticalColumn
 
 def _print_event(tag, ev):
     print(f"    [{tag}] V_pre={ev['v_pre']:+.4f}  V_post={ev['v_post']:+.4f}  "
-          f"theta={ev['theta']:.3f}  p=V_pre/theta={ev['p']:.4f}  "
+          f"theta={ev['theta']:.3f}  p=clamp(V_pre/theta)={ev['p']:.4f}  "
           f"w_before={ev['w_before']:.4f}  delta_w={ev['delta_w']:+.5f}  "
           f"w_after={ev['w_after']:.4f}")
 

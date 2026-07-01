@@ -41,7 +41,7 @@ learns from how close that neuron was to firing at the moment of inhibition
 
 ```
 V_pre  = V ;  V = V - w ;  V_post = V     # linear discharge
-p      = V_pre / theta                    # normalized closeness to firing
+p      = clamp(V_pre / theta, 0, 1)       # normalized closeness to firing
 delta_w = eta * p * (1 - w / w_max)       # saturating; finite synaptic resource
 w      = w + delta_w                      # gate strengthens toward w_max
 ```

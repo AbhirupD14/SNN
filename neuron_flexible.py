@@ -147,7 +147,8 @@ class Neuron:
             v_pre = float(self.potential)
             self.potential -= w                    # linear discharge: V = V - w
             v_post = float(self.potential)
-            p = max(v_pre / theta, 0.0) if theta > 0 else 0.0
+            # Normalized closeness to firing, clamped to [0, 1].
+            p = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
             if w_max > 0:
                 dw = self.inhibitory_learning_rate * p * (1.0 - w / w_max)
             else:
