@@ -150,6 +150,7 @@ class SimulationEngine:
         self.changed_synapses: list[dict] = []
         self.l2_drive: dict[str, float] = {}
         self.winner: str | None = None
+        self._inh_events: list[tuple] = []   # (neuron_id, event) from this step's discharges
 
         self._log('backend', f'network built (seed={p["seed"]}, immediate delivery, '
                              f'{len(self.neurons)} neurons, {len(self.synapses)} synapses)')
@@ -238,13 +239,22 @@ class SimulationEngine:
 
         # 1. L1E: [paired I1's previous spike (local inhibition), external pixel].
         #    Pixels fire in synchronized volleys so charge arrives in bursts.
+        #    Excitatory pixel drive goes through receive_input; the inhibitory
+        #    discharge is delivered as its own event via apply_inhibition, which
+        #    also runs the inhibitory-gate plasticity rule. The net membrane before
+        #    threshold (ext - |w_inh|) is identical to the old summed delivery, so
+        #    spike timing and event ordering are unchanged.
         volley = (t % self.params['volley_period'] == 0)
+        self._inh_events = []
         for i, e in enumerate(l1.excitatory_neurons):
             ext = 1.0 if (volley and self.input_vec[i] > 0.5) else 0.0
+            e.receive_input(np.array([0.0, ext]))
             # Inhibition is only relevant on volley steps; the hold persists from
             # the previous volley's L1I activity so refractory doesn't swallow it.
             inh = float(self.l1i_hold[i]) if volley else 0.0
-            e.receive_input(np.array([inh, ext]))
+            if inh > 0.5:
+                for ev in e.apply_inhibition(np.array([1.0, 0.0])):
+                    self._inh_events.append((f'L1E{i}', ev))
 
         self._apply_stim()
 
@@ -327,8 +337,22 @@ class SimulationEngine:
             self.l1i_hold = l1i
         self.timestep += 1
         self._detect_weight_changes()
+        self._log_inhibitory_events()
         self._update_winner(l2e)
         return self.dynamic_state()
+
+    def _log_inhibitory_events(self):
+        """Surface inhibitory-discharge plasticity into the event log for the
+        dashboard. Only events that actually moved a gate (|delta_w| > eps) are
+        logged, so a saturated gate (delta_w == 0) doesn't flood the panel; the
+        full per-event debug record always lives on each neuron's
+        last_inhibitory_events."""
+        for nid, ev in self._inh_events:
+            if abs(ev['delta_w']) > WEIGHT_EPS:
+                self._log('inhibition',
+                          f"{nid} gate: Vpre={ev['v_pre']:.3f} θ={ev['theta']:.2f} "
+                          f"p={ev['p']:.2f} |w| {ev['w_before']:.3f}->{ev['w_after']:.3f} "
+                          f"(Δ={ev['delta_w']:+.4f})")
 
     def _apply_stim(self):
         for nid, mag in list(self._pulses.items()):

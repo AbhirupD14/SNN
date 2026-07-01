@@ -9,19 +9,23 @@ class Neuron:
     the difference is in the sign of their synaptic weights.
     """
     
-    def __init__(self, n_inputs, threshold=1.0, refractory_period=2, 
-                 weight_init_range=(-0.5, 0.5), learning_rate=0.1, weight_cap=1.0, leak_rate=0.01):
+    def __init__(self, n_inputs, threshold=1.0, refractory_period=2,
+                 weight_init_range=(-0.5, 0.5), learning_rate=0.1, weight_cap=1.0, leak_rate=0.01,
+                 inhibitory_learning_rate=0.05):
         """
         Initialize a neuron.
-        
+
         Args:
             n_inputs (int): Number of input connections
             threshold (float): Firing threshold (constant)
             refractory_period (int): Refractory period in time steps (1ms each)
             weight_init_range (tuple): Min and max for random weight initialization
-            learning_rate (float): Amount weights increase when neuron fires
-            weight_cap (float): Maximum absolute value for weights (weights clipped to [-weight_cap, weight_cap])
+            learning_rate (float): Amount weights increase when neuron fires (excitatory plasticity)
+            weight_cap (float): Maximum absolute value for weights (weights clipped to [-weight_cap, weight_cap]).
+                Also serves as w_max, the saturating magnitude ceiling for inhibitory plasticity.
             leak_rate (float): Fraction of potential that leaks away per time step (0 = no leak, 1 = full leak)
+            inhibitory_learning_rate (float): eta for the inhibitory-discharge plasticity rule
+                (see apply_inhibition). 0 disables inhibitory learning.
         """
         # Neuron properties
         self.threshold = threshold          # Constant firing threshold
@@ -36,9 +40,14 @@ class Neuron:
         )  # Random weight initialization
         # Ensure initial weights are within caps
         self.weights = np.clip(self.weights, -weight_cap, weight_cap)
-        self.learning_rate = learning_rate  # Weight increase amount when firing
-        self.weight_cap = weight_cap        # Maximum absolute weight value
+        self.learning_rate = learning_rate  # Weight increase amount when firing (excitatory)
+        self.weight_cap = weight_cap        # Maximum absolute weight value (also w_max for inhibition)
         self.leak_rate = leak_rate          # Leak rate (fraction of potential lost per ms)
+        self.inhibitory_learning_rate = inhibitory_learning_rate  # eta for inhibitory plasticity
+
+        # Debug record of the inhibitory-discharge events from the most recent
+        # apply_inhibition() call (one dict per event). See apply_inhibition.
+        self.last_inhibitory_events = []
 
         # Per-synapse eligibility trace: integrates which input lines delivered
         # charge, with the same leak as the membrane. Used to credit only the
@@ -69,7 +78,72 @@ class Neuron:
             self.potential += input_current
             # Track which lines delivered the charge (un-summed membrane)
             self.trace += input_spikes
-            
+
+    def apply_inhibition(self, inhibitory_spikes):
+        """
+        Deliver inhibitory-discharge events and run the inhibitory plasticity rule.
+
+        This is the second, INDEPENDENT learning system (the excitatory rule in
+        _update_weights is untouched and fires only on a postsynaptic spike). An
+        inhibitory synapse is any afferent whose weight is negative; here it acts
+        as an adaptive suppression gate. For every inhibitory synapse that carries
+        a spike this step we, per the algorithm:
+
+            1. V_pre  = V                       (how charged the neuron was)
+            2. V      = V - w   (w = |weight|)  (linear inhibitory discharge)
+               V_post = V
+            3. p      = V_pre / theta           (normalized closeness to firing)
+            4. dw     = eta * p * (1 - w / w_max)   (saturating; w_max = weight_cap)
+            5. w      = w + dw                   (gate strengthens toward w_max)
+
+        The gate strengthens most when it suppressed a neuron that was *close to
+        firing* (p near 1) and saturates as w -> w_max (finite synaptic resource),
+        so no global normalization is needed. Weights are stored with their sign
+        (inhibitory = negative), so internally we work on the magnitude w = |weight|
+        and write back the negated result, keeping |w| growing (sign-preserving).
+
+        Learning is local (uses only this neuron's V, theta, and the synapse's own
+        weight), event-driven (only on an inhibitory discharge), and gradient-free.
+
+        Args:
+            inhibitory_spikes (array-like): per-synapse spike flags (aligned to
+                self.weights). Only entries on negative-weight synapses matter.
+
+        Returns:
+            list[dict]: one debug record per inhibitory event, with keys
+            v_pre, v_post, theta, p, w_before, delta_w, w_after (and index).
+        """
+        events = []
+        self.last_inhibitory_events = events
+        # Refractory neurons are clamped to rest and do not integrate input, so
+        # they also do not undergo inhibitory discharge/learning (parity with
+        # receive_input's refractory gate).
+        if self.refractory_timer > 0:
+            return events
+
+        spikes = np.asarray(inhibitory_spikes, dtype=float)
+        theta = self.threshold
+        w_max = self.weight_cap
+        active = np.nonzero((self.weights < 0) & (spikes > 0.5))[0]
+        for idx in active:
+            w = -float(self.weights[idx])          # magnitude of the inhibitory gate
+            v_pre = float(self.potential)
+            self.potential -= w                    # linear discharge: V = V - w
+            v_post = float(self.potential)
+            # Normalized closeness to firing at inhibition time (clip below 0 so a
+            # hyperpolarized membrane never drives negative learning).
+            p = max(v_pre / theta, 0.0) if theta > 0 else 0.0
+            if w_max > 0:
+                dw = self.inhibitory_learning_rate * p * (1.0 - w / w_max)
+            else:
+                dw = 0.0
+            w_new = min(max(w + dw, 0.0), w_max)   # saturate at the finite ceiling
+            self.weights[idx] = -w_new             # keep the inhibitory sign
+            events.append(dict(index=int(idx), v_pre=v_pre, v_post=v_post,
+                               theta=theta, p=p, w_before=w,
+                               delta_w=w_new - w, w_after=w_new))
+        return events
+
     def update(self):
         """
         Update neuron state for next time step.

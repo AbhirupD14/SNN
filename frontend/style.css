@@ -238,4 +238,5 @@ canvas.chart, #histogram { width: 100%; display: block; }
 .log-line.learning .kind { color: var(--win); }
 .log-line.backend .kind { color: var(--txt-1); }
 .log-line.spike .kind { color: var(--exc); }
+.log-line.inhibition .kind { color: var(--inh); }
 .log-line .msg { color: var(--txt-0); }

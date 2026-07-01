@@ -15,38 +15,70 @@ time. Pure NumPy, neuron-local learning, no gradients or supervision.
   feedforward synapse **per source** (per-pixel receptive fields) plus a shared
   inhibitory neuron.
 
-### Learning rule
+### Learning rules
 
-Each synapse carries an **eligibility trace** — the un-summed counterpart of the
-membrane potential — that accumulates presynaptic activity and leaks at the same
-rate. When a neuron fires:
+There are **two independent, local, event-driven, gradient-free** plasticity
+systems.
+
+**1. Excitatory plasticity — on a postsynaptic spike.** Each synapse carries an
+**eligibility trace** — the un-summed counterpart of the membrane potential —
+that accumulates presynaptic activity and leaks at the same rate. When a neuron
+fires:
 
 ```
 weights += learning_rate * trace * sign(weights)
 ```
 
 so only the synapses that actually delivered charge are credited, and each is
-strengthened in the direction of its own sign (excitatory → more positive,
-inhibitory → more negative). A neuron is excitatory or inhibitory purely by the
-sign of the weight it lands on in its target; inhibitory neurons just fire and
-train their own afferents with the identical rule.
+strengthened in the direction of its own sign. A neuron is excitatory or
+inhibitory purely by the sign of the weight it lands on in its target.
 
-> **Not yet added (deliberately):** a counter-force (normalization / homeostasis
-> / maturation). Weights currently only ever grow toward the cap, so a single
-> neuron can win every pattern — see Test B below.
+**2. Inhibitory plasticity — on an inhibitory discharge** (`Neuron.apply_inhibition`).
+An inhibitory synapse is treated as a **finite adaptive suppression gate**. When
+an inhibitory spike discharges an excitatory neuron, and *only* then, the gate
+learns from how close that neuron was to firing at the moment of inhibition
+(`w = |weight|`, `w_max = weight_cap`, `theta = threshold`):
+
+```
+V_pre  = V ;  V = V - w ;  V_post = V     # linear discharge
+p      = V_pre / theta                    # normalized closeness to firing
+delta_w = eta * p * (1 - w / w_max)       # saturating; finite synaptic resource
+w      = w + delta_w                      # gate strengthens toward w_max
+```
+
+The gate strengthens most when it suppresses a **near-winner** (`p → 1`) and
+saturates as `w → w_max`, so competition stays bounded **with no global
+normalization**. Sign is preserved (inhibitory weights stay negative; `|w|`
+grows). The two systems never touch the same weights: excitatory plasticity moves
+only positive synapses, inhibitory plasticity only the negative gate it
+discharged through.
+
+> **Note on the excitatory counter-force:** a homeostatic weight *budget*
+> (renormalizing positive weights to a fixed sum) exists on the `Neuron` and is
+> enabled for L2 neurons in the dashboard, but is left *off* in
+> `test_8line_consolidation.py`, which still shows the single-winner collapse
+> (Test B). The inhibitory gate above is a *different*, local counter-force that
+> bounds competition without any global sum.
 
 ## Tests
 
 - **`test_neuron.py`** — unit tests for both neuron classes: trace gating, sign
-  preservation, leak, weight cap, refractory, flexible-fan-in parity.
+  preservation, leak, weight cap, refractory, flexible-fan-in parity, and the
+  inhibitory-discharge rule (exact dynamics, near-winner specialization,
+  saturation at `w_max`, refractory gating, independence from the excitatory rule).
 - **`test_8line_consolidation.py`** — 8 line patterns on a 3×3 grid through an
   L1→L2 network. Test A shows a winning neuron forming a selective receptive
   field on a pattern's active pixels; Test B characterizes the current
   single-winner collapse that awaits the counter-force.
+- **`test_inhibitory_plasticity.py`** — demonstrates the inhibitory gate: gates
+  onto near-threshold neurons strengthen most and saturate at `w_max`, then an
+  in-network column run. Prints the per-event debug outputs (`V_pre`, `V_post`,
+  `theta`, `p`, `w_before`, `delta_w`, `w_after`).
 
 ```
 python3 test_neuron.py
 python3 test_8line_consolidation.py
+python3 test_inhibitory_plasticity.py
 ```
 
 ## Dashboard
