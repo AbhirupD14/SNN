@@ -1,5 +1,11 @@
-// Right-sidebar neuron inspector. Reads the shared store (static meta + current
-// weights + latest dynamic state) and renders detail cards for the selected neuron.
+// Right-sidebar neuron inspector.  Reads the shared store (static meta +
+// current weights + latest dynamic state) and renders detail cards for the
+// selected neuron.
+//
+// Bug fix: render() used to return silently when stateById was empty (race
+// between click and first dynamic message, or paused simulation).  Now it
+// shows a loading placeholder and retries via requestAnimationFrame so the
+// panel always self-populates as soon as data arrives.
 
 export class Inspector {
   constructor(store) {
@@ -14,6 +20,11 @@ export class Inspector {
     this.empty.hidden = true;
     this.body.hidden = false;
     this.render();
+    // If data wasn't available yet, schedule a single retry once the browser
+    // paints the next frame (handles first-load race and paused simulations).
+    if (!this.store.stateById.get(id)) {
+      requestAnimationFrame(() => { if (this.id === id) this.render(); });
+    }
   }
 
   refresh() { if (this.id) this.render(); }
@@ -21,17 +32,23 @@ export class Inspector {
   render() {
     const s = this.store;
     const meta = s.meta.get(this.id);
+    if (!meta) return;   // topology not received yet
+
     const state = s.stateById.get(this.id);
-    if (!meta || !state) return;
+    if (!state) {
+      this.body.innerHTML = '<div style="padding:1rem;color:var(--txt-2);font-size:12px">Waiting for simulation data…</div>';
+      return;
+    }
 
     const incoming = [], outgoing = [];
-    for (const syn of s.topology.synapses) {
+    for (const syn of (s.topology?.synapses ?? [])) {
       const w = s.weights.get(syn.id) ?? syn.weight ?? 0;
       if (syn.target === this.id) incoming.push({ ...syn, w, other: syn.source });
       if (syn.source === this.id) outgoing.push({ ...syn, w, other: syn.target });
     }
     const strongest = [...incoming, ...outgoing].sort((a, b) => Math.abs(b.w) - Math.abs(a.w)).slice(0, 4);
     const col = meta.type === 'E' ? 'var(--exc)' : 'var(--inh)';
+    const chargeBarPct = Math.max(0, Math.min(1, state.activation)) * 100;
 
     this.body.innerHTML = `
       <div class="insp-head">
@@ -40,21 +57,27 @@ export class Inspector {
           <div class="insp-id">${this.id}</div>
           <div class="insp-tags">
             <span class="tag">${meta.layer}</span>
-            <span class="tag ${meta.type}">${meta.type === 'E' ? 'excitatory' : 'inhibitory'}</span>
+            <span class="tag">${meta.type === 'E' ? 'excitatory' : 'inhibitory'}</span>
             ${state.assembly ? `<span class="tag" style="color:var(--win)">assembly</span>` : ''}
           </div>
         </div>
       </div>
       <div class="insp-cards">
-        ${card('Activation', state.activation.toFixed(3), bar(state.activation))}
-        ${card('Membrane V', state.potential.toFixed(3))}
         ${card('Threshold', meta.threshold.toFixed(2))}
-        ${card('Firing', `<span class="firing-badge ${state.spiked ? 'yes' : 'no'}">${state.spiked ? 'SPIKE' : 'idle'}</span>`, '', true)}
-        ${card('Firing freq', (state.freq * 100).toFixed(0) + '%', bar(state.freq))}
-        ${card('Refractory', state.refractory)}
+        ${card('Charge', `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-variant-numeric:tabular-nums">${state.potential.toFixed(3)}</span>
+            <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${chargeBarPct}%;background:${col};border-radius:3px;transition:width .1s"></div>
+            </div>
+            <span style="color:var(--txt-2);font-size:11px">${(state.activation * 100).toFixed(0)}%</span>
+          </div>`)}
+        ${card('Spike', `<span class="firing-badge ${state.spiked ? 'yes' : 'no'}">${state.spiked ? 'SPIKE' : 'idle'}</span>`, '', true)}
+        ${card('Firing freq', (state.freq * 100).toFixed(1) + '%', bar(state.freq))}
+        ${card('Refractory', state.refractory + ' steps')}
         ${synCard('Strongest connections', strongest, this.id)}
-        ${synCard(`Incoming synapses (${incoming.length})`, incoming, this.id)}
-        ${synCard(`Outgoing synapses (${outgoing.length})`, outgoing, this.id)}
+        ${synCard(`Incoming (${incoming.length})`, incoming, this.id)}
+        ${synCard(`Outgoing (${outgoing.length})`, outgoing, this.id)}
       </div>`;
   }
 }

@@ -62,7 +62,7 @@ function onMessage(msg) {
     const fps = tickFps();
     renderer.update(dyn);
     charts.update(dyn, fps);
-    inspector.refresh();
+    inspector.refresh();   // re-renders if a neuron was already selected
     controls.onDynamic(dyn);
     updateTopbar(dyn, fps);
   }

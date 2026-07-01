@@ -1,6 +1,14 @@
 // Interactive 3D neuron/synapse renderer (Three.js). Objects are built once from
-// the topology and then only their materials/scales are mutated per frame, so the
-// render loop never rebuilds the scene graph.
+// the topology and then only their materials/scales are mutated per frame.
+//
+// Charge rings: each neuron has a TorusGeometry ring that scales from 0→1 as
+// the membrane potential climbs from 0→threshold.  The ring billboards to the
+// camera every frame so it always reads as a circular halo.  On spike the ring
+// briefly blooms white before snapping back to zero.
+//
+// Spike visualisation: traveling orbs are replaced by an instantaneous edge
+// flash.  Any synapse in the `emitted` list gets pulse=1.0, turning the edge
+// white for ~2 frames before fading back to its colour.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
@@ -9,18 +17,15 @@ const COLORS = {
   E: 0x5eead4, I: 0xf0788c, winner: 0xffce5c,
   feedforward: 0x4cc38a, inhibition: 0xf0788c, excitation: 0x7c9cff, feedback: 0xc084fc,
 };
-const WEAK = 0.25;   // |weight| below this is "weak" for the hide-weak filter
+const WEAK = 0.25;
 
 export class NeuronRenderer {
   constructor(container, { onSelect }) {
     this.container = container;
     this.onSelect = onSelect;
-    this.neurons = new Map();     // id -> {mesh, meta, pulse, spiked, act, freq, assembly}
+    // id -> {mesh, ring, meta, pulse, spiked, act, freq, assembly}
+    this.neurons = new Map();
     this.edges = new Map();       // id -> {line, mat, syn, weight, pulse}
-    this.orbs = [];               // charges in flight: {mesh, syn, from, to, start, dur}
-    this.orbPool = [];            // recycled orb meshes
-    this.orbCount = new Map();    // synapse id -> orbs currently travelling on it
-    this.simSpeed = 12;           // steps/sec, used to convert conduction delay -> seconds
     this.filters = { active: false, weak: true, assembly: false, l1: true, l2: true, inh: true };
     this._last = null;
     this._selected = null;
@@ -47,7 +52,6 @@ export class NeuronRenderer {
     const p1 = new THREE.PointLight(0x9fc4ff, 0.8, 120); p1.position.set(14, 10, 24); scene.add(p1);
     const p2 = new THREE.PointLight(0x5eead4, 0.5, 120); p2.position.set(-16, -12, 6); scene.add(p2);
 
-    // winner halo (moved onto the current winner each frame)
     const halo = new THREE.Mesh(
       new THREE.TorusGeometry(1.05, 0.06, 12, 40),
       new THREE.MeshBasicMaterial({ color: COLORS.winner, transparent: true, opacity: 0.9 }));
@@ -68,17 +72,20 @@ export class NeuronRenderer {
 
   // ------------------------------------------------------------- build
   build(topology) {
-    for (const { mesh } of this.neurons.values()) this.scene.remove(mesh);
+    for (const { mesh, ring } of this.neurons.values()) {
+      this.scene.remove(mesh);
+      if (ring) this.scene.remove(ring);
+    }
     for (const { line } of this.edges.values()) this.scene.remove(line);
-    for (const o of this.orbs) this.scene.remove(o.mesh);
-    this.orbs = []; this.orbPool = []; this.orbCount.clear();
     this.neurons.clear(); this.edges.clear();
     this.pos = new Map();
 
     for (const m of topology.neurons) {
       this.pos.set(m.id, new THREE.Vector3(m.pos[0], m.pos[1], m.pos[2]));
     }
+
     for (const m of topology.neurons) {
+      // Neuron sphere
       const r = m.layer === 'L2' ? (m.type === 'I' ? 0.62 : 0.55) : (m.type === 'I' ? 0.34 : 0.44);
       const geo = new THREE.SphereGeometry(r, 24, 18);
       const mat = new THREE.MeshStandardMaterial({
@@ -88,8 +95,23 @@ export class NeuronRenderer {
       mesh.position.copy(this.pos.get(m.id));
       mesh.userData.id = m.id;
       this.scene.add(mesh);
-      this.neurons.set(m.id, { mesh, meta: m, pulse: 0, spiked: false, act: 0, freq: 0, assembly: null });
+
+      // Charge ring: TorusGeometry around the sphere, starts at scale 0.
+      // Inner radius slightly larger than the sphere; thin tube.
+      const ringR = r + 0.18;
+      const tubeR = m.layer === 'L2' ? 0.055 : 0.042;
+      const ringGeo = new THREE.TorusGeometry(ringR, tubeR, 8, 40);
+      const ringMat = new THREE.MeshBasicMaterial({
+        color: COLORS[m.type], transparent: true, opacity: 0,
+        depthWrite: false });
+      const ring = new THREE.Mesh(ringGeo, ringMat);
+      ring.position.copy(this.pos.get(m.id));
+      ring.scale.setScalar(0);
+      this.scene.add(ring);
+
+      this.neurons.set(m.id, { mesh, ring, meta: m, pulse: 0, spiked: false, act: 0, freq: 0, assembly: null });
     }
+
     for (const s of topology.synapses) {
       const a = this.pos.get(s.source), b = this.pos.get(s.target);
       if (!a || !b) continue;
@@ -118,57 +140,20 @@ export class NeuronRenderer {
     }
     if (dynamic.changed_synapses?.length) this._applyEdgeWeights();
     this._winner = dynamic.winner;
-    if (dynamic.speed) this.simSpeed = dynamic.speed;
+    if (dynamic.speed) this._simSpeed = dynamic.speed;
     this._applyFilters();
-    for (const c of dynamic.emitted || []) this._spawnOrb(c.syn, c.delay);
-  }
 
-  // ---- traveling charges (conduction delay) ----------------------------
-  _spawnOrb(synId, delaySteps) {
-    if (this.orbs.length >= 280) return;              // global safety cap
-    const edge = this.edges.get(synId);
-    if (!edge || !edge.line.visible) return;          // respect display filters
-    if ((this.orbCount.get(synId) || 0) >= 2) return; // at most 2 orbs per edge at once
-    const from = this.pos.get(edge.syn.source), to = this.pos.get(edge.syn.target);
-    if (!from || !to) return;
-    let mesh = this.orbPool.pop();
-    if (!mesh) {
-      mesh = new THREE.Mesh(
-        new THREE.SphereGeometry(0.11, 8, 6),
-        new THREE.MeshBasicMaterial({ transparent: true, opacity: 0.8,
-          blending: THREE.AdditiveBlending, depthWrite: false }));
+    // Flash each edge that carried a spike this step.
+    for (const synId of dynamic.emitted || []) {
+      const edge = this.edges.get(synId);
+      if (edge) edge.pulse = 1.0;
     }
-    mesh.material.color.setHex(COLORS[edge.syn.kind] ?? 0xffffff);
-    mesh.position.copy(from);
-    mesh.visible = true;
-    this.scene.add(mesh);
-    this.orbCount.set(synId, (this.orbCount.get(synId) || 0) + 1);
-    this.orbs.push({ mesh, syn: synId, from, to,
-      start: performance.now(),
-      dur: Math.max(150, (delaySteps / Math.max(1, this.simSpeed)) * 1000) });
-  }
-
-  _updateOrbs(now) {
-    const alive = [];
-    for (const o of this.orbs) {
-      const p = (now - o.start) / o.dur;
-      if (p >= 1) {
-        o.mesh.visible = false; this.scene.remove(o.mesh); this.orbPool.push(o.mesh);
-        this.orbCount.set(o.syn, Math.max(0, (this.orbCount.get(o.syn) || 1) - 1));
-      } else {
-        o.mesh.position.lerpVectors(o.from, o.to, p);
-        const s = 1 + 0.5 * Math.sin(Math.PI * p);   // gentle grow-then-shrink
-        o.mesh.scale.setScalar(s);
-        alive.push(o);
-      }
-    }
-    this.orbs = alive;
   }
 
   _applyEdgeWeights() {
     for (const e of this.edges.values()) {
       const mag = Math.min(1, Math.abs(e.weight));
-      e.baseOpacity = 0.04 + 0.32 * mag;   // fainter resting web so orbs read clearly
+      e.baseOpacity = 0.04 + 0.32 * mag;
     }
   }
 
@@ -176,7 +161,6 @@ export class NeuronRenderer {
 
   _applyFilters() {
     const F = this.filters, win = this._winner;
-    // neurons whose feedforward feeds the winner (for assembly isolation)
     const assemblyNeurons = new Set();
     if (win) {
       assemblyNeurons.add(win);
@@ -193,6 +177,7 @@ export class NeuronRenderer {
       if (F.active && e.act < 0.05 && !e.spiked) vis = false;
       if (F.assembly && win && !assemblyNeurons.has(id)) vis = false;
       e.mesh.visible = vis;
+      if (e.ring) e.ring.visible = vis;
     }
     for (const e of this.edges.values()) {
       let vis = true;
@@ -217,7 +202,7 @@ export class NeuronRenderer {
     if (!this._down) return;
     const moved = Math.hypot(e.clientX - this._down[0], e.clientY - this._down[1]);
     this._down = null;
-    if (moved > 5) return;                      // was a drag, not a click
+    if (moved > 5) return;
     const rect = this.renderer.domElement.getBoundingClientRect();
     this._pointer.x = ((e.clientX - rect.left) / rect.width) * 2 - 1;
     this._pointer.y = -((e.clientY - rect.top) / rect.height) * 2 + 1;
@@ -236,7 +221,9 @@ export class NeuronRenderer {
 
   _loop() {
     requestAnimationFrame(() => this._loop());
+
     for (const [id, e] of this.neurons) {
+      // Sphere glow
       e.pulse *= 0.86;
       const glow = Math.max(e.act * 0.5, e.freq * 0.9) + e.pulse * 1.6;
       const isWin = id === this._winner;
@@ -244,24 +231,40 @@ export class NeuronRenderer {
       e.mesh.material.emissiveIntensity = THREE.MathUtils.clamp(0.08 + glow, 0.06, 2.2);
       const sel = id === this._selected ? 1.35 : 1;
       e.mesh.scale.setScalar((1 + e.pulse * 0.5) * sel);
+
+      // Charge ring: scale = activation (0 → 1), blooms on spike via pulse.
+      if (e.ring && e.mesh.visible) {
+        const charge = THREE.MathUtils.clamp(e.act, 0, 1.5);
+        const ringScale = charge + e.pulse * 0.5;
+        e.ring.scale.setScalar(ringScale);
+        // Opacity: invisible at zero charge, fully opaque at threshold.
+        e.ring.material.opacity = charge < 0.02 ? 0 : THREE.MathUtils.clamp(0.3 + 0.6 * charge + e.pulse * 0.2, 0, 1);
+        // Colour: white flash on spike, winner gold, else type colour.
+        if (e.pulse > 0.6) {
+          e.ring.material.color.setHex(0xffffff);
+        } else {
+          e.ring.material.color.setHex(isWin ? COLORS.winner : COLORS[e.meta.type]);
+        }
+        // Billboard to camera so the ring always reads as a flat halo.
+        e.ring.quaternion.copy(this.camera.quaternion);
+      }
     }
+
     for (const e of this.edges.values()) {
       e.pulse *= 0.9;
       e.mat.opacity = Math.min(1, (e.baseOpacity ?? 0.1) + e.pulse * 0.5);
       if (e.pulse > 0.05) e.mat.color.setHex(0xffffff);
       else e.mat.color.setHex(COLORS[e.syn.kind]);
     }
+
     if (this._winner && this.pos?.get(this._winner)) {
       const w = this.neurons.get(this._winner);
       this.halo.visible = !!w && w.mesh.visible;
-      // glide toward the winner rather than teleporting, so rolling-winner changes
-      // read as a smooth move instead of a flicker
       this.halo.position.lerp(this.pos.get(this._winner), 0.16);
       this.halo.quaternion.copy(this.camera.quaternion);
       this.halo.rotation.z += 0.01;
     } else this.halo.visible = false;
 
-    this._updateOrbs(performance.now());
     this.controls.update();
     this.renderer.render(this.scene, this.camera);
   }

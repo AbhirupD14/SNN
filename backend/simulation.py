@@ -1,20 +1,27 @@
 """
-SimulationEngine -- a steppable wrapper around the (unmodified) spiking network in
-neuron.py / layers.py / cortical_column_flexible.py.
+SimulationEngine -- steppable wrapper around the spiking network.
 
-This version adds distance-based CONDUCTION DELAYS. Every neuron has a 3D position;
-a spike travels from source to target over `round(distance / SPEED)` timesteps.
-The long feedforward (L1E->L2E) and feedback (L2E->L1I) axons are delayed; local
-inhibition and the WTA loop stay same-step. Because the L2 neurons integrate with a
-fast leak, they act as COINCIDENCE DETECTORS: a pattern fires the L2 neuron whose
-delays make that pattern's pixels arrive together. The L2 positions were chosen so
-each of the 8 line patterns has a distinct coincidence home -- this breaks the
-single-winner tyranny without any adaptation term.
+Spikes are delivered immediately (no conduction delays). Every neuron has a
+3D position for display; the L2 positions in L2_HOMES remain so the layout
+is meaningful in the viewport, but they no longer imply any timing.
 
-The engine is the only contact point between the neural computation and the
-dashboard: it owns cross-timestep state, exposes control verbs, and produces
-plain-Python snapshots of the static topology and the per-timestep dynamic state
-(including the charges currently in flight, for the traveling-orb animation).
+Learning architecture:
+  - L1E neurons are treated as pre-trained pixel encoders: weights are fixed
+    at [-1.0, 1.0] and learning_rate = 0.  They fire whenever the external
+    pixel is active and they are not suppressed by their paired L1I neuron.
+  - L2E neurons carry a homeostatic weight budget equal to the threshold.
+    Only their positive (feedforward) incoming weights are counted; the
+    inhibitory index-0 weight is excluded.  As learning strengthens active
+    synapses, the budget normalisation weakens the others, producing
+    competitive receptive-field emergence.
+  - L1I / L2I (inhibitory) neurons carry NO budget.  Instead, each
+    individual incoming weight is capped at the threshold.  This lets timing
+    dynamics train freely without distorting receptive fields.
+
+With slow leak_l2 (~0.01) and small initial feedforward weights, L2E neurons
+require many volleys to fire at first (classic LIF accumulation).  As
+synapses specialise, they fire from a single volley (pattern integrator).
+The charge-ring visualisation makes this transition directly observable.
 """
 
 from __future__ import annotations
@@ -31,7 +38,6 @@ from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
 
 
-# --- the first experiment: 8 straight lines on a 3x3 grid (row-major) ----------
 PATTERNS = {
     'row 0':    [1, 1, 1, 0, 0, 0, 0, 0, 0],
     'row 1':    [0, 0, 0, 1, 1, 1, 0, 0, 0],
@@ -43,26 +49,20 @@ PATTERNS = {
     'diag /':   [0, 0, 1, 0, 1, 0, 1, 0, 0],
 }
 
-# Coincidence-home position for each L2 neuron (found offline so that each line
-# pattern's active pixels arrive coincidentally at exactly one neuron). Index order
-# matches the pattern order above, but the neurons are not "told" their pattern --
-# the mapping emerges from the delays.
+# 3D layout for the 8 L2 output neurons — evenly spaced ring in the XY plane.
+import math as _math
+_R, _Z = 3.2, 4.0
 L2_HOMES = [
-    (-0.40, -3.20, 3.09),   # 0
-    (0.00, -2.00, 3.56),    # 1
-    (-0.40, 3.20, 3.09),    # 2
-    (3.20, -0.40, 3.09),    # 3
-    (-2.00, 0.00, 3.56),    # 4
-    (-3.20, -0.40, 3.09),   # 5
-    (-3.60, -3.60, 3.09),   # 6
-    (3.60, -3.60, 3.09),    # 7
+    (round(_R * _math.cos(k * _math.pi / 4), 4),
+     round(_R * _math.sin(k * _math.pi / 4), 4),
+     _Z)
+    for k in range(8)
 ]
 
 N_PIX = 9
 N_OUT = 8
 GRID = 2.2
-SPEED = 0.30              # distance units travelled per timestep (sets conduction delays)
-L2E_FANIN = 1 + N_PIX     # [local_I, *pixels]
+L2E_FANIN = 1 + N_PIX     # [local_I_placeholder, *pixels]
 FREQ_WINDOW = 40
 WEIGHT_EPS = 1e-6
 LOG_MAX = 400
@@ -70,61 +70,78 @@ LOG_MAX = 400
 
 class SimulationEngine:
     def __init__(self, seed: int = 1,
-                 threshold: float = 0.5, leak_l1: float = 0.10, leak_l2: float = 0.40,
-                 learning_rate: float = 0.05, weight_cap: float = 1.0, refractory: int = 2,
-                 volley_period: int = 32):
-        self.params = dict(seed=seed, threshold=threshold, leak_l1=leak_l1, leak_l2=leak_l2,
+                 threshold: float = 1.0,
+                 threshold_l2: float = 4.0,
+                 leak_l1: float = 0.10,
+                 leak_l2: float = 0.01,
+                 learning_rate: float = 0.05,
+                 weight_cap: float = 1.0,
+                 refractory: int = 2,
+                 volley_period: int = 4):
+        self.params = dict(seed=seed, threshold=threshold, threshold_l2=threshold_l2,
+                           leak_l1=leak_l1, leak_l2=leak_l2,
                            learning_rate=learning_rate, weight_cap=weight_cap,
-                           refractory=refractory, volley_period=volley_period, speed=SPEED)
+                           refractory=refractory, volley_period=volley_period)
         self._build()
 
     # ------------------------------------------------------------------ build
     def _build(self):
         p = self.params
         rng = np.random.default_rng(p['seed'])
+        thr_l1 = p['threshold']      # L1 neurons fire on a single pixel hit
+        thr_l2 = p['threshold_l2']   # L2 neurons must accumulate many volleys
 
-        self.l1 = InputLayer(n_neurons=N_PIX, threshold=p['threshold'],
+        self.l1 = InputLayer(n_neurons=N_PIX, threshold=thr_l1,
                              refractory_period=p['refractory'], learning_rate=p['learning_rate'],
-                             weight_cap=p['weight_cap'], leak_rate=p['leak_l1'],
+                             weight_cap=thr_l1, leak_rate=p['leak_l1'],
                              n_feedback_inputs=N_OUT)
+        # L1E: pre-trained pixel encoders — fixed weights, no learning.
         for e in self.l1.excitatory_neurons:
-            e.weights = np.array([-1.0, 1.0])            # [from paired I1 (quiet), external]
+            e.weights = np.array([-1.0, 1.0])
+            e.learning_rate = 0.0
+            e.weight_budget = None
+        # L1I: weights pre-set to cap (thr_l1) so a single L2E winner reliably
+        # fires them in one step, producing one-step feedback inhibition of L1E.
         for inh in self.l1.inhibitory_neurons:
-            inh.weights = rng.uniform(0.35, 0.55, size=N_OUT)   # E2_j -> I1_i feedback
+            inh.weights = np.ones(N_OUT) * thr_l1
 
-        self.l2 = CorticalColumn(n_neurons=N_OUT, threshold=p['threshold'],
+        self.l2 = CorticalColumn(n_neurons=N_OUT, threshold=thr_l2,
                                  refractory_period=p['refractory'], learning_rate=p['learning_rate'],
-                                 weight_cap=p['weight_cap'], leak_rate=p['leak_l2'])
+                                 weight_cap=thr_l2, leak_rate=p['leak_l2'])
         self.l2.setup_connectivity(n_feedforward_inputs=N_PIX, n_feedback_inputs=0)
         self.l2.finalize_connections()
-        self.l2.set_local_inhibition_weights(-0.6)
-        self.l2.set_lateral_excitation_weights(0.5)
-        # Feedforward init UNIFORM: every L2 neuron starts identical, so the initial
-        # winner for a pattern is decided purely by conduction-delay coincidence, not by
-        # weight noise. Learning then sharpens each neuron's own receptive field.
-        self.l2.set_feedforward_weights(0.42)
-        self.l2.inhibitory_neuron.refractory_period = 0   # fast interneuron gates every volley
+        self.l2.set_local_inhibition_weights(-1.0)
+        # E→I weight = thr_l2 so a single L2E winner immediately fires L2I.
+        self.l2.set_lateral_excitation_weights(thr_l2)
+        # Small random feedforward weights: neurons must accumulate across many
+        # volleys initially (LIF phase), then specialise toward single-volley
+        # firing (pattern integrator phase).
+        ff_weights = rng.uniform(0.05, 0.20, size=(N_OUT, N_PIX))
+        self.l2.set_feedforward_weights(ff_weights)
+        self.l2.inhibitory_neuron.refractory_period = 0
 
         self.neurons: dict[str, object] = {}
         self.meta: dict[str, dict] = {}
         self._register_neurons()
-        self._compute_delays()
 
-        # Uniform homeostatic budget: every neuron's positive (excitatory) afferents
-        # share a fixed total equal to their initial sum. Applied to all neurons the
-        # same way -- no layer is special-cased.
-        for n in self.neurons.values():
-            pos = n.weights[n.weights > 0]
-            n.weight_budget = float(pos.sum()) if pos.size else None
+        # Budget / cap assignment:
+        #   L2E → budget = thr_l2 (positive feedforward weights only).
+        #   L1E → no budget (weights fixed, learning disabled).
+        #   L1I → cap = thr_l1; L2I → cap = thr_l2.
+        for nid, n in self.neurons.items():
+            if self.meta[nid]['type'] == 'E' and nid.startswith('L2'):
+                n.weight_budget = thr_l2
+            else:
+                n.weight_budget = None
+                if self.meta[nid]['type'] == 'I':
+                    n.weight_cap = thr_l2 if nid.startswith('L2') else thr_l1
 
-        self.l1i_prev = np.zeros(N_PIX)
+        self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)
         self.timestep = 0
         self.spiked = defaultdict(bool)
         self.freq = {nid: deque(maxlen=FREQ_WINDOW) for nid in self.neurons}
-        self.inbox: dict[int, dict[str, np.ndarray]] = defaultdict(dict)  # step -> {target: vec}
-        self.in_flight: list[dict] = []          # charges currently travelling (for the viz)
-        self.emitted: list[dict] = []
+        self.emitted: list[str] = []   # synapse IDs that carried a spike this step
         self._pulses: dict[str, float] = {}
         self._holds: dict[str, float] = {}
         self.event_log: deque = deque(maxlen=LOG_MAX)
@@ -134,7 +151,7 @@ class SimulationEngine:
         self.l2_drive: dict[str, float] = {}
         self.winner: str | None = None
 
-        self._log('backend', f'network built (seed={p["seed"]}, delays via SPEED={SPEED}, '
+        self._log('backend', f'network built (seed={p["seed"]}, immediate delivery, '
                              f'{len(self.neurons)} neurons, {len(self.synapses)} synapses)')
 
     def _register_neurons(self):
@@ -156,10 +173,10 @@ class SimulationEngine:
             nid = f'L2E{j}'
             self.neurons[nid] = self.l2.excitatory_neurons[j]
             self.meta[nid] = dict(id=nid, label=f'out {j}', layer='L2', type='E',
-                                  threshold=self.params['threshold'], pos=list(L2_HOMES[j]))
+                                  threshold=self.params['threshold_l2'], pos=list(L2_HOMES[j]))
         self.neurons['L2I'] = self.l2.inhibitory_neuron
         self.meta['L2I'] = dict(id='L2I', label='inhib', layer='L2', type='I',
-                                threshold=self.params['threshold'], pos=[0.0, 0.0, 6.0])
+                                threshold=self.params['threshold_l2'], pos=[0.0, 0.0, 6.0])
 
         self.synapses: list[dict] = []
         for j in range(N_OUT):
@@ -174,23 +191,6 @@ class SimulationEngine:
         for j in range(N_OUT):
             for i in range(N_PIX):
                 self.synapses.append(dict(id=f'fb{j}->{i}', source=f'L2E{j}', target=f'L1I{i}', kind='feedback'))
-
-    def _dist(self, a: str, b: str) -> float:
-        return float(np.linalg.norm(np.array(self.meta[a]['pos']) - np.array(self.meta[b]['pos'])))
-
-    def _compute_delays(self):
-        """Conduction delay (in timesteps) for the delayed axons: feedforward + feedback."""
-        self.ff_delay = np.array([[max(1, round(self._dist(f'L1E{i}', f'L2E{j}') / SPEED))
-                                   for j in range(N_OUT)] for i in range(N_PIX)])
-        self.fb_delay = np.array([[max(1, round(self._dist(f'L2E{j}', f'L1I{i}') / SPEED))
-                                   for i in range(N_PIX)] for j in range(N_OUT)])
-        self.syn_delay = {}
-        for i in range(N_PIX):
-            for j in range(N_OUT):
-                self.syn_delay[f'ff{i}->{j}'] = int(self.ff_delay[i, j])
-        for j in range(N_OUT):
-            for i in range(N_PIX):
-                self.syn_delay[f'fb{j}->{i}'] = int(self.fb_delay[j, i])
 
     # --------------------------------------------------------------- controls
     def reset(self):
@@ -232,52 +232,40 @@ class SimulationEngine:
         self._log('control', f'stimulate {neuron_id} (+{magnitude:g}{", hold" if continuous else ""})')
 
     # ------------------------------------------------------------------- step
-    def _schedule(self, step: int, target: str, idx: int, fanin: int):
-        box = self.inbox[step]
-        if target not in box:
-            box[target] = np.zeros(fanin)
-        box[target][idx] += 1.0
-
     def step(self) -> dict:
         l1, l2 = self.l1, self.l2
         t = self.timestep
-        arrivals = self.inbox.pop(t, {})
 
-        # 1. L1 E: [paired I1's previous spike (local inhibition), external pixel drive].
-        #    The input is delivered as periodic synchronized VOLLEYS (a spike every
-        #    volley_period steps) rather than a constant DC drive, so the active pixels
-        #    of a pattern fire together and their charges arrive coincidentally at L2,
-        #    with silent gaps for the fast leak to clear between volleys.
+        # 1. L1E: [paired I1's previous spike (local inhibition), external pixel].
+        #    Pixels fire in synchronized volleys so charge arrives in bursts.
         volley = (t % self.params['volley_period'] == 0)
         for i, e in enumerate(l1.excitatory_neurons):
             ext = 1.0 if (volley and self.input_vec[i] > 0.5) else 0.0
-            e.receive_input(np.array([self.l1i_prev[i], ext]))
-        # L1 I: delayed top-down feedback arrivals (E2_j -> I1_i).
-        for i, inh in enumerate(l1.inhibitory_neurons):
-            inh.receive_input(arrivals.get(f'L1I{i}', np.zeros(N_OUT)))
-        # L2 E: delayed feedforward arrivals; index 0 (local inhibition) is left to the
-        # same-step blanket, so it stays zero here.
-        for j, e in enumerate(l2.excitatory_neurons):
-            e.receive_input(arrivals.get(f'L2E{j}', np.zeros(L2E_FANIN)))
+            # Inhibition is only relevant on volley steps; the hold persists from
+            # the previous volley's L1I activity so refractory doesn't swallow it.
+            inh = float(self.l1i_hold[i]) if volley else 0.0
+            e.receive_input(np.array([inh, ext]))
 
         self._apply_stim()
 
-        # 2a. L1 fires with no competition.
+        # 2a. L1E fires (no competition).
         l1e = np.array([1.0 if e.check_threshold() else 0.0 for e in l1.excitatory_neurons])
-        l1i = np.array([1.0 if n.check_threshold() else 0.0 for n in l1.inhibitory_neurons])
         for k, e in enumerate(l1.excitatory_neurons):
             if l1e[k]:
                 e.fire()
-        for k, n in enumerate(l1.inhibitory_neurons):
-            if l1i[k]:
-                n.fire()
 
-        # capture the coincidence drive (membrane just before the blanket resets losers),
-        # so the dashboard can show L2 neurons charging up and competing.
+        # 2b. Deliver L1E spikes immediately to all L2E neurons.
+        ff_vec = np.zeros(L2E_FANIN)
+        for i in range(N_PIX):
+            if l1e[i]:
+                ff_vec[1 + i] = 1.0
+        for j, e in enumerate(l2.excitatory_neurons):
+            e.receive_input(ff_vec)
+
+        # Capture pre-WTA potential for the charge visualisation.
         self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
 
-        # 2b. L2 winner-take-all resolved within the step (first to threshold wins;
-        #     shared inhibitor fires the same step and blankets the pool).
+        # 2c. L2 winner-take-all (same step as feedforward arrival).
         l2e = np.zeros(N_OUT)
         eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
         if eligible:
@@ -292,22 +280,37 @@ class SimulationEngine:
         if l2i:
             l2.inhibitory_neuron.fire()
 
-        # 3. launch this step's spikes down the delayed axons (feedforward + feedback).
+        # 2d. Deliver L2E winner spike immediately to all L1I neurons (feedback).
+        #     l2e is length N_OUT with a 1 at the winner index, matching each
+        #     L1I neuron's N_OUT-dimensional afferent weight vector.
+        for inh in l1.inhibitory_neurons:
+            inh.receive_input(l2e)
+
+        # 2e. L1I fires after receiving L2E feedback.
+        l1i = np.array([1.0 if n.check_threshold() else 0.0 for n in l1.inhibitory_neurons])
+        for k, n in enumerate(l1.inhibitory_neurons):
+            if l1i[k]:
+                n.fire()
+
+        # 3. Collect synapse IDs that carried a spike this step (for edge flash).
         self.emitted = []
         for i in range(N_PIX):
             if l1e[i]:
                 for j in range(N_OUT):
-                    d = int(self.ff_delay[i, j])
-                    self._schedule(t + d, f'L2E{j}', 1 + i, L2E_FANIN)
-                    self.emitted.append(dict(syn=f'ff{i}->{j}', delay=d))
+                    self.emitted.append(f'ff{i}->{j}')
         for j in range(N_OUT):
             if l2e[j]:
                 for i in range(N_PIX):
-                    d = int(self.fb_delay[j, i])
-                    self._schedule(t + d, f'L1I{i}', j, N_OUT)
-                    self.emitted.append(dict(syn=f'fb{j}->{i}', delay=d))
+                    self.emitted.append(f'fb{j}->{i}')
+                self.emitted.append(f'{j}->inh')
+        if l2i:
+            for j in range(N_OUT):
+                self.emitted.append(f'inh->{j}')
+        for i in range(N_PIX):
+            if l1i[i]:
+                self.emitted.append(f'li{i}')
 
-        # 4. advance membrane state.
+        # 4. Advance membrane state (leak + refractory countdown).
         for e in l1.excitatory_neurons:
             e.update()
         for n in l1.inhibitory_neurons:
@@ -316,11 +319,13 @@ class SimulationEngine:
             e.update()
         l2.inhibitory_neuron.update()
 
-        # 5. bookkeeping.
+        # 5. Bookkeeping.
         self._record_spikes(l1e, l1i, l2e, l2i)
-        self.l1i_prev = l1i
+        # Latch L1I activity so it blocks L1E on the NEXT volley, not the next
+        # time step (where refractory would silently swallow the inhibition).
+        if volley:
+            self.l1i_hold = l1i
         self.timestep += 1
-        self._advance_in_flight()
         self._detect_weight_changes()
         self._update_winner(l2e)
         return self.dynamic_state()
@@ -331,12 +336,6 @@ class SimulationEngine:
         self._pulses.clear()
         for nid, mag in self._holds.items():
             self.neurons[nid].potential += mag
-
-    def _advance_in_flight(self):
-        """Track charges still travelling so a reconnecting client can render them."""
-        for c in self.emitted:
-            self.in_flight.append(dict(syn=c['syn'], t0=self.timestep - 1, delay=c['delay']))
-        self.in_flight = [c for c in self.in_flight if self.timestep - c['t0'] < c['delay']]
 
     def _record_spikes(self, l1e, l1i, l2e, l2i):
         for i in range(N_PIX):
@@ -396,8 +395,7 @@ class SimulationEngine:
     def topology(self) -> dict:
         weights = self._all_weights()
         neurons = [dict(**self.meta[nid]) for nid in self.neurons]
-        synapses = [dict(**s, weight=round(weights.get(s['id'], 0.0), 4),
-                         delay=self.syn_delay.get(s['id'], 0)) for s in self.synapses]
+        synapses = [dict(**s, weight=round(weights.get(s['id'], 0.0), 4)) for s in self.synapses]
         return dict(neurons=neurons, synapses=synapses, layers=['L1', 'L2'],
                     patterns=list(PATTERNS.keys()),
                     pattern_vectors={k: list(map(int, v)) for k, v in PATTERNS.items()},
@@ -406,8 +404,6 @@ class SimulationEngine:
     def dynamic_state(self) -> dict:
         neurons = []
         for nid, n in self.neurons.items():
-            # For L2 excitatory neurons show the coincidence drive (pre-blanket) rather
-            # than the post-reset 0, so they visibly charge and compete.
             pot = self.l2_drive.get(nid, float(n.potential))
             thr = self.meta[nid]['threshold'] or 1.0
             neurons.append(dict(id=nid, potential=round(pot, 4),
@@ -417,8 +413,7 @@ class SimulationEngine:
                                 assembly=(self.winner if nid == self.winner else None)))
         return dict(timestep=self.timestep, running=False, neurons=neurons,
                     changed_synapses=self.changed_synapses,
-                    emitted=self.emitted,                 # charges launched this step
-                    in_flight=len(self.in_flight),
+                    emitted=self.emitted,
                     input=self.input_vec.astype(int).tolist(), winner=self.winner,
                     stats=self.stats(), log=list(self.event_log)[-12:])
 
@@ -431,4 +426,4 @@ class SimulationEngine:
         return dict(total=len(self.neurons), active=active, firing=firing,
                     avg_activation=round(float(np.mean(np.abs(pots))), 4),
                     firing_rate=round(rate, 4), avg_weight=round(float(np.mean(weights)), 4),
-                    in_flight=len(self.in_flight), winner=self.winner)
+                    winner=self.winner)
