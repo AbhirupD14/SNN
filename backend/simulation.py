@@ -67,6 +67,14 @@ FREQ_WINDOW = 40
 WEIGHT_EPS = 1e-6
 LOG_MAX = 400
 
+# Episode-based competition window (interpretation only -- see _update_episode).
+# An episode groups the L2 spikes produced across one or more volley bursts, and
+# the "winner" is resolved from that spike history only when the episode ends,
+# instead of an instantaneous per-step argmax. These two knobs are the episode
+# end conditions; neither touches learning, WTA, or membrane dynamics.
+EPISODE_QUIET_K = 5    # Condition A: end after this many consecutive L2-silent steps (spec: 3-5)
+EPISODE_MAX_LEN = 12   # Condition B: hard cap on episode length in steps (spec: 8-12)
+
 
 class SimulationEngine:
     def __init__(self, seed: int = 1,
@@ -151,6 +159,12 @@ class SimulationEngine:
         self.l2_drive: dict[str, float] = {}
         self.winner: str | None = None
         self._inh_events: list[tuple] = []   # (neuron_id, event) from this step's discharges
+
+        # Episode-based competition window (interpretation only; see _update_episode).
+        self.episode_active = False
+        self.episode_timer = 0
+        self.episode_last_spike_time = -1
+        self.episode_l2_spikes: list[tuple] = []   # list of (timestep, neuron_id)
 
         self._log('backend', f'network built (seed={p["seed"]}, immediate delivery, '
                              f'{len(self.neurons)} neurons, {len(self.synapses)} synapses)')
@@ -338,7 +352,7 @@ class SimulationEngine:
         self.timestep += 1
         self._detect_weight_changes()
         self._log_inhibitory_events()
-        self._update_winner(l2e)
+        self._update_episode(l2e, t)
         return self.dynamic_state()
 
     def _log_inhibitory_events(self):
@@ -369,13 +383,80 @@ class SimulationEngine:
             self.spiked[f'L2E{j}'] = bool(l2e[j]); self.freq[f'L2E{j}'].append(l2e[j])
         self.spiked['L2I'] = bool(l2i); self.freq['L2I'].append(l2i)
 
-    def _update_winner(self, l2e):
-        freqs = [self.firing_freq(f'L2E{j}') for j in range(N_OUT)]
-        best = int(np.argmax(freqs))
-        new = f'L2E{best}' if freqs[best] > 0 else None
-        if new and new != self.winner:
-            self._log('learning', f'winner -> {new} (freq {freqs[best]:.2f})')
-        self.winner = new
+    def _update_episode(self, l2e, t):
+        """
+        Episode-based competition interpretation. This is the ONLY thing that
+        changed relative to the old instantaneous winner readout: it decides
+        *when* competition is considered resolved and *which* neuron is reported
+        as the winner. It reads only l2e (this step's L2E spikes) and t, and
+        writes only the episode_* fields and self.winner. It never touches a
+        neuron, a weight, a potential, WTA, or the learning rule -- so LIF and
+        plasticity are byte-for-byte unchanged.
+
+        Structure:
+          - An episode STARTS on a volley tick, but only if one is not already
+            running (so a single episode can span several volleys up to T_max
+            instead of being reset every volley).
+          - While active, every L2E spike this step is appended to the history
+            and the last-spike time is updated.
+          - The episode ENDS on Condition A (K consecutive L2-silent steps) or
+            Condition B (episode_timer reaches T_max), whichever comes first.
+          - The winner is then resolved from the spike history alone
+            (latest-spike, then most-spikes tiebreak) -- no argmax over membrane
+            potentials, no global ranking.
+        """
+        volley = (t % self.params['volley_period'] == 0)
+        if volley and not self.episode_active:
+            self.episode_active = True
+            self.episode_timer = 0
+            self.episode_last_spike_time = -1
+            self.episode_l2_spikes = []
+
+        if not self.episode_active:
+            return
+
+        # Record this step's L2E spikes. WTA fires at most one L2E per step, but
+        # we record generally so any co-firing would also be captured.
+        for j in range(N_OUT):
+            if l2e[j]:
+                self.episode_l2_spikes.append((t, f'L2E{j}'))
+                self.episode_last_spike_time = t
+        self.episode_timer += 1
+
+        # Condition A: silent for K consecutive steps (counted from the last
+        # spike, or from episode start if nothing has fired yet).
+        if self.episode_last_spike_time >= 0:
+            silent = t - self.episode_last_spike_time
+        else:
+            silent = self.episode_timer - 1
+        # Condition B: episode length cap.
+        if silent >= EPISODE_QUIET_K or self.episode_timer >= EPISODE_MAX_LEN:
+            self._resolve_episode()
+            self.episode_active = False
+
+    def _resolve_episode(self):
+        """Resolve the episode winner from spike history only.
+
+        Rule 1 (primary): the neuron with the LATEST spike time wins.
+        Rule 2 (tiebreak): if several neurons share that latest spike time, the
+        one with the MOST spikes over the whole episode wins.
+        An episode with no L2 spikes leaves the previous winner untouched.
+        """
+        if not self.episode_l2_spikes:
+            return
+        latest_t = max(ts for ts, _ in self.episode_l2_spikes)
+        last_spikers = [nid for ts, nid in self.episode_l2_spikes if ts == latest_t]
+        if len(set(last_spikers)) > 1:
+            counts: dict[str, int] = {}
+            for _, nid in self.episode_l2_spikes:
+                counts[nid] = counts.get(nid, 0) + 1
+            winner = max(set(last_spikers), key=lambda n: counts[n])
+        else:
+            winner = last_spikers[0]
+        if winner != self.winner:
+            self._log('learning', f'episode winner -> {winner} '
+                                  f'(spikes={len(self.episode_l2_spikes)}, last_t={latest_t})')
+        self.winner = winner
 
     # ------------------------------------------------------------- weight diff
     def _all_weights(self) -> dict:
@@ -439,6 +520,9 @@ class SimulationEngine:
                     changed_synapses=self.changed_synapses,
                     emitted=self.emitted,
                     input=self.input_vec.astype(int).tolist(), winner=self.winner,
+                    episode=dict(active=self.episode_active, timer=self.episode_timer,
+                                 spikes=len(self.episode_l2_spikes),
+                                 participants=sorted({nid for _, nid in self.episode_l2_spikes})),
                     stats=self.stats(), log=list(self.event_log)[-12:])
 
     def stats(self) -> dict:
