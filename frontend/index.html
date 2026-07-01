@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SNN · Neural Simulation Dashboard</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><circle cx='8' cy='8' r='5' fill='%235eead4'/></svg>" />
+  <link rel="stylesheet" href="style.css" />
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+</head>
+<body>
+  <!-- ───────────────────────── Top navigation ───────────────────────── -->
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo"></span>
+      <div>
+        <div class="brand-title">Spiking Neural Network</div>
+        <div class="brand-sub">8-line recognition · 3×3 grid</div>
+      </div>
+    </div>
+
+    <div class="status-cluster">
+      <div class="stat-pill"><span class="k">Status</span><span class="v" id="st-status">—</span></div>
+      <div class="stat-pill"><span class="k">Timestep</span><span class="v" id="st-timestep">0</span></div>
+      <div class="stat-pill"><span class="k">Speed</span><span class="v" id="st-speed">— /s</span></div>
+      <div class="stat-pill"><span class="k">Winner</span><span class="v" id="st-winner">—</span></div>
+      <div class="stat-pill"><span class="k">FPS</span><span class="v" id="st-fps">0</span></div>
+      <div class="conn" id="st-conn"><span class="dot"></span><span id="st-conn-label">connecting…</span></div>
+    </div>
+
+    <div class="global-controls">
+      <button class="btn primary" id="g-start">▶ Start</button>
+      <button class="btn" id="g-pause">⏸ Pause</button>
+      <button class="btn" id="g-step">⏭ Step</button>
+      <button class="btn danger" id="g-reset">⟲ Reset</button>
+    </div>
+  </header>
+
+  <!-- ───────────────────────── Main workspace ───────────────────────── -->
+  <main class="layout">
+    <!-- Left sidebar -->
+    <aside class="sidebar left" id="sidebar-left">
+      <section class="panel" data-section>
+        <header class="panel-head"><span>Experiment</span><span class="chev"></span></header>
+        <div class="panel-body">
+          <div class="btn-row">
+            <button class="btn sm primary" id="x-start">Start</button>
+            <button class="btn sm" id="x-pause">Pause</button>
+            <button class="btn sm" id="x-resume">Resume</button>
+          </div>
+          <div class="btn-row">
+            <button class="btn sm" id="x-step">Step</button>
+            <button class="btn sm danger" id="x-reset">Reset</button>
+          </div>
+          <label class="field">
+            <span>Speed <b id="speed-val">12</b> steps/s</span>
+            <input type="range" id="speed" min="1" max="60" value="12" />
+          </label>
+        </div>
+      </section>
+
+      <section class="panel" data-section>
+        <header class="panel-head"><span>Pattern Selection</span><span class="chev"></span></header>
+        <div class="panel-body">
+          <div class="pixel-grid" id="pixel-grid"></div>
+          <div class="pattern-buttons" id="pattern-buttons"></div>
+          <div class="btn-row">
+            <button class="btn sm" id="p-random">Random</button>
+            <button class="btn sm" id="p-clear">Clear</button>
+            <button class="btn sm" id="p-noise">Noise</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-section>
+        <header class="panel-head"><span>Manual Firing</span><span class="chev"></span></header>
+        <div class="panel-body">
+          <label class="field">
+            <span>Neuron</span>
+            <select id="mf-neuron"></select>
+          </label>
+          <label class="field">
+            <span>Magnitude <b id="mf-mag-val">1.0</b></span>
+            <input type="range" id="mf-mag" min="0.1" max="3" step="0.1" value="1" />
+          </label>
+          <div class="btn-row">
+            <button class="btn sm primary" id="mf-pulse">Single Pulse</button>
+            <button class="btn sm" id="mf-hold" data-on="0">Continuous</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-section>
+        <header class="panel-head"><span>Display Filters</span><span class="chev"></span></header>
+        <div class="panel-body filters">
+          <label class="check"><input type="checkbox" id="f-active" /> Only active neurons</label>
+          <label class="check"><input type="checkbox" id="f-weak" checked /> Hide weak synapses</label>
+          <label class="check"><input type="checkbox" id="f-assembly" /> Isolate winning assembly</label>
+          <label class="check"><input type="checkbox" id="f-l1" checked /> Show Layer 1</label>
+          <label class="check"><input type="checkbox" id="f-l2" checked /> Show Layer 2</label>
+          <label class="check"><input type="checkbox" id="f-inh" checked /> Show inhibitory</label>
+        </div>
+      </section>
+    </aside>
+
+    <!-- Center viewport -->
+    <section class="viewport">
+      <div id="scene"></div>
+      <div class="legend">
+        <div><span class="sw exc"></span>excitatory</div>
+        <div><span class="sw inh"></span>inhibitory</div>
+        <div><span class="sw win"></span>winner</div>
+        <div><span class="ln ff"></span>feedforward</div>
+        <div><span class="ln in"></span>inhibition</div>
+        <div><span class="ln ex"></span>excitation</div>
+        <div><span class="ln fb"></span>feedback (E2→I1)</div>
+      </div>
+      <div class="view-hint">drag to orbit · scroll to zoom · right-drag to pan · click a neuron</div>
+    </section>
+
+    <!-- Right inspector -->
+    <aside class="sidebar right" id="inspector">
+      <div class="inspector-empty" id="insp-empty">
+        <div class="big-dot"></div>
+        <p>Select a neuron in the viewport to inspect it.</p>
+      </div>
+      <div id="insp-body" hidden></div>
+    </aside>
+  </main>
+
+  <!-- ───────────────────────── Bottom panel ─────────────────────────── -->
+  <footer class="bottom">
+    <div class="resize-handle" id="bottom-resize" title="drag to resize"></div>
+    <nav class="tabs" id="tabs">
+      <button class="tab active" data-tab="activity">Activity</button>
+      <button class="tab" data-tab="stats">Statistics</button>
+      <button class="tab" data-tab="charts">Charts</button>
+      <button class="tab" data-tab="log">Event Log</button>
+    </nav>
+
+    <div class="tab-panels">
+      <div class="tab-panel active" data-panel="activity">
+        <div class="activity-grid">
+          <div class="card">
+            <div class="card-title">Layer 2 heat map</div>
+            <div class="heatmap" id="heatmap"></div>
+            <div class="card-foot">winner: <b id="hm-winner">—</b></div>
+          </div>
+          <div class="card">
+            <div class="card-title">Activation histogram</div>
+            <canvas id="histogram" height="120"></canvas>
+          </div>
+          <div class="card">
+            <div class="card-title">Currently firing</div>
+            <div class="firing-list" id="firing-list"></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-panel="stats">
+        <div class="stats-grid" id="stats-grid"></div>
+      </div>
+
+      <div class="tab-panel" data-panel="charts">
+        <div class="charts-grid">
+          <div class="card"><div class="card-title">Firing rate</div><canvas class="chart" id="chart-rate" height="120"></canvas></div>
+          <div class="card"><div class="card-title">Active neurons</div><canvas class="chart" id="chart-active" height="120"></canvas></div>
+          <div class="card"><div class="card-title">Avg activation</div><canvas class="chart" id="chart-act" height="120"></canvas></div>
+          <div class="card"><div class="card-title">Avg synaptic weight (learning)</div><canvas class="chart" id="chart-weight" height="120"></canvas></div>
+        </div>
+      </div>
+
+      <div class="tab-panel" data-panel="log">
+        <div class="event-log" id="event-log"></div>
+      </div>
+    </div>
+  </footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

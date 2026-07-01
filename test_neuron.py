@@ -1,170 +1,118 @@
 """
-Test script for Neuron class implementation
+Unit tests for the spiking Neuron (neuron.py) and its flexible-fan-in twin
+(neuron_flexible.py), covering the trace-gated, sign-preserving Hebbian rule.
 """
 import numpy as np
 from neuron import Neuron
+from neuron_flexible import Neuron as FlexNeuron
 
-def test_neuron_basics():
-    """Test basic neuron functionality"""
-    print("Testing Neuron class...")
-    
-    # Create a neuron with 5 inputs
-    neuron = Neuron(n_inputs=5, threshold=1.0, refractory_period=2)
-    
-    print(f"Initial weights: {neuron.weights}")
-    print(f"Initial potential: {neuron.potential}")
-    print(f"Threshold: {neuron.threshold}")
-    print(f"Refractory period: {neuron.refractory_period}")
-    print(f"Leak rate: {neuron.leak_rate}")
-    
-    # Test receiving input
-    input_spikes = np.array([1, 0, 1, 0, 1])  # Some inputs spike
-    neuron.receive_input(input_spikes)
-    print(f"After input - potential: {neuron.potential}")
-    
-    # Test threshold checking
-    should_fire = neuron.check_threshold()
-    print(f"Should fire: {should_fire}")
-    
-    if should_fire:
-        neuron.fire()
-        print(f"After firing - potential: {neuron.potential}")
-        print(f"After firing - refractory timer: {neuron.refractory_timer}")
-        print(f"Weights after firing: {neuron.weights}")
-        
-    # Test refractory period
-    print("\nTesting refractory period...")
-    for i in range(5):
-        neuron.update()
-        print(f"Time step {i+1}: potential={neuron.potential:.3f}, refractory={neuron.refractory_timer}, spiked={neuron.spiked}")
-        
-    # Test that weights only update when firing
-    print("\nTesting weight update rule...")
-    initial_weights = neuron.weights.copy()
-    
-    # Give input but don't let it fire (keep potential low)
-    neuron.potential = 0.0
-    neuron.receive_input(np.array([1, 1, 1, 1, 1]))
-    print(f"Potential after input (no fire): {neuron.potential}")
-    
-    # Update without firing
-    neuron.update()
-    print(f"Weights after update (no fire): {neuron.weights}")
-    weights_unchanged = np.allclose(neuron.weights, initial_weights)
-    print(f"Weights unchanged when not firing: {weights_unchanged}")
-    
-    # Now make it fire and check weights change
-    neuron.potential = 2.0  # Above threshold
-    if neuron.check_threshold():
-        neuron.fire()
-        print(f"Weights after firing: {neuron.weights}")
-        weights_changed = not np.allclose(neuron.weights, initial_weights)
-        print(f"Weights changed when firing: {weights_changed}")
-    
-    print("\nBasic neuron tests completed!")
 
-def test_leak_functionality():
-    """Test that the leak functionality works correctly"""
-    print("\nTesting leak functionality...")
-    
-    # Create neuron with significant leak to observe the effect
-    neuron = Neuron(n_inputs=1, threshold=1.0, refractory_period=1, leak_rate=0.5)
-    neuron.weights = np.array([1.0])  # Weight of 1.0
-    
-    print(f"Leak rate: {neuron.leak_rate}")
-    print(f"Weight: {neuron.weights[0]}")
-    
-    # Start with some potential
-    neuron.potential = 1.0
-    print(f"Initial potential: {neuron.potential}")
-    
-    # Apply leak over several time steps with no input
-    for i in range(5):
-        neuron.update()  # No input, just leak
-        print(f"After update {i+1}: potential = {neuron.potential:.3f}")
-        
-        # With leak_rate=0.5, potential should halve each step toward resting (0)
-        # Step 0: 1.0
-        # Step 1: 1.0 + 0.5*(0-1.0) = 1.0 - 0.5 = 0.5
-        # Step 2: 0.5 + 0.5*(0-0.5) = 0.5 - 0.25 = 0.25
-        # etc.
-    
-    # Test that leak works with input too
-    print("\nTesting leak with input...")
-    neuron.potential = 0.0
-    # Apply input that would raise potential to 0.8 without leak
-    neuron.receive_input(np.array([0.8]))  # weight * input = 1.0 * 0.8 = 0.8
-    print(f"After input (before leak): {neuron.potential}")
-    
-    # Now apply update with leak
-    neuron.update()
-    # With leak: 0.8 + 0.5*(0-0.8) = 0.8 - 0.4 = 0.4
-    print(f"After update (with leak): {neuron.potential:.3f}")
-    
-    expected = 0.4
-    if abs(neuron.potential - expected) < 0.001:
-        print("Leak calculation correct!")
-    else:
-        print(f"Leak calculation incorrect. Expected ~{expected}, got {neuron.potential}")
-    
-    print("\nLeak test completed!")
+def test_receive_accumulates_potential_and_trace():
+    n = Neuron(n_inputs=3, threshold=10.0, leak_rate=0.0)
+    n.weights = np.array([0.2, 0.5, 0.3])
+    n.receive_input(np.array([1, 0, 1]))
+    assert np.isclose(n.potential, 0.5)              # 0.2 + 0.3
+    assert np.allclose(n.trace, [1, 0, 1])           # un-summed presynaptic activity
+    print("PASS: receive_input accumulates membrane potential and per-synapse trace")
+
+
+def test_trace_gating_only_active_synapses_grow():
+    n = Neuron(n_inputs=4, threshold=0.5, refractory_period=2,
+               learning_rate=0.1, weight_cap=10.0, leak_rate=0.0)
+    n.weights = np.array([0.4, 0.4, 0.4, 0.4])
+    n.receive_input(np.array([1, 1, 0, 0]))          # only lines 0,1 active -> 0.8 >= 0.5
+    assert n.check_threshold()
+    n.fire()
+    assert np.allclose(n.weights[:2], 0.5)           # active grew
+    assert np.allclose(n.weights[2:], 0.4)           # silent untouched
+    assert np.allclose(n.trace, 0.0)                 # trace cleared on fire
+    print("PASS: only synapses that delivered charge are credited; trace resets on fire")
+
+
+def test_sign_preserving_update():
+    n = Neuron(n_inputs=2, threshold=0.0, refractory_period=2,
+               learning_rate=0.1, weight_cap=10.0, leak_rate=0.0)
+    n.weights = np.array([0.4, -0.4])                # one excitatory, one inhibitory synapse
+    n.receive_input(np.array([1, 1]))
+    n.potential = 1.0                                # force a spike
+    assert n.check_threshold()
+    n.fire()
+    assert np.isclose(n.weights[0], 0.5), n.weights  # excitatory grows more positive
+    assert np.isclose(n.weights[1], -0.5), n.weights # inhibitory grows more negative
+    print("PASS: update is sign-preserving (|w| grows in each synapse's own direction)")
+
+
+def test_no_update_without_firing():
+    n = Neuron(n_inputs=3, threshold=100.0, learning_rate=0.5, weight_cap=10.0, leak_rate=0.0)
+    n.weights = np.array([0.3, 0.3, 0.3])
+    before = n.weights.copy()
+    n.receive_input(np.array([1, 1, 1]))             # nowhere near threshold
+    assert not n.check_threshold()
+    n.update()
+    assert np.allclose(n.weights, before)            # weights change only on fire
+    print("PASS: weights are unchanged when the neuron does not fire")
+
+
+def test_membrane_and_trace_leak_together():
+    n = Neuron(n_inputs=2, threshold=100.0, leak_rate=0.5)
+    n.weights = np.array([1.0, 1.0])
+    n.receive_input(np.array([1, 0]))                # potential 1.0, trace [1,0]
+    n.update()                                       # no fire -> both leak by (1-0.5)
+    assert np.isclose(n.potential, 0.5)              # 1.0 + 0.5*(0-1.0)
+    assert np.allclose(n.trace, [0.5, 0.0])          # trace decays with the same leak
+    print("PASS: membrane potential and eligibility trace leak with the same rate")
+
 
 def test_weight_cap():
-    """Test that weights are properly capped"""
-    print("\nTesting weight cap functionality...")
-    
-    # Create neuron with low weight cap
-    neuron = Neuron(n_inputs=3, threshold=0.1, learning_rate=0.3, weight_cap=0.5)
-    
-    print(f"Initial weights: {neuron.weights}")
-    print(f"Weight cap: {neuron.weight_cap}")
-    
-    # Fire multiple times to test weight cap
-    for i in range(5):
-        # Make sure neuron fires
-        neuron.potential = 1.0  # Well above threshold
-        if neuron.check_threshold():
-            neuron.fire()
-        neuron.update()  # Clear refractory
-    
-    print(f"Weights after 5 firings: {neuron.weights}")
-    
-    # Check that no weight exceeds the cap
-    max_weight = np.max(np.abs(neuron.weights))
-    within_cap = max_weight <= neuron.weight_cap + 1e-10  # Small tolerance for floating point
-    print(f"Max absolute weight: {max_weight}")
-    print(f"Weights within cap: {within_cap}")
-    
-    return within_cap
+    n = Neuron(n_inputs=2, threshold=0.0, refractory_period=0,
+               learning_rate=0.3, weight_cap=0.5, leak_rate=0.0)
+    n.weights = np.array([0.4, -0.4])
+    for _ in range(10):
+        n.receive_input(np.array([1, 1]))
+        n.potential = 5.0                            # force firing every step
+        if n.check_threshold():
+            n.fire()
+        n.update()
+    assert np.max(np.abs(n.weights)) <= 0.5 + 1e-9   # never exceeds cap
+    assert np.isclose(n.weights[0], 0.5) and np.isclose(n.weights[1], -0.5)  # both reached cap
+    print("PASS: repeated firing drives active weights to +/-cap, never beyond")
 
-def test_inhibitory_neuron():
-    """Test that inhibitory neurons work with negative weights"""
-    print("\nTesting inhibitory neuron concept...")
-    
-    # Create neuron
-    neuron = Neuron(n_inputs=3, threshold=0.5, refractory_period=1, weight_cap=1.0)
-    
-    # Manually set some weights to negative (simulating inhibitory inputs)
-    neuron.weights = np.array([-0.3, -0.2, -0.1])
-    print(f"Inhibitory weights: {neuron.weights}")
-    
-    # Test that negative weights subtract from potential
-    input_spikes = np.array([1, 1, 1])  # All inhibitory inputs active
-    neuron.receive_input(input_spikes)
-    print(f"Potential after inhibitory input: {neuron.potential}")
-    
-    # Test weight update still works (becomes more negative, but capped)
-    initial_weights = neuron.weights.copy()
-    neuron.potential = 1.0  # Above threshold to make it fire
-    if neuron.check_threshold():
-        neuron.fire()
-        print(f"Weights after firing (should be more negative): {neuron.weights}")
-        print(f"Weight change: {neuron.weights - initial_weights}")
-    
-    print("Inhibitory neuron test completed!")
+
+def test_refractory_blocks_accumulation():
+    n = Neuron(n_inputs=1, threshold=0.5, refractory_period=2, leak_rate=0.0)
+    n.weights = np.array([1.0])
+    n.receive_input(np.array([1]))
+    n.fire()                                         # enters refractory (timer = 2)
+    assert n.refractory_timer == 2
+    n.receive_input(np.array([1]))                   # ignored during refractory
+    assert np.isclose(n.potential, 0.0)
+    assert np.allclose(n.trace, 0.0)
+    print("PASS: no charge or trace accumulates during the refractory period")
+
+
+def test_flexible_neuron_parity():
+    fn = FlexNeuron(threshold=0.0, refractory_period=2,
+                    learning_rate=0.1, weight_cap=10.0, leak_rate=0.0)
+    for w in [0.4, -0.4, 0.4]:
+        fn.add_input_connection(w)
+    fn.finalize_connections()
+    fn.receive_input(np.array([1, 1, 0]))
+    fn.potential = 1.0
+    assert fn.check_threshold()
+    fn.fire()
+    assert np.isclose(fn.weights[0], 0.5)            # active excitatory -> more positive
+    assert np.isclose(fn.weights[1], -0.5)           # active inhibitory -> more negative
+    assert np.isclose(fn.weights[2], 0.4)            # silent -> untouched
+    print("PASS: flexible-fan-in neuron behaves identically (trace + sign preserving)")
+
 
 if __name__ == "__main__":
-    test_neuron_basics()
-    test_leak_functionality()
+    test_receive_accumulates_potential_and_trace()
+    test_trace_gating_only_active_synapses_grow()
+    test_sign_preserving_update()
+    test_no_update_without_firing()
+    test_membrane_and_trace_leak_together()
     test_weight_cap()
-    test_inhibitory_neuron()
+    test_refractory_blocks_accumulation()
+    test_flexible_neuron_parity()
+    print("\nALL NEURON UNIT TESTS PASSED")

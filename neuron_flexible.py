@@ -37,6 +37,8 @@ class Neuron:
         # Weight properties - stored as list during construction, numpy array after
         self._weights_list = []        # List of synaptic weights during construction
         self._weights_array = None     # Numpy array after finalization
+        self._trace = None             # Per-synapse eligibility trace (set at finalize)
+        self.weight_budget = None      # optional homeostatic budget for positive weights
         self.learning_rate = learning_rate  # Weight increase amount when neuron fires
         self.weight_cap = weight_cap        # Maximum absolute value for weights
         self.leak_rate = leak_rate          # Leak rate (fraction of potential lost per ms)
@@ -73,6 +75,8 @@ class Neuron:
             else:
                 # Handle case of zero connections
                 self._weights_array = np.array([], dtype=float)
+            # Eligibility trace: one accumulator per synapse, mirrors the membrane
+            self._trace = np.zeros(len(self._weights_array))
             self._connections_finalized = True
             
     def _ensure_finalized(self):
@@ -94,8 +98,11 @@ class Neuron:
         if self.refractory_timer <= 0:
             # Charge accumulation: sum of weight * input for all connections
             if len(self._weights_array) > 0:
+                input_spikes = np.asarray(input_spikes, dtype=float)
                 input_current = np.dot(self._weights_array, input_spikes)
                 self.potential += input_current
+                # Track which lines delivered the charge (un-summed membrane)
+                self._trace += input_spikes
            
     def update(self):
         """
@@ -115,7 +122,9 @@ class Neuron:
             # For example, leak_rate=0.01 means 1% of the way to resting potential each ms
             leak_current = self.leak_rate * (self.resting_potential - self.potential)
             self.potential += leak_current
-        
+            # Decay the eligibility trace with the same leak as the membrane
+            self._trace *= (1.0 - self.leak_rate)
+
         # Reset spike flag for next time step
         self.spiked = False
         
@@ -154,19 +163,41 @@ class Neuron:
         
         # Update weights (only happens when neuron fires)
         self._update_weights()
-        
+
+        # Evidence consumed: clear the trace for the next cycle
+        if self._trace is not None:
+            self._trace = np.zeros_like(self._trace)
+
     def _update_weights(self):
         """
-        Update synaptic weights when neuron fires.
-        Weights increase by learning_rate amount, then are clipped to weight_cap.
-        Note: For inhibitory neurons, weights are negative so this makes them more negative
-        (up to the negative weight_cap limit).
+        Hebbian weight update, applied only when the neuron fires.
+
+        Each synapse is strengthened in proportion to its eligibility trace --
+        how much that input line contributed charge over the recent window.
+        Silent lines have trace ~0 and are left essentially unchanged. Weights
+        are then clipped to [-weight_cap, weight_cap].
+
+        The update is sign-preserving: each synapse is strengthened in the
+        direction of its own sign, so excitatory inputs grow more positive and
+        inhibitory inputs (negative weights, which live in the target neuron's
+        array) grow more negative -- i.e. |w| increases either way. A neuron is
+        excitatory or inhibitory purely by the sign of the weight it lands on in
+        its target; the neuron itself just fires, and trains its own afferents
+        with this identical rule.
         """
-        # Simple rule: weights increase by learning_rate when neuron fires
-        # This implements #4: "Weights increase when firing"
+        # Credit only the synapses that contributed charge (pre_i * post),
+        # strengthening each in the direction of its existing sign.
         if self._weights_array is not None and len(self._weights_array) > 0:
-            self._weights_array += self.learning_rate
-            
+            self._weights_array += self.learning_rate * self._trace * np.sign(self._weights_array)
+
+            # Homeostatic budget: renormalize excitatory weights to a fixed total, so
+            # strengthening one input weakens the others (no runaway growth).
+            if self.weight_budget is not None:
+                pos = self._weights_array > 0
+                total = float(self._weights_array[pos].sum())
+                if total > 1e-9:
+                    self._weights_array[pos] *= self.weight_budget / total
+
             # Apply weight cap to prevent infinite growth
             self._weights_array = np.clip(self._weights_array, -self.weight_cap, self.weight_cap)
         

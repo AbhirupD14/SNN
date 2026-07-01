@@ -12,11 +12,12 @@ class InputLayer:
     Connections: I1_i -> E1_i (inhibitory, 1:1)
     """
     
-    def __init__(self, n_neurons, threshold=1.0, refractory_period=2, 
-                 learning_rate=0.05, weight_cap=1.0, leak_rate=0.01):
+    def __init__(self, n_neurons, threshold=1.0, refractory_period=2,
+                 learning_rate=0.05, weight_cap=1.0, leak_rate=0.01,
+                 n_feedback_inputs=0):
         """
         Initialize input layer.
-        
+
         Args:
             n_neurons: Number of E/I pairs
             threshold: Firing threshold for neurons
@@ -24,20 +25,26 @@ class InputLayer:
             learning_rate: Weight increase when neuron fires
             weight_cap: Maximum absolute weight value
             leak_rate: Leak rate (fraction of potential lost per ms)
+            n_feedback_inputs: Number of top-down feedback synapses on each
+                inhibitory neuron (e.g. one per higher-layer E neuron, for the
+                E2->I1 "quiet the inputs" loop). 0 keeps a single inert input.
         """
         self.n_neurons = n_neurons
-        
+        self.n_feedback_inputs = n_feedback_inputs
+
         # Create excitatory neurons (each receives input from its inhibitory neuron + external)
         self.excitatory_neurons = [
             Neuron(n_inputs=2, threshold=threshold, refractory_period=refractory_period,
                    learning_rate=learning_rate, weight_cap=weight_cap, leak_rate=leak_rate)
             for _ in range(n_neurons)
         ]
-        
-        # Create inhibitory neurons (each projects to its corresponding excitatory neuron)
+
+        # Create inhibitory neurons. Each carries one afferent synapse per feedback
+        # source (from the layer above); each in turn projects to its paired E neuron.
         self.inhibitory_neurons = [
-            Neuron(n_inputs=1, threshold=threshold, refractory_period=refractory_period,
-                   learning_rate=learning_rate, weight_cap=weight_cap, leak_rate=leak_rate)
+            Neuron(n_inputs=max(1, n_feedback_inputs), threshold=threshold,
+                   refractory_period=refractory_period, learning_rate=learning_rate,
+                   weight_cap=weight_cap, leak_rate=leak_rate)
             for _ in range(n_neurons)
         ]
         
