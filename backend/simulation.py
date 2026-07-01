@@ -22,6 +22,18 @@ With slow leak_l2 (~0.01) and small initial feedforward weights, L2E neurons
 require many volleys to fire at first (classic LIF accumulation).  As
 synapses specialise, they fire from a single volley (pattern integrator).
 The charge-ring visualisation makes this transition directly observable.
+
+L2 competition (source of winner-take-all):
+  Competition is produced by the shared inhibitory neuron L2I, not by a
+  procedural reset.  When several L2E cross threshold in the same volley one
+  fires and drives L2I, which laterally inhibits the other threshold-crossers
+  (the near-winners) through the L2I->L2E gate.  Subthreshold neurons are left
+  untouched, so charge accumulated across volleys is preserved and every unit
+  can eventually win.  Each gate's strength is learned per neuron by the
+  inhibitory-plasticity rule (Neuron.apply_inhibition) and saturates below
+  threshold, so competition self-organizes and cannot collapse to a permanent
+  single winner.  (An earlier version reset all non-winners to rest each step,
+  which destroyed subthreshold evidence and locked the network to one neuron.)
 """
 
 from __future__ import annotations
@@ -75,6 +87,19 @@ LOG_MAX = 400
 EPISODE_QUIET_K = 5    # Condition A: end after this many consecutive L2-silent steps (spec: 3-5)
 EPISODE_MAX_LEN = 12   # Condition B: hard cap on episode length in steps (spec: 8-12)
 
+# L2 lateral inhibition ("adaptive gate") parameters. Competition in L2 is
+# produced by the shared inhibitory neuron L2I suppressing near-winners through
+# the L2I->L2E synapse, NOT by a procedural hard reset. Each L2E owns one gate
+# from L2I whose strength is learned by the inhibitory-plasticity rule
+# (Neuron.apply_inhibition): it grows when it suppresses a neuron that was close
+# to firing and saturates at L2_GATE_WMAX. These values were chosen by a
+# parameter sweep (see the competition investigation) as the point giving the
+# broadest participation with the most per-pattern differentiation; crucially
+# L2_GATE_WMAX < thr_l2 so a saturated gate can't fully reset the membrane.
+L2_GATE_INIT = -0.5    # initial gate weight (magnitude 0.5)
+L2_GATE_WMAX = 1.5     # saturation ceiling for the gate magnitude (< thr_l2)
+L2_GATE_ETA = 0.1      # inhibitory-plasticity learning rate for the gate
+
 
 class SimulationEngine:
     def __init__(self, seed: int = 1,
@@ -118,7 +143,9 @@ class SimulationEngine:
                                  weight_cap=thr_l2, leak_rate=p['leak_l2'])
         self.l2.setup_connectivity(n_feedforward_inputs=N_PIX, n_feedback_inputs=0)
         self.l2.finalize_connections()
-        self.l2.set_local_inhibition_weights(-1.0)
+        # L2I->L2E gates start weak; they are the real source of L2 competition
+        # (see step 2c) and self-tune via inhibitory plasticity.
+        self.l2.set_local_inhibition_weights(L2_GATE_INIT)
         # E→I weight = thr_l2 so a single L2E winner immediately fires L2I.
         self.l2.set_lateral_excitation_weights(thr_l2)
         # Small random feedforward weights: neurons must accumulate across many
@@ -139,6 +166,10 @@ class SimulationEngine:
         for nid, n in self.neurons.items():
             if self.meta[nid]['type'] == 'E' and nid.startswith('L2'):
                 n.weight_budget = thr_l2
+                # Adaptive lateral-inhibition gate: dedicated (lower) saturation
+                # ceiling and its own learning rate, independent of feedforward.
+                n.inhibitory_weight_cap = L2_GATE_WMAX
+                n.inhibitory_learning_rate = L2_GATE_ETA
             else:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
@@ -289,20 +320,42 @@ class SimulationEngine:
         # Capture pre-WTA potential for the charge visualisation.
         self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
 
-        # 2c. L2 winner-take-all (same step as feedforward arrival).
+        # 2c. L2 competition via adaptive lateral inhibition (NOT a hard reset).
+        #     When several L2E cross threshold in the same volley, one fires; the
+        #     shared inhibitory neuron L2I then suppresses the other threshold
+        #     crossers (the near-winners) through its L2I->L2E gate. Subthreshold
+        #     neurons are left alone, so charge accumulated across volleys is
+        #     preserved and every unit can eventually win -- this is what breaks
+        #     the single-winner collapse the hard reset caused. The gate strength
+        #     is learned per neuron by Neuron.apply_inhibition (grows when it
+        #     suppresses a near-winner, saturates at L2_GATE_WMAX), so competition
+        #     self-organizes instead of relying on a hand-tuned constant.
         l2e = np.zeros(N_OUT)
         eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
+        inhibited = []
         if eligible:
             winner = max(eligible, key=lambda j: l2.excitatory_neurons[j].potential)
             l2.excitatory_neurons[winner].fire()
             l2e[winner] = 1.0
-            for j, e in enumerate(l2.excitatory_neurons):
-                if j != winner:
-                    e.potential = e.resting_potential
-        l2.inhibitory_neuron.receive_input(l2e)
-        l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
-        if l2i:
-            l2.inhibitory_neuron.fire()
+            # The winner drives L2I, which fires (E->I weight = thr_l2) and
+            # laterally inhibits the near-winners it beat.
+            l2.inhibitory_neuron.receive_input(l2e)
+            l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
+            if l2i:
+                l2.inhibitory_neuron.fire()
+                inh_spk = np.zeros(L2E_FANIN)
+                inh_spk[0] = 1.0                       # index 0 = the L2I->L2E gate
+                for j in eligible:
+                    if j == winner:
+                        continue                        # winner already fired / refractory
+                    for ev in l2.excitatory_neurons[j].apply_inhibition(inh_spk):
+                        self._inh_events.append((f'L2E{j}', ev))
+                    inhibited.append(j)
+        else:
+            l2.inhibitory_neuron.receive_input(l2e)
+            l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
+            if l2i:
+                l2.inhibitory_neuron.fire()
 
         # 2d. Deliver L2E winner spike immediately to all L1I neurons (feedback).
         #     l2e is length N_OUT with a 1 at the winner index, matching each
@@ -327,9 +380,8 @@ class SimulationEngine:
                 for i in range(N_PIX):
                     self.emitted.append(f'fb{j}->{i}')
                 self.emitted.append(f'{j}->inh')
-        if l2i:
-            for j in range(N_OUT):
-                self.emitted.append(f'inh->{j}')
+        for j in inhibited:
+            self.emitted.append(f'inh->{j}')
         for i in range(N_PIX):
             if l1i[i]:
                 self.emitted.append(f'li{i}')

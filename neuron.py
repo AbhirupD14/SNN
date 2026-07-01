@@ -11,7 +11,7 @@ class Neuron:
     
     def __init__(self, n_inputs, threshold=1.0, refractory_period=2,
                  weight_init_range=(-0.5, 0.5), learning_rate=0.1, weight_cap=1.0, leak_rate=0.01,
-                 inhibitory_learning_rate=0.05):
+                 inhibitory_learning_rate=0.05, inhibitory_weight_cap=None):
         """
         Initialize a neuron.
 
@@ -44,6 +44,11 @@ class Neuron:
         self.weight_cap = weight_cap        # Maximum absolute weight value (also w_max for inhibition)
         self.leak_rate = leak_rate          # Leak rate (fraction of potential lost per ms)
         self.inhibitory_learning_rate = inhibitory_learning_rate  # eta for inhibitory plasticity
+        # Saturation ceiling (w_max) for inhibitory gates. Kept separate from the
+        # feedforward weight_cap so a saturated gate need not be strong enough to
+        # fully reset the membrane (which would recreate hard-WTA collapse).
+        # Defaults to weight_cap when None.
+        self.inhibitory_weight_cap = inhibitory_weight_cap
 
         # Debug record of the inhibitory-discharge events from the most recent
         # apply_inhibition() call (one dict per event). See apply_inhibition.
@@ -93,7 +98,8 @@ class Neuron:
             2. V      = V - w   (w = |weight|)  (linear inhibitory discharge)
                V_post = V
             3. p      = V_pre / theta           (normalized closeness to firing)
-            4. dw     = eta * p * (1 - w / w_max)   (saturating; w_max = weight_cap)
+            4. dw     = eta * p * (1 - w / w_max)   (saturating; w_max = inhibitory_weight_cap
+                                                    or weight_cap if that is None)
             5. w      = w + dw                   (gate strengthens toward w_max)
 
         The gate strengthens most when it suppressed a neuron that was *close to
@@ -123,7 +129,7 @@ class Neuron:
 
         spikes = np.asarray(inhibitory_spikes, dtype=float)
         theta = self.threshold
-        w_max = self.weight_cap
+        w_max = self.inhibitory_weight_cap if self.inhibitory_weight_cap is not None else self.weight_cap
         active = np.nonzero((self.weights < 0) & (spikes > 0.5))[0]
         for idx in active:
             w = -float(self.weights[idx])          # magnitude of the inhibitory gate

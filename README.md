@@ -47,11 +47,27 @@ w      = w + delta_w                      # gate strengthens toward w_max
 ```
 
 The gate strengthens most when it suppresses a **near-winner** (`p → 1`) and
-saturates as `w → w_max`, so competition stays bounded **with no global
+saturates as `w → w_max` (`inhibitory_weight_cap`, kept separate from the
+feedforward `weight_cap`), so competition stays bounded **with no global
 normalization**. Sign is preserved (inhibitory weights stay negative; `|w|`
 grows). The two systems never touch the same weights: excitatory plasticity moves
 only positive synapses, inhibitory plasticity only the negative gate it
 discharged through.
+
+### L2 competition = adaptive lateral inhibition
+
+In the dashboard network, competition among the L2 excitatory pool is produced by
+this inhibitory rule, **not** by a procedural winner-take-all reset. When several
+L2E neurons cross threshold in the same volley, one fires and drives the shared
+inhibitory neuron `L2I`, which laterally inhibits the other threshold-crossers
+(the near-winners) through the `L2I→L2E` gate. Subthreshold neurons are left
+untouched, so charge accumulated across volleys is preserved and **every unit can
+eventually win**. Each gate's strength is *learned* by the rule above and
+saturates below threshold, so a saturated gate suppresses without fully resetting
+the membrane. An earlier version reset all non-winners to rest every step; that
+destroyed accumulated subthreshold evidence and locked the network to a single
+permanent winner (all patterns collapsed onto one neuron). See
+`test_l2_competition.py`.
 
 > **Note on the excitatory counter-force:** a homeostatic weight *budget*
 > (renormalizing positive weights to a fixed sum) exists on the `Neuron` and is
@@ -74,11 +90,16 @@ discharged through.
   onto near-threshold neurons strengthen most and saturate at `w_max`, then an
   in-network column run. Prints the per-event debug outputs (`V_pre`, `V_post`,
   `theta`, `p`, `w_before`, `delta_w`, `w_after`).
+- **`test_l2_competition.py`** — regression test that L2 competition is driven by
+  adaptive lateral inhibition rather than a hard reset: multiple neurons fire,
+  patterns map to distinct winners, `L2I` mediates the suppression, and the gates
+  adapt — no collapse to a single winner (robust across seeds).
 
 ```
 python3 test_neuron.py
 python3 test_8line_consolidation.py
 python3 test_inhibitory_plasticity.py
+python3 test_l2_competition.py
 ```
 
 ## Dashboard

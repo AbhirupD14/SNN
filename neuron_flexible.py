@@ -17,7 +17,7 @@ class Neuron:
     
     def __init__(self, threshold=1.0, refractory_period=2,
                  learning_rate=0.1, weight_cap=1.0, leak_rate=0.01,
-                 inhibitory_learning_rate=0.05):
+                 inhibitory_learning_rate=0.05, inhibitory_weight_cap=None):
         """
         Initialize a flexible neuron.
 
@@ -47,6 +47,9 @@ class Neuron:
         self.weight_cap = weight_cap        # Maximum absolute value for weights (also w_max for inhibition)
         self.leak_rate = leak_rate          # Leak rate (fraction of potential lost per ms)
         self.inhibitory_learning_rate = inhibitory_learning_rate  # eta for inhibitory plasticity
+        # Saturation ceiling (w_max) for inhibitory gates, kept separate from the
+        # feedforward weight_cap (defaults to weight_cap when None). See apply_inhibition.
+        self.inhibitory_weight_cap = inhibitory_weight_cap
         self.last_inhibitory_events = []    # debug records from the most recent apply_inhibition()
         self._connections_finalized = False  # Flag to prevent changes after finalization
         
@@ -118,7 +121,8 @@ class Neuron:
         is untouched and fires only on a postsynaptic spike). An inhibitory synapse
         is any afferent with a negative weight, acting as an adaptive suppression
         gate. For every inhibitory synapse carrying a spike this step, per the
-        algorithm (w = |weight|, w_max = weight_cap, theta = threshold):
+        algorithm (w = |weight|, w_max = inhibitory_weight_cap or weight_cap,
+        theta = threshold):
 
             V_pre  = V ; V = V - w ; V_post = V
             p      = V_pre / theta
@@ -140,7 +144,7 @@ class Neuron:
 
         spikes = np.asarray(inhibitory_spikes, dtype=float)
         theta = self.threshold
-        w_max = self.weight_cap
+        w_max = self.inhibitory_weight_cap if self.inhibitory_weight_cap is not None else self.weight_cap
         active = np.nonzero((self._weights_array < 0) & (spikes > 0.5))[0]
         for idx in active:
             w = -float(self._weights_array[idx])   # magnitude of the inhibitory gate
