@@ -93,7 +93,11 @@ function bar(x) {
 }
 function synCard(title, list, self) {
   if (!list.length) return `<div class="icard full"><div class="lbl">${title}</div><div class="val sm" style="color:var(--txt-2)">none</div></div>`;
-  const rows = list.slice(0, 8).map(sy => {
+  // Render every synapse in the list. Callers that want a summary (e.g. the
+  // "Strongest connections" card) pre-slice their list; the Incoming/Outgoing
+  // cards pass the full set and their titles show the true count, so the rows
+  // shown must match that count rather than being capped here.
+  const rows = list.map(sy => {
     const mag = Math.min(1, Math.abs(sy.w));
     const pos = sy.w >= 0;
     const width = (mag * 50).toFixed(0);
