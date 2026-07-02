@@ -23,6 +23,7 @@ const store = {
   topology: null,
   meta: new Map(),          // id -> static meta
   weights: new Map(),       // synapse id -> current weight
+  confidence: new Map(),    // synapse id -> current confidence (L2E gates)
   stateById: new Map(),     // id -> latest dynamic neuron state
   patternVectors: {},
 };
@@ -50,6 +51,7 @@ function onMessage(msg) {
     store.topology = topo;
     store.meta = new Map(topo.neurons.map(n => [n.id, n]));
     store.weights = new Map(topo.synapses.map(s => [s.id, s.weight ?? 0]));
+    store.confidence = new Map(topo.synapses.filter(s => s.confidence != null).map(s => [s.id, s.confidence]));
     store.patternVectors = topo.pattern_vectors || {};
     renderer.build(topo);
     charts.buildStatic(topo);
@@ -59,6 +61,7 @@ function onMessage(msg) {
     store.dynamic = dyn;
     store.stateById = new Map(dyn.neurons.map(n => [n.id, n]));
     for (const c of dyn.changed_synapses || []) store.weights.set(c.id, c.weight);
+    for (const c of dyn.changed_confidence || []) store.confidence.set(c.id, c.confidence);
     const fps = tickFps();
     renderer.update(dyn);
     charts.update(dyn, fps);

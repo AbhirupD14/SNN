@@ -13,3 +13,6 @@ env/
 .claude/
 .vscode/
 .idea/
+
+# Generated benchmark / sweep outputs
+sweep_results/

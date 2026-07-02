@@ -112,8 +112,10 @@ Every message is `{"type": ..., "data": ...}`.
     "running": true,
     "speed": 12,
     "neurons": [{ "id":"L2E0", "potential":0.31, "activation":0.78,
-                  "spiked":true, "freq":0.5, "refractory":0, "assembly":"L2E0" }, …],
+                  "spiked":true, "freq":0.5, "refractory":0, "assembly":"L2E0",
+                  "budget":4.0, "budget_used":3.98 }, …],  // budget* on L2E only, else null
     "changed_synapses": [{ "id":"ff0->3", "weight":0.61 }, …],  // only what changed
+    "changed_confidence": [{ "id":"ff0->3", "confidence":0.74 }, …],  // L2E gate trust delta
     "input": [1,1,1,0,0,0,0,0,0],
     "winner": "L2E0",
     "stats": { "total":27, "active":4, "firing":2, "avg_activation":0.12,
@@ -132,6 +134,14 @@ and reset; the per-timestep payload carries only what changes, and synapse
 weights are streamed as a sparse `changed_synapses` delta rather than the full
 matrix. The frontend keeps a running weight map so the inspector can always show
 current incoming/outgoing weights without a full retransmit.
+
+When the L2E neurons run in `trace_mode="confidence"` (the default engine mode),
+each feedforward synapse also carries a **confidence** value (the neuron's learned
+trust in that gate, distinct from the gate size = weight). Confidence is sent on
+the topology synapses and streamed as a sparse `changed_confidence` delta with the
+same running-map treatment as weights; the inspector shows it beside each weight,
+plus a per-neuron **budget usage** meter (sum of positive weights vs the fixed
+budget). See `neuron.Neuron` for the confidence learning rule.
 
 ## Rendering pipeline
 

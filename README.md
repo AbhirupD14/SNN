@@ -20,10 +20,13 @@ time. Pure NumPy, neuron-local learning, no gradients or supervision.
 There are **two independent, local, event-driven, gradient-free** plasticity
 systems.
 
-**1. Excitatory plasticity — on a postsynaptic spike.** Each synapse carries an
-**eligibility trace** — the un-summed counterpart of the membrane potential —
-that accumulates presynaptic activity and leaks at the same rate. When a neuron
-fires:
+**1. Excitatory plasticity — on a postsynaptic spike.** The excitatory trace has
+two selectable meanings (`Neuron(trace_mode=...)`), so the two can be A/B-compared
+at identical seeds and hyperparameters.
+
+*`trace_mode="activity"` (default).* Each synapse carries an **eligibility
+trace** — the un-summed counterpart of the membrane potential — that accumulates
+presynaptic activity and leaks at the same rate. When a neuron fires:
 
 ```
 weights += learning_rate * trace * sign(weights)
@@ -32,6 +35,24 @@ weights += learning_rate * trace * sign(weights)
 so only the synapses that actually delivered charge are credited, and each is
 strengthened in the direction of its own sign. A neuron is excitatory or
 inhibitory purely by the sign of the weight it lands on in its target.
+
+*`trace_mode="confidence"`.* Separates two biological quantities: the **weight**
+is the gate size, and a new persistent per-synapse **confidence** is the neuron's
+trust that opening that gate helps it fire. Confidence starts small (0.10) and
+updates only on a successful spike — participating synapses grow toward 1
+(`c += beta*(1-c)`), non-participants slowly forget (`c *= 1-gamma`). The fixed
+learning budget is then allocated by confidence, not equally:
+
+```
+credit_i = c_i / Σ(c over active excitatory synapses)
+weights += learning_rate * credit_i
+```
+
+The existing weight-budget normalization and cap run unchanged afterward, so the
+finite-resource interpretation is preserved; only the *distribution* of learning
+changes. Confidence is a credit-assignment rule, independent of the inhibitory
+system (it only ever touches positive synapses). `Neuron.plasticity_stats()`
+exposes weight/confidence entropy and concentration for diagnosing specialization.
 
 **2. Inhibitory plasticity — on an inhibitory discharge** (`Neuron.apply_inhibition`).
 An inhibitory synapse is treated as a **finite adaptive suppression gate**. When
@@ -54,20 +75,40 @@ grows). The two systems never touch the same weights: excitatory plasticity move
 only positive synapses, inhibitory plasticity only the negative gate it
 discharged through.
 
+**3. Homeostatic synaptic scaling — on chronic silence or over-activity**
+(`Neuron(homeostasis=True)`). A third local system, and the only one *not* gated
+by a spike event. Each neuron keeps a slow EMA of its **own** firing rate (a
+"calcium" sensor). When that average leaves a target band, the neuron applies a
+**fixed** multiplicative step to its excitatory resource — `×(1+up)` when
+chronically silent, `×(1-down)` when chronically over-active — with a deadband in
+between. The step is a constant, *not* proportional to any error and not a
+gradient; it depends only on the neuron's own rate vs its own set-point, so there
+is no global signal. The scaling is multiplicative, so relative weights (the
+receptive field) are preserved — it carries no pattern information. It therefore
+does not violate "learning happens on fire": the pattern learning still happens
+only on a spike (rules 1–2); scaling just restores a starved neuron's gain until
+it can fire, after which the on-fire rule carves the field. When enabled it
+*replaces* the fixed weight budget as the resource regulator. Biologically this is
+Turrigiano-style synaptic scaling; it recruits silent units and tames tyrants on
+the rate axis (see the caveat under the benchmark).
+
 ### L2 competition = adaptive lateral inhibition
 
 In the dashboard network, competition among the L2 excitatory pool is produced by
-this inhibitory rule, **not** by a procedural winner-take-all reset. When several
-L2E neurons cross threshold in the same volley, one fires and drives the shared
-inhibitory neuron `L2I`, which laterally inhibits the other threshold-crossers
-(the near-winners) through the `L2I→L2E` gate. Subthreshold neurons are left
-untouched, so charge accumulated across volleys is preserved and **every unit can
-eventually win**. Each gate's strength is *learned* by the rule above and
-saturates below threshold, so a saturated gate suppresses without fully resetting
-the membrane. An earlier version reset all non-winners to rest every step; that
-destroyed accumulated subthreshold evidence and locked the network to a single
-permanent winner (all patterns collapsed onto one neuron). See
-`test_l2_competition.py`.
+this inhibitory rule, **not** by a procedural winner-take-all reset. When one L2E
+fires it drives the shared inhibitory neuron `L2I`, which then discharges the
+**entire rest of the pool** through the `L2I→L2E` gate — not just the neurons that
+also crossed threshold. This is deliberate: the neurons that cause a *flickering*
+winner are the ones sitting just **below** threshold; if only co-threshold-crossers
+were inhibited, those sub-threshold rivals coasted through untouched and won the
+next volley, so the winner rotated every burst. Discharging the whole pool subtracts
+each rival's own learned gate magnitude, restarting the race closer to even so the
+best-matched integrator can win repeatedly. The gate stays **below threshold**
+(`L2_GATE_WMAX < thr_l2`), so this is a partial discharge that preserves cross-volley
+evidence — *not* the old hard reset that collapsed the network to one universal
+winner. Each gate's strength is *learned* per target by the inhibitory rule above,
+so the gates onto the habitual runners-up strengthen and the suppression
+self-organizes. See `test_l2_competition.py`.
 
 > **Note on the excitatory counter-force:** a homeostatic weight *budget*
 > (renormalizing positive weights to a fixed sum) exists on the `Neuron` and is
@@ -101,6 +142,37 @@ python3 test_8line_consolidation.py
 python3 test_inhibitory_plasticity.py
 python3 test_l2_competition.py
 ```
+
+## A/B benchmark: activity vs. confidence trace
+
+`benchmark_trace_modes.py` drives the full engine network under both
+`trace_mode` values at identical seeds and reports distinct-winner count,
+receptive-field selectivity, single-volley latency, convergence, and
+budget/confidence concentration — plus a weak-competition control. Writes a
+comparison figure to `sweep_results/trace_mode_ab.png`.
+
+```
+.venv/bin/python benchmark_trace_modes.py
+```
+
+Finding so far: on this task the two modes are roughly equivalent (both reach
+~3/8 distinct winners); confidence saturates broadly because specialization is
+**competition-limited** — a neuron that wins several patterns legitimately trusts
+many pixels. Confidence is a credit-assignment rule downstream of who-wins, so it
+neither creates nor blocks tiling here. The intended weight/confidence divergence
+(a consistently-useful gate earns more trust than an intermittent one) is shown
+directly in `test_neuron.py::test_confidence_diverges_from_weight`.
+
+Homeostasis finding: turning on homeostatic scaling clearly **recruits dead
+units** — the fraction of L2 neurons that ever fire rises from ~2/8 to ~4–6/8
+across seeds — and it visibly tames tyrants and grows silent units on the resource
+axis (`R` spans ~1–6 after training). But it does **not** by itself produce clean
+8/8 tiling (distinct winners rise only ~2→3, seed-sensitively). That is expected:
+homeostasis is a *rate/magnitude* regulator, so it decides how much a neuron fires,
+not *which pattern* it owns. One-to-one tiling is an assignment/symmetry-breaking
+problem (the prior `sim_snn_fep` track needed physical per-step membrane noise +
+deterministic first-to-fire for that); homeostasis is necessary to keep all units
+in play but not sufficient to assign them.
 
 ## Dashboard
 

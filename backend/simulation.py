@@ -110,11 +110,25 @@ class SimulationEngine:
                  learning_rate: float = 0.05,
                  weight_cap: float = 1.0,
                  refractory: int = 2,
-                 volley_period: int = 4):
+                 volley_period: int = 4,
+                 trace_mode: str = "confidence",
+                 confidence_beta: float = 0.30,
+                 confidence_gamma: float = 0.02,
+                 homeostasis: bool = True,
+                 ca_rate: float = 0.01,
+                 ca_target: float = 0.012,   # between a specialist's rate (~0.01) and a
+                                             # tyrant's (~0.02): below it a unit is grown,
+                                             # above it a unit is shrunk (see sweep in memory)
+                 homeo_up: float = 0.01,
+                 homeo_down: float = 0.01):
         self.params = dict(seed=seed, threshold=threshold, threshold_l2=threshold_l2,
                            leak_l1=leak_l1, leak_l2=leak_l2,
                            learning_rate=learning_rate, weight_cap=weight_cap,
-                           refractory=refractory, volley_period=volley_period)
+                           refractory=refractory, volley_period=volley_period,
+                           trace_mode=trace_mode, confidence_beta=confidence_beta,
+                           confidence_gamma=confidence_gamma,
+                           homeostasis=homeostasis, ca_rate=ca_rate, ca_target=ca_target,
+                           homeo_up=homeo_up, homeo_down=homeo_down)
         self._build()
 
     # ------------------------------------------------------------------ build
@@ -170,6 +184,24 @@ class SimulationEngine:
                 # ceiling and its own learning rate, independent of feedforward.
                 n.inhibitory_weight_cap = L2_GATE_WMAX
                 n.inhibitory_learning_rate = L2_GATE_ETA
+                # Excitatory-trace semantics for the feedforward receptive field.
+                # "confidence" separates gate size (weight) from the neuron's trust
+                # in each gate (confidence); see neuron.Neuron._update_weights.
+                n.trace_mode = p['trace_mode']
+                n.confidence_beta = p['confidence_beta']
+                n.confidence_gamma = p['confidence_gamma']
+                # Homeostatic synaptic scaling: recruits silent units and tames
+                # over-active ones by regulating each neuron's own firing rate to a
+                # set-point (see neuron.Neuron._homeostatic_scaling). When on, this
+                # REPLACES the fixed weight budget as the resource regulator, so the
+                # total is set by activity, not a hard constant.
+                n.homeostasis = p['homeostasis']
+                n.ca_rate = p['ca_rate']
+                n.ca_target = p['ca_target']
+                n.homeo_up = p['homeo_up']
+                n.homeo_down = p['homeo_down']
+                n.homeo_budget_min = 0.5
+                n.homeo_budget_max = 2.0 * thr_l2
             else:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
@@ -187,6 +219,8 @@ class SimulationEngine:
         self._log_seq = 0
         self._weights_snapshot = self._all_weights()
         self.changed_synapses: list[dict] = []
+        self._confidence_snapshot = self._all_confidence()
+        self.changed_confidence: list[dict] = []
         self.l2_drive: dict[str, float] = {}
         self.winner: str | None = None
         self._inh_events: list[tuple] = []   # (neuron_id, event) from this step's discharges
@@ -321,15 +355,23 @@ class SimulationEngine:
         self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
 
         # 2c. L2 competition via adaptive lateral inhibition (NOT a hard reset).
-        #     When several L2E cross threshold in the same volley, one fires; the
-        #     shared inhibitory neuron L2I then suppresses the other threshold
-        #     crossers (the near-winners) through its L2I->L2E gate. Subthreshold
-        #     neurons are left alone, so charge accumulated across volleys is
-        #     preserved and every unit can eventually win -- this is what breaks
-        #     the single-winner collapse the hard reset caused. The gate strength
-        #     is learned per neuron by Neuron.apply_inhibition (grows when it
-        #     suppresses a near-winner, saturates at L2_GATE_WMAX), so competition
-        #     self-organizes instead of relying on a hand-tuned constant.
+        #     One L2E fires; the shared inhibitory neuron L2I then discharges the
+        #     ENTIRE rest of the pool through its L2I->L2E gate -- not just the
+        #     neurons that also crossed threshold this step. This is the key
+        #     difference from a selective winner-take-all: the neurons that drive
+        #     the "flickering winner" are the ones sitting JUST BELOW threshold
+        #     (e.g. 3.9 vs a 4.0 threshold). If only co-threshold-crossers were
+        #     inhibited, those sub-threshold rivals coasted through untouched and
+        #     won the next volley, so the winner rotated every burst. Discharging
+        #     the whole pool subtracts each rival's own learned gate magnitude, so
+        #     the race restarts closer to even and the best-matched integrator can
+        #     win repeatedly (the precondition for consolidation). The gate stays
+        #     below threshold (L2_GATE_WMAX < thr_l2), so this is still a partial
+        #     discharge that preserves cross-volley evidence, NOT the old hard reset
+        #     that collapsed the network to one universal winner. Each gate is
+        #     learned per target by Neuron.apply_inhibition (grows most when it
+        #     suppresses a neuron that was close to firing), so the gates onto the
+        #     habitual runners-up strengthen and the suppression self-organizes.
         l2e = np.zeros(N_OUT)
         eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
         inhibited = []
@@ -338,19 +380,23 @@ class SimulationEngine:
             l2.excitatory_neurons[winner].fire()
             l2e[winner] = 1.0
             # The winner drives L2I, which fires (E->I weight = thr_l2) and
-            # laterally inhibits the near-winners it beat.
+            # laterally inhibits the whole rest of the pool.
             l2.inhibitory_neuron.receive_input(l2e)
             l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
             if l2i:
                 l2.inhibitory_neuron.fire()
                 inh_spk = np.zeros(L2E_FANIN)
                 inh_spk[0] = 1.0                       # index 0 = the L2I->L2E gate
-                for j in eligible:
+                for j in range(N_OUT):
                     if j == winner:
                         continue                        # winner already fired / refractory
-                    for ev in l2.excitatory_neurons[j].apply_inhibition(inh_spk):
+                    # apply_inhibition no-ops on refractory neurons; sub-threshold
+                    # rivals (the real cause of the rotation) are now discharged too.
+                    events = l2.excitatory_neurons[j].apply_inhibition(inh_spk)
+                    for ev in events:
                         self._inh_events.append((f'L2E{j}', ev))
-                    inhibited.append(j)
+                    if events:
+                        inhibited.append(j)
         else:
             l2.inhibitory_neuron.receive_input(l2e)
             l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
@@ -403,6 +449,7 @@ class SimulationEngine:
             self.l1i_hold = l1i
         self.timestep += 1
         self._detect_weight_changes()
+        self._detect_confidence_changes()
         self._log_inhibitory_events()
         self._update_episode(l2e, t)
         return self.dynamic_state()
@@ -535,6 +582,37 @@ class SimulationEngine:
                                  if abs(v - self._weights_snapshot.get(sid, v)) > WEIGHT_EPS]
         self._weights_snapshot = now
 
+    def _all_confidence(self) -> dict:
+        """Per-synapse confidence for the L2E feedforward receptive fields, keyed by
+        the same synapse ids as _all_weights (ff{i}->{j}). Confidence is the L2E
+        neuron's trust that opening each EXCITATORY gate helps it fire (see
+        neuron.Neuron), so only the feedforward (positive) synapses are reported --
+        the negative L2I->L2E gate has its own inhibitory plasticity and no
+        excitatory-trust value. In "activity" mode these are the untouched initial
+        values, so the field is always safe to serialize."""
+        c: dict[str, float] = {}
+        for j in range(N_OUT):
+            conf = self.l2.excitatory_neurons[j].confidence
+            for i in range(N_PIX):
+                c[f'ff{i}->{j}'] = float(conf[1 + i])
+        return c
+
+    def _detect_confidence_changes(self):
+        now = self._all_confidence()
+        self.changed_confidence = [dict(id=sid, confidence=round(v, 4))
+                                   for sid, v in now.items()
+                                   if abs(v - self._confidence_snapshot.get(sid, v)) > WEIGHT_EPS]
+        self._confidence_snapshot = now
+
+    def _budget_usage(self, nid: str):
+        """(budget, budget_used) for an L2E neuron, else (None, None). budget_used
+        is the current sum of positive (feedforward) weights vs its fixed budget."""
+        n = self.neurons[nid]
+        if self.meta[nid]['type'] == 'E' and nid.startswith('L2') and n.weight_budget is not None:
+            w = n.weights
+            return float(n.weight_budget), float(w[w > 0].sum())
+        return None, None
+
     # ----------------------------------------------------------------- access
     def firing_freq(self, nid: str) -> float:
         d = self.freq[nid]
@@ -551,8 +629,11 @@ class SimulationEngine:
     # ------------------------------------------------------------ serialization
     def topology(self) -> dict:
         weights = self._all_weights()
+        confidence = self._all_confidence()
         neurons = [dict(**self.meta[nid]) for nid in self.neurons]
-        synapses = [dict(**s, weight=round(weights.get(s['id'], 0.0), 4)) for s in self.synapses]
+        synapses = [dict(**s, weight=round(weights.get(s['id'], 0.0), 4),
+                         confidence=round(confidence[s['id']], 4) if s['id'] in confidence else None)
+                    for s in self.synapses]
         return dict(neurons=neurons, synapses=synapses, layers=['L1', 'L2'],
                     patterns=list(PATTERNS.keys()),
                     pattern_vectors={k: list(map(int, v)) for k, v in PATTERNS.items()},
@@ -563,13 +644,17 @@ class SimulationEngine:
         for nid, n in self.neurons.items():
             pot = self.l2_drive.get(nid, float(n.potential))
             thr = self.meta[nid]['threshold'] or 1.0
+            budget, budget_used = self._budget_usage(nid)
             neurons.append(dict(id=nid, potential=round(pot, 4),
                                 activation=round(pot / thr, 4),
                                 spiked=self.spiked[nid], freq=round(self.firing_freq(nid), 4),
                                 refractory=int(n.refractory_timer),
+                                budget=round(budget, 4) if budget is not None else None,
+                                budget_used=round(budget_used, 4) if budget_used is not None else None,
                                 assembly=(self.winner if nid == self.winner else None)))
         return dict(timestep=self.timestep, running=False, neurons=neurons,
                     changed_synapses=self.changed_synapses,
+                    changed_confidence=self.changed_confidence,
                     emitted=self.emitted,
                     input=self.input_vec.astype(int).tolist(), winner=self.winner,
                     episode=dict(active=self.episode_active, timer=self.episode_timer,

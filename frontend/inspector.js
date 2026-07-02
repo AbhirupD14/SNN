@@ -43,8 +43,9 @@ export class Inspector {
     const incoming = [], outgoing = [];
     for (const syn of (s.topology?.synapses ?? [])) {
       const w = s.weights.get(syn.id) ?? syn.weight ?? 0;
-      if (syn.target === this.id) incoming.push({ ...syn, w, other: syn.source });
-      if (syn.source === this.id) outgoing.push({ ...syn, w, other: syn.target });
+      const conf = s.confidence.get(syn.id) ?? syn.confidence ?? null;
+      if (syn.target === this.id) incoming.push({ ...syn, w, conf, other: syn.source });
+      if (syn.source === this.id) outgoing.push({ ...syn, w, conf, other: syn.target });
     }
     const strongest = [...incoming, ...outgoing].sort((a, b) => Math.abs(b.w) - Math.abs(a.w)).slice(0, 4);
     const col = meta.type === 'E' ? 'var(--exc)' : 'var(--inh)';
@@ -64,6 +65,13 @@ export class Inspector {
       </div>
       <div class="insp-cards">
         ${card('Threshold', meta.threshold.toFixed(2))}
+        ${state.budget != null ? card('Budget usage', `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-variant-numeric:tabular-nums">${state.budget_used.toFixed(3)} / ${state.budget.toFixed(2)}</span>
+            <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.max(0, Math.min(1, state.budget_used / state.budget)) * 100}%;background:var(--ff);border-radius:3px;transition:width .1s"></div>
+            </div>
+          </div>`) : ''}
         ${card('Charge', `
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-variant-numeric:tabular-nums">${state.potential.toFixed(3)}</span>
@@ -103,10 +111,14 @@ function synCard(title, list, self) {
     const width = (mag * 50).toFixed(0);
     const color = pos ? 'var(--ff)' : 'var(--in)';
     const style = pos ? `left:50%;width:${width}%;background:${color}` : `right:50%;width:${width}%;background:${color}`;
+    // Confidence (trust in the gate) shown alongside the weight (gate size) when
+    // the synapse carries one -- these are separate quantities in confidence mode.
+    const conf = (sy.conf != null)
+      ? `<span class="wv" title="confidence" style="color:var(--txt-2)">c ${sy.conf.toFixed(2)}</span>` : '';
     return `<div class="syn-row">
       <span class="name">${sy.other}</span>
       <span class="wbar"><i style="${style}"></i></span>
-      <span class="wv">${sy.w >= 0 ? '+' : ''}${sy.w.toFixed(3)}</span></div>`;
+      <span class="wv">${sy.w >= 0 ? '+' : ''}${sy.w.toFixed(3)}</span>${conf}</div>`;
   }).join('');
   return `<div class="icard full"><div class="lbl">${title}</div><div class="syn-list">${rows}</div></div>`;
 }

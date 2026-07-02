@@ -5,6 +5,9 @@ during layer construction, while maintaining all required functionality.
 
 import numpy as np
 
+from neuron import _distribution_entropy, _concentration, PARTICIPATION_EPS
+
+
 class Neuron:
     """
     A flexible spiking neuron model that allows dynamic specification of 
@@ -17,7 +20,12 @@ class Neuron:
     
     def __init__(self, threshold=1.0, refractory_period=2,
                  learning_rate=0.1, weight_cap=1.0, leak_rate=0.01,
-                 inhibitory_learning_rate=0.05, inhibitory_weight_cap=None):
+                 inhibitory_learning_rate=0.05, inhibitory_weight_cap=None,
+                 trace_mode="activity", confidence_init=0.10,
+                 confidence_beta=0.30, confidence_gamma=0.02,
+                 homeostasis=False, ca_rate=0.01, ca_target=0.02, ca_band=0.5,
+                 homeo_up=0.01, homeo_down=0.01,
+                 homeo_budget_min=None, homeo_budget_max=None):
         """
         Initialize a flexible neuron.
 
@@ -30,7 +38,18 @@ class Neuron:
             leak_rate (float): Fraction of potential that leaks away per time step (0 = no leak, 1 = full leak)
             inhibitory_learning_rate (float): eta for the inhibitory-discharge plasticity rule
                 (see apply_inhibition). 0 disables inhibitory learning.
+            trace_mode (str): "activity" (original trace-gated Hebbian rule) or
+                "confidence" (confidence-weighted allocation). See the Neuron in
+                neuron.py for the full description; the two classes share semantics.
+            confidence_init (float): starting confidence for every synapse.
+            confidence_beta (float): growth rate toward 1 for participating synapses.
+            confidence_gamma (float): slow decay for non-participating synapses.
+            homeostasis, ca_rate, ca_target, ca_band, homeo_up, homeo_down,
+            homeo_budget_min, homeo_budget_max: homeostatic synaptic scaling; see
+                neuron.Neuron for the full description (identical semantics).
         """
+        if trace_mode not in ("activity", "confidence"):
+            raise ValueError(f"trace_mode must be 'activity' or 'confidence', got {trace_mode!r}")
         # Neuron properties
         self.threshold = threshold          # Firing threshold (constant)
         self.resting_potential = 0.0        # Resting potential at 0
@@ -42,6 +61,25 @@ class Neuron:
         self._weights_list = []        # List of synaptic weights during construction
         self._weights_array = None     # Numpy array after finalization
         self._trace = None             # Per-synapse eligibility trace (set at finalize)
+        # Confidence state (see neuron.Neuron). Allocated at finalize once the
+        # fan-in is known. In "activity" mode it is left untouched.
+        self._confidence = None
+        self.trace_mode = trace_mode
+        self.confidence_init = float(confidence_init)
+        self.confidence_beta = confidence_beta
+        self.confidence_gamma = confidence_gamma
+        self.last_excitatory_event = {}
+        # Homeostatic synaptic scaling (third local system; see neuron.Neuron).
+        self.homeostasis = homeostasis
+        self.ca_rate = ca_rate
+        self.ca_target = ca_target
+        self.ca_band = ca_band
+        self.homeo_up = homeo_up
+        self.homeo_down = homeo_down
+        self.homeo_budget_min = homeo_budget_min
+        self.homeo_budget_max = homeo_budget_max
+        self.ca = 0.0                 # slow EMA of the neuron's OWN firing ("calcium")
+        self.homeo_budget = None      # homeostatic excitatory resource R (lazy-init)
         self.weight_budget = None      # optional homeostatic budget for positive weights
         self.learning_rate = learning_rate  # Weight increase amount when neuron fires (excitatory)
         self.weight_cap = weight_cap        # Maximum absolute value for weights (also w_max for inhibition)
@@ -86,6 +124,8 @@ class Neuron:
                 self._weights_array = np.array([], dtype=float)
             # Eligibility trace: one accumulator per synapse, mirrors the membrane
             self._trace = np.zeros(len(self._weights_array))
+            # Confidence: one persistent value per synapse, small but non-zero.
+            self._confidence = np.full(len(self._weights_array), self.confidence_init)
             self._connections_finalized = True
             
     def _ensure_finalized(self):
@@ -170,7 +210,10 @@ class Neuron:
         Handles refractory period and potential leak to resting state.
         """
         self._ensure_finalized()
-        
+
+        # Homeostatic firing-rate sensor: slow EMA of this neuron's own spiking.
+        self.ca += self.ca_rate * (float(self.spiked) - self.ca)
+
         # Handle refractory period
         if self.refractory_timer > 0:
             self.refractory_timer -= 1
@@ -184,6 +227,10 @@ class Neuron:
             self.potential += leak_current
             # Decay the eligibility trace with the same leak as the membrane
             self._trace *= (1.0 - self.leak_rate)
+
+        # Homeostatic synaptic scaling (slow, activity-driven, non-Hebbian).
+        if self.homeostasis:
+            self._homeostatic_scaling()
 
         # Reset spike flag for next time step
         self.spiked = False
@@ -230,36 +277,123 @@ class Neuron:
 
     def _update_weights(self):
         """
-        Hebbian weight update, applied only when the neuron fires.
-
-        Each synapse is strengthened in proportion to its eligibility trace --
-        how much that input line contributed charge over the recent window.
-        Silent lines have trace ~0 and are left essentially unchanged. Weights
-        are then clipped to [-weight_cap, weight_cap].
-
-        The update is sign-preserving: each synapse is strengthened in the
-        direction of its own sign, so excitatory inputs grow more positive and
-        inhibitory inputs (negative weights, which live in the target neuron's
-        array) grow more negative -- i.e. |w| increases either way. A neuron is
-        excitatory or inhibitory purely by the sign of the weight it lands on in
-        its target; the neuron itself just fires, and trains its own afferents
-        with this identical rule.
+        Hebbian weight update, applied only when the neuron fires. Dispatches on
+        trace_mode (see neuron.Neuron for the full description of both variants).
         """
-        # Credit only the synapses that contributed charge (pre_i * post),
-        # strengthening each in the direction of its existing sign.
-        if self._weights_array is not None and len(self._weights_array) > 0:
-            self._weights_array += self.learning_rate * self._trace * np.sign(self._weights_array)
+        if self._weights_array is None or len(self._weights_array) == 0:
+            return
+        if self.trace_mode == "confidence":
+            self._update_weights_confidence()
+        else:
+            self._update_weights_activity()
 
-            # Homeostatic budget: renormalize excitatory weights to a fixed total, so
-            # strengthening one input weakens the others (no runaway growth).
-            if self.weight_budget is not None:
+    def _update_weights_activity(self):
+        """Original rule: strengthen each synapse in proportion to its eligibility
+        trace, in the direction of its own sign (sign-preserving)."""
+        self._weights_array += self.learning_rate * self._trace * np.sign(self._weights_array)
+        self._apply_budget_and_cap()
+
+    def _update_weights_confidence(self):
+        """Confidence-weighted excitatory allocation (see neuron.Neuron for the
+        rationale). Weight = gate size, confidence = trust in that gate; the fixed
+        learning budget is distributed across active excitatory synapses in
+        proportion to their (updated) confidence, then budget-normalized + capped."""
+        participated = self._trace > PARTICIPATION_EPS
+        conf_before = self._confidence.copy()
+
+        self._confidence[participated] += self.confidence_beta * (1.0 - self._confidence[participated])
+        self._confidence[~participated] *= (1.0 - self.confidence_gamma)
+
+        exc_active = participated & (self._weights_array > 0)
+        credit = np.zeros_like(self._weights_array)
+        denom = float(self._confidence[exc_active].sum())
+        if denom > PARTICIPATION_EPS:
+            credit[exc_active] = self._confidence[exc_active] / denom
+        dw = self.learning_rate * credit
+        self._weights_array += dw
+
+        pos = self._weights_array > 0
+        budget_before = float(self._weights_array[pos].sum())
+        self._apply_budget_and_cap()
+        pos = self._weights_array > 0
+        budget_after = float(self._weights_array[pos].sum())
+
+        idx = np.nonzero(participated)[0]
+        self.last_excitatory_event = dict(
+            participating=idx.tolist(),
+            confidence_before=conf_before[idx].tolist(),
+            confidence_after=self._confidence[idx].tolist(),
+            credits=credit[idx].tolist(),
+            delta_w=dw[idx].tolist(),
+            budget_before=budget_before,
+            budget_after=budget_after,
+        )
+
+    def _apply_budget_and_cap(self):
+        """Shared tail: renormalize positive weights to the resource target, then
+        the absolute cap. Under homeostasis the target is the homeostatic resource
+        R; otherwise the fixed weight_budget. See neuron.Neuron for details."""
+        target = self._resource_target()
+        if target is not None:
+            pos = self._weights_array > 0
+            total = float(self._weights_array[pos].sum())
+            if total > 1e-9:
+                self._weights_array[pos] *= target / total
+        self._weights_array = np.clip(self._weights_array, -self.weight_cap, self.weight_cap)
+
+    def _resource_target(self):
+        """Positive-weight budget to renormalize to: homeostatic resource R under
+        homeostasis (lazy-init from current positive sum), else weight_budget."""
+        if self.homeostasis:
+            if self.homeo_budget is None:
                 pos = self._weights_array > 0
-                total = float(self._weights_array[pos].sum())
-                if total > 1e-9:
-                    self._weights_array[pos] *= self.weight_budget / total
+                self.homeo_budget = float(self._weights_array[pos].sum()) if pos.any() else None
+            return self.homeo_budget
+        return self.weight_budget
 
-            # Apply weight cap to prevent infinite growth
-            self._weights_array = np.clip(self._weights_array, -self.weight_cap, self.weight_cap)
+    def _homeostatic_scaling(self):
+        """Turrigiano-style synaptic scaling; see neuron.Neuron._homeostatic_scaling
+        for the full rationale. Triggered by the neuron's OWN chronic firing rate
+        (self.ca) leaving a target band, applies a FIXED multiplicative step (not a
+        gradient, not global) to the excitatory resource, preserving relative
+        weights so no pattern information is injected."""
+        pos = self._weights_array > 0
+        if not pos.any():
+            return
+        if self.homeo_budget is None:
+            self.homeo_budget = float(self._weights_array[pos].sum())
+
+        lo = self.ca_target * (1.0 - self.ca_band)
+        hi = self.ca_target * (1.0 + self.ca_band)
+        if self.ca < lo:
+            self.homeo_budget *= (1.0 + self.homeo_up)      # chronically silent -> grow
+        elif self.ca > hi:
+            self.homeo_budget *= (1.0 - self.homeo_down)    # chronically over-active -> shrink
+        if self.homeo_budget_min is not None:
+            self.homeo_budget = max(self.homeo_budget, self.homeo_budget_min)
+        if self.homeo_budget_max is not None:
+            self.homeo_budget = min(self.homeo_budget, self.homeo_budget_max)
+
+        total = float(self._weights_array[pos].sum())
+        if total > 1e-9:
+            self._weights_array[pos] *= self.homeo_budget / total
+        self._weights_array = np.clip(self._weights_array, -self.weight_cap, self.weight_cap)
+
+    def plasticity_stats(self):
+        """Summary statistics over the excitatory (positive-weight) afferents --
+        weight/confidence entropy and concentration, plus current budget usage.
+        See neuron.Neuron.plasticity_stats."""
+        self._ensure_finalized()
+        pos_mask = self._weights_array > 0
+        pos_w = self._weights_array[pos_mask]
+        pos_c = self._confidence[pos_mask]
+        return dict(
+            weight_entropy=_distribution_entropy(pos_w),
+            confidence_entropy=_distribution_entropy(pos_c),
+            weight_concentration=_concentration(pos_w),
+            confidence_concentration=_concentration(pos_c),
+            budget_used=float(pos_w.sum()),
+        )
         
     def get_state(self):
         """
@@ -275,14 +409,21 @@ class Neuron:
             'refractory_timer': self.refractory_timer,
             'spiked': self.spiked,
             'weights': self._weights_array.copy() if self._weights_array is not None else np.array([]),
+            'confidence': self._confidence.copy() if self._confidence is not None else np.array([]),
             'last_spike_time': self.last_spike_time
         }
-        
+
     @property
     def weights(self):
         """Get the weights array."""
         self._ensure_finalized()
         return self._weights_array.copy()
+
+    @property
+    def confidence(self):
+        """Get the per-synapse confidence array (aligned to weights)."""
+        self._ensure_finalized()
+        return self._confidence.copy()
         
     @property
     def n_inputs(self):
