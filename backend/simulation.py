@@ -15,25 +15,65 @@ Learning architecture:
     synapses, the budget normalisation weakens the others, producing
     competitive receptive-field emergence.
   - L1I / L2I (inhibitory) neurons carry NO budget.  Instead, each
-    individual incoming weight is capped at the threshold.  This lets timing
-    dynamics train freely without distorting receptive fields.
+    individual incoming weight is capped independently (no renormalization
+    trades one synapse off against another), and BOTH follow the identical
+    two-regime "assembly evidence integrator" policy, just scaled to their
+    own layer's threshold (see the L2 / L1 competition note below for the
+    full mechanism): every synapse is randomly initialized (never a repeated
+    constant) at [0.25, 0.5] of its own neuron's threshold -- L1I from
+    [0.25, 0.5] * thr_l1 (L1_EI_WEIGHT_INIT_LOW/_HIGH_FRAC), L2I from
+    [0.25, 0.5] * threshold_l2 (L2_EI_WEIGHT_INIT_LOW/_HIGH_FRAC) -- and each
+    synapse's LEARNING ceiling is that same neuron's own threshold (thr_l1 /
+    threshold_l2), not a separate fixed constant. This lets timing dynamics
+    train freely without distorting receptive fields.
 
 With slow leak_l2 (~0.01) and small initial feedforward weights, L2E neurons
 require many volleys to fire at first (classic LIF accumulation).  As
 synapses specialise, they fire from a single volley (pattern integrator).
 The charge-ring visualisation makes this transition directly observable.
 
-L2 competition (source of winner-take-all):
-  Competition is produced by the shared inhibitory neuron L2I, not by a
-  procedural reset.  When several L2E cross threshold in the same volley one
-  fires and drives L2I, which laterally inhibits the other threshold-crossers
-  (the near-winners) through the L2I->L2E gate.  Subthreshold neurons are left
-  untouched, so charge accumulated across volleys is preserved and every unit
-  can eventually win.  Each gate's strength is learned per neuron by the
-  inhibitory-plasticity rule (Neuron.apply_inhibition) and saturates below
-  threshold, so competition self-organizes and cannot collapse to a permanent
-  single winner.  (An earlier version reset all non-winners to rest each step,
-  which destroyed subthreshold evidence and locked the network to one neuron.)
+L1 / L2 competition (source of winner-take-all, and of L1's feedback
+suppression):
+  Both inhibitory neurons -- L1I (one per pixel) and the shared L2I -- are
+  "assembly evidence integrators" whose own behavior changes across training
+  in two regimes, identically in mechanism, only differing in which
+  threshold and which leak rate govern them (thr_l1/L1I_LEAK_RATE for L1I,
+  threshold_l2/L2I_LEAK_RATE for L2I):
+    EARLY -- each incoming synapse starts randomly well below that neuron's
+    own threshold, and a fast membrane leak (much faster than the
+    corresponding excitatory layer's leak_l1/leak_l2) sets a short
+    evidence-retention window of a few volleys, so the inhibitory neuron only
+    fires once several DIFFERENT excitatory neurons have spiked within that
+    window and their contributions sum toward threshold -- a "round robin"
+    phase where no single source is yet trusted. (The fraction/leak-rate pair
+    is chosen so this ceiling -- w/(1-r) for a geometric series of
+    volley-spaced contributions -- sits comfortably ABOVE threshold, not
+    below it: raising a threshold without also scaling the weight range and/or
+    leak rate can push the target past that ceiling entirely, making the
+    round-robin phase permanently unreachable rather than merely slower --
+    see L2I_Temporal_Integration.md for the full derivation.)
+    LATER -- these synapses are not budgeted and each is individually capped
+    at its own neuron's threshold (not a fixed sub-threshold ceiling), so as
+    the existing, unmodified Hebbian rule repeatedly credits whichever
+    excitatory neuron habitually co-occurs with a discharge, that synapse can
+    grow all the way to threshold and become sufficient alone -- one spike
+    from that now-trusted source then fires the inhibitory neuron
+    immediately, the same LIF-accumulator -> pattern-integrator transition
+    L2E itself goes through.
+  Whenever L2I fires (either regime) it laterally inhibits the rest of the L2
+  pool through the L2I->L2E gate (see Neuron.apply_inhibition); whenever an
+  L1I fires it suppresses its paired L1E the same way. Subthreshold L2E
+  neurons are left untouched, so charge accumulated across volleys is
+  preserved and every unit can eventually win. Each L2I->L2E gate's strength
+  is learned per neuron by the inhibitory-plasticity rule and saturates below
+  threshold, so L2 competition self-organizes and cannot collapse to a
+  permanent single winner. (An earlier version reset all non-winners to rest
+  each step, which destroyed subthreshold evidence and locked the network to
+  one neuron; a version after that let a single L2E spike fire L2I
+  immediately from t=0 with no round-robin phase at all, and L1I was an
+  instant integrator from t=0 the whole time -- see
+  L2I_Temporal_Integration.md, now superseded by the two-regime design above,
+  applied uniformly to both L1I and L2I.)
 """
 
 from __future__ import annotations
@@ -100,11 +140,108 @@ L2_GATE_INIT = -0.5    # initial gate weight (magnitude 0.5)
 L2_GATE_WMAX = 1.5     # saturation ceiling for the gate magnitude (< thr_l2)
 L2_GATE_ETA = 0.1      # inhibitory-plasticity learning rate for the gate
 
+# L2E->L2I "assembly evidence" synapses.
+#
+# Two regimes, by design, not by accident:
+#   EARLY in training, no single L2E->L2I synapse is anywhere near enough on
+#   its own (see L2_EI_WEIGHT_INIT_LOW/_HIGH_FRAC: the random init range is
+#   well below threshold_l2), so L2I only fires once several distinct L2E neurons
+#   have spiked within its short retention window (L2I_LEAK_RATE). This is
+#   what produces the initial "round robin": no one source is trusted yet, so
+#   competition is decided by population consensus, not a single vote.
+#   OVER TRAINING, the L2E->L2I weights are NOT budgeted (weight_budget=None,
+#   homeostasis off for L2I) and each synapse's cap is the neuron's OWN
+#   threshold_l2 (not a fixed sub-threshold ceiling) -- so as the existing,
+#   unmodified Hebbian rule repeatedly credits the synapse from whichever L2E
+#   habitually wins (and therefore habitually co-occurs with L2I's discharge
+#   cycle: L2E fires -> L2I fires -> that L2E gets inhibited, repeat), that
+#   one synapse can grow all the way up to threshold_l2 and become
+#   sufficient on its own: once it has, a single spike from that specific,
+#   now-trusted source fires L2I immediately, matching L2E's own transition
+#   from many-volley LIF accumulation to single-volley pattern-integrator
+#   firing (see the module docstring). The temporal-integration REQUIREMENT
+#   (multiple contributors) is therefore a property of an undertrained
+#   synapse, not a permanent structural ceiling -- see L2I_Temporal_Integration.md
+#   for the original (now superseded) design that made it permanent.
+# L2I_LEAK_RATE is still much faster than leak_l2 (L2E's slow, many-volley
+# accumulator): L2I needs a SHORT retention window so that only spikes from
+# roughly the same "burst" of population activity sum together while the
+# synapses are still weak, while isolated single-neuron spikes decay away
+# before a second volley's worth of unrelated evidence could pad them out.
+#
+# The init range is expressed as a FRACTION of threshold_l2, not an absolute
+# constant, because the achievable ceiling of the round-robin phase depends on
+# both together: with volley-spaced contributions decaying by r=(1-leak)^4
+# per gap, n same-size contributions sum to at most w/(1-r) as n -> infinity
+# (a geometric series). With L2I_LEAK_RATE=0.07, r=(0.93)^4~=0.748, so that
+# ceiling is w/0.252 ~= 3.97*w -- population consensus can only ever ratchet
+# threshold_l2 to just under 4*(the init weight), REGARDLESS of how many
+# volleys pass. The mean init weight must therefore scale with threshold_l2
+# (not stay fixed) or raising the threshold alone can make the ceiling fall
+# below threshold_l2, at which point L2I could never fire at all via the
+# round-robin route -- and since L2I's own E->I weights only update on ITS
+# OWN fire, it would then never learn either (a silently dead network, not
+# merely a slow one). [0.25, 0.5] * threshold_l2 keeps the same relative
+# dynamics validated in L2I_Temporal_Integration.md (a single contribution at
+# ~37.5% of threshold; 4 volley-spaced contributions needed to cross) at
+# whatever threshold_l2 is actually configured to.
+L2_EI_WEIGHT_INIT_LOW_FRAC = 0.25   # low end of the random E->I init range,
+L2_EI_WEIGHT_INIT_HIGH_FRAC = 0.5   # high end -- both as a fraction of threshold_l2.
+                                     # The LEARNING ceiling is threshold_l2 itself
+                                     # (see the per-neuron cap assignment below),
+                                     # not this range -- this is an INITIAL value only.
+L2I_LEAK_RATE = 0.07       # L2I's own membrane/trace leak (>> leak_l2)
+
+# L2E->L1I feedback weights (the "quiet the inputs" loop). Governed by
+# EXACTLY the same two-regime "assembly evidence" policy as L2E->L2I above,
+# scaled to L1I's own threshold (thr_l1) instead of threshold_l2 -- L1I was
+# previously an instant integrator from t=0 (every synapse initialized
+# at-or-above its own threshold, so a single L2E spike always fired it
+# immediately, with no round-robin phase and nothing left for the existing
+# Hebbian rule to actually move). Now: synapses start randomly in
+# [0.25, 0.5] * thr_l1 (L1_EI_WEIGHT_INIT_LOW/_HIGH_FRAC -- same fractions as
+# L2I, so the same relative dynamics apply: ~37.5% of threshold from one
+# spike, 4 volley-spaced spikes needed to cross), are NOT weight-budgeted,
+# and are individually capped at thr_l1 itself, so a habitually-participating
+# source can learn its way up to full self-sufficiency exactly like L2I does.
+# L1I_LEAK_RATE (== L2I_LEAK_RATE numerically, kept as its own named constant
+# since it governs a different neuron) gives the same ~1.49x reachable-ceiling
+# headroom above threshold that L2I_LEAK_RATE gives L2I -- see the
+# L2_EI_WEIGHT_INIT_LOW_FRAC note above for the derivation (it is scale-free:
+# depends only on the weight/threshold fraction and the leak rate, not the
+# absolute threshold value, so the identical fractions and leak rate carry
+# over unchanged from threshold_l2=8 to thr_l1=1).
+L1_EI_WEIGHT_INIT_LOW_FRAC = 0.25    # low end of the random L2E->L1I init range,
+L1_EI_WEIGHT_INIT_HIGH_FRAC = 0.5    # high end -- both as a fraction of thr_l1.
+                                      # Learning ceiling is thr_l1 itself (see the
+                                      # per-neuron cap assignment below), not this.
+L1I_LEAK_RATE = 0.07       # L1I's own membrane/trace leak (>> leak_l1)
+
+# Learning rate for the charge-based excitatory rule (neuron.Neuron._update_weights),
+# used by every positive-weight population: L1I's incoming weights, L2I's
+# incoming weights, and L2E's feedforward weights. Expressed as a FRACTION of
+# each neuron's OWN weight_cap (learning_rate = ETA_FRAC * weight_cap), not a
+# shared absolute constant -- with an absolute constant, L1I (cap=thr_l1=1)
+# and L2I (cap=threshold_l2=8) would take a wildly different NUMBER OF EVENTS
+# to reach self-sufficiency even though they're meant to behave with the same
+# relative pace (this was the actual cause of L1I "training too fast" /
+# L2I's weights climbing too high: same absolute dw per event, an 8x smaller
+# target). Scaling eta by weight_cap makes the FRACTIONAL growth per event
+# (dw/w_max) independent of the neuron's absolute scale.
+#
+# ETA_FRAC=0.01 was chosen by simulating the saturating recursion
+# f_{n+1} = f_n + ETA_FRAC*p*(1-f_n^2) (f = w/w_max) from the init-range
+# midpoint (f=0.375) with a representative p~=0.6: it takes ~180 events for a
+# habitually-participating synapse to reach 90% of its own cap -- a genuinely
+# long "gatling gun" round-robin phase, not a handful of volleys. See
+# Weight_Update_Unification.md for the full derivation and validation.
+ETA_FRAC = 0.01
+
 
 class SimulationEngine:
     def __init__(self, seed: int = 1,
                  threshold: float = 1.0,
-                 threshold_l2: float = 4.0,
+                 threshold_l2: float = 8.0,
                  leak_l1: float = 0.10,
                  leak_l2: float = 0.01,
                  learning_rate: float = 0.05,
@@ -147,10 +284,18 @@ class SimulationEngine:
             e.weights = np.array([-1.0, 1.0])
             e.learning_rate = 0.0
             e.weight_budget = None
-        # L1I: weights pre-set to cap (thr_l1) so a single L2E winner reliably
-        # fires them in one step, producing one-step feedback inhibition of L1E.
+        # L1I: incoming (L2E->L1I) weights start randomly in [0.25, 0.5] * thr_l1
+        # -- well below L1I's own threshold, not at-or-above it -- so L1I
+        # behaves as a genuine temporal integrator early on (several distinct
+        # L2E spikes needed) exactly like L2I, rather than an instant relay.
+        # See the L1_EI_WEIGHT_INIT_LOW_FRAC note above for the full
+        # round-robin -> single-trusted-source rationale (identical mechanism
+        # to L2I, just scaled to thr_l1). The per-synapse LEARNING ceiling is
+        # thr_l1 itself, set per-neuron below.
         for inh in self.l1.inhibitory_neurons:
-            inh.weights = np.ones(N_OUT) * thr_l1
+            inh.weights = rng.uniform(L1_EI_WEIGHT_INIT_LOW_FRAC * thr_l1,
+                                       L1_EI_WEIGHT_INIT_HIGH_FRAC * thr_l1, size=N_OUT)
+            inh.leak_rate = L1I_LEAK_RATE
 
         self.l2 = CorticalColumn(n_neurons=N_OUT, threshold=thr_l2,
                                  refractory_period=p['refractory'], learning_rate=p['learning_rate'],
@@ -160,14 +305,28 @@ class SimulationEngine:
         # L2I->L2E gates start weak; they are the real source of L2 competition
         # (see step 2c) and self-tune via inhibitory plasticity.
         self.l2.set_local_inhibition_weights(L2_GATE_INIT)
-        # E→I weight = thr_l2 so a single L2E winner immediately fires L2I.
-        self.l2.set_lateral_excitation_weights(thr_l2)
+        # E→I weights start randomly in [0.25, 0.5] * threshold_l2 -- not a
+        # repeated constant -- so the 8 sources aren't artificially tied at
+        # t=0, and every value in that range is still well below threshold_l2
+        # so early competition needs several distinct contributors (see the
+        # L2_EI_WEIGHT_INIT_LOW_FRAC note above for the full round-robin ->
+        # single-trusted-source rationale, and why this MUST scale with
+        # threshold_l2 rather than being a fixed absolute constant). The
+        # LEARNING ceiling for these synapses is threshold_l2 itself, set
+        # per-neuron below -- much higher than this init range -- so growth
+        # can carry a habitually-participating synapse to self-sufficiency.
+        self.l2.set_lateral_excitation_weights(
+            rng.uniform(L2_EI_WEIGHT_INIT_LOW_FRAC * thr_l2,
+                        L2_EI_WEIGHT_INIT_HIGH_FRAC * thr_l2, size=N_OUT))
         # Small random feedforward weights: neurons must accumulate across many
         # volleys initially (LIF phase), then specialise toward single-volley
         # firing (pattern integrator phase).
         ff_weights = rng.uniform(0.05, 0.20, size=(N_OUT, N_PIX))
         self.l2.set_feedforward_weights(ff_weights)
         self.l2.inhibitory_neuron.refractory_period = 0
+        # Short evidence-retention window: much faster than L2E's leak_l2 (its
+        # slow multi-volley accumulator). See L2I_LEAK_RATE derivation above.
+        self.l2.inhibitory_neuron.leak_rate = L2I_LEAK_RATE
 
         self.neurons: dict[str, object] = {}
         self.meta: dict[str, dict] = {}
@@ -176,7 +335,16 @@ class SimulationEngine:
         # Budget / cap assignment:
         #   L2E → budget = thr_l2 (positive feedforward weights only).
         #   L1E → no budget (weights fixed, learning disabled).
-        #   L1I → cap = thr_l1; L2I → cap = thr_l2.
+        #   L1I → cap = thr_l1 itself; L2I → cap = thr_l2 itself. Neither is a
+        #   fixed sub-threshold constant: each synapse starts far below its
+        #   own neuron's threshold (round-robin phase) but is free to learn
+        #   all the way up to it, at which point that one synapse alone is
+        #   sufficient (see the L1_EI_*/L2_EI_* notes above -- identical
+        #   mechanism for both, just scaled to a different threshold).
+        #   Neither L1I nor L2I is weight-budgeted (weight_budget stays None,
+        #   homeostasis stays off below) -- each incoming synapse is capped
+        #   independently, with no renormalization forcing them to trade off
+        #   against each other.
         for nid, n in self.neurons.items():
             if self.meta[nid]['type'] == 'E' and nid.startswith('L2'):
                 n.weight_budget = thr_l2
@@ -184,12 +352,9 @@ class SimulationEngine:
                 # ceiling and its own learning rate, independent of feedforward.
                 n.inhibitory_weight_cap = L2_GATE_WMAX
                 n.inhibitory_learning_rate = L2_GATE_ETA
-                # Excitatory-trace semantics for the feedforward receptive field.
-                # "confidence" separates gate size (weight) from the neuron's trust
-                # in each gate (confidence); see neuron.Neuron._update_weights.
-                n.trace_mode = p['trace_mode']
-                n.confidence_beta = p['confidence_beta']
-                n.confidence_gamma = p['confidence_gamma']
+                # Charge-based excitatory rule (see neuron.Neuron._update_weights);
+                # eta scaled to this neuron's own weight_cap -- see ETA_FRAC note.
+                n.learning_rate = ETA_FRAC * n.weight_cap
                 # Homeostatic synaptic scaling: recruits silent units and tames
                 # over-active ones by regulating each neuron's own firing rate to a
                 # set-point (see neuron.Neuron._homeostatic_scaling). When on, this
@@ -206,6 +371,11 @@ class SimulationEngine:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
                     n.weight_cap = thr_l2 if nid.startswith('L2') else thr_l1
+                    # Charge-based excitatory rule for these incoming (E->I)
+                    # weights too -- same eta-scaled-to-cap principle as L2E
+                    # above, so L1I and L2I reach self-sufficiency at
+                    # comparable relative paces despite an 8x cap difference.
+                    n.learning_rate = ETA_FRAC * n.weight_cap
 
         self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)

@@ -1,6 +1,17 @@
 """
 Unit tests for the spiking Neuron (neuron.py) and its flexible-fan-in twin
-(neuron_flexible.py), covering the trace-gated, sign-preserving Hebbian rule.
+(neuron_flexible.py).
+
+Covers the charge-based weight-update rule shared by both signs of synapse:
+positive (excitatory) synapses update on this neuron's own fire, negative
+(inhibitory) synapses update event-driven via apply_inhibition -- same
+algorithm (capture charge, discharge, dw = eta*p*(1-w^2/w_max)), different
+trigger and an inverted p. See Weight_Update_Unification.md.
+
+The previous trace-gated/sign-preserving "activity" rule and the
+confidence-weighted credit-splitting "confidence" rule are ARCHIVED (removed
+from neuron.py/neuron_flexible.py) -- see git history prior to this file's
+rewrite for their tests.
 """
 import numpy as np
 from neuron import Neuron
@@ -12,34 +23,60 @@ def test_receive_accumulates_potential_and_trace():
     n.weights = np.array([0.2, 0.5, 0.3])
     n.receive_input(np.array([1, 0, 1]))
     assert np.isclose(n.potential, 0.5)              # 0.2 + 0.3
-    assert np.allclose(n.trace, [1, 0, 1])           # un-summed presynaptic activity
-    print("PASS: receive_input accumulates membrane potential and per-synapse trace")
+    assert np.allclose(n.trace, [1, 0, 1])           # ARCHIVED bookkeeping, still tracked
+    assert np.allclose(n._last_input_spikes, [1, 0, 1])  # instantaneous participation signal
+    print("PASS: receive_input accumulates membrane potential, and both trace and the instantaneous spike signal")
 
 
-def test_trace_gating_only_active_synapses_grow():
+def test_only_instantaneously_active_synapses_grow():
+    """Only synapses active in the immediately preceding receive_input() call
+    are updated -- this replaces the old accumulated-trace participation."""
     n = Neuron(n_inputs=4, threshold=0.5, refractory_period=2,
                learning_rate=0.1, weight_cap=10.0, leak_rate=0.0)
     n.weights = np.array([0.4, 0.4, 0.4, 0.4])
-    n.receive_input(np.array([1, 1, 0, 0]))          # only lines 0,1 active -> 0.8 >= 0.5
+    n.receive_input(np.array([1, 1, 0, 0]))          # only lines 0,1 active -> v_pre = 0.8
     assert n.check_threshold()
     n.fire()
-    assert np.allclose(n.weights[:2], 0.5)           # active grew
-    assert np.allclose(n.weights[2:], 0.4)           # silent untouched
-    assert np.allclose(n.trace, 0.0)                 # trace cleared on fire
-    print("PASS: only synapses that delivered charge are credited; trace resets on fire")
+    # p = clamp(theta/v_pre, 0, 1) = clamp(0.5/0.8, 0, 1) = 0.625
+    # dw = eta*p*(1 - w^2/w_max) = 0.1*0.625*(1 - 0.16/10) = 0.0615 -> w = 0.4615
+    assert np.allclose(n.weights[:2], 0.4615, atol=1e-4)   # active grew
+    assert np.allclose(n.weights[2:], 0.4)                  # silent untouched
+    print("PASS: only instantaneously-active synapses are credited")
 
 
-def test_sign_preserving_update():
-    n = Neuron(n_inputs=2, threshold=0.0, refractory_period=2,
+def test_participation_does_not_persist_across_steps():
+    """A synapse that delivered charge several steps ago but not in the step
+    that triggered firing is NOT credited -- the old multi-step trace memory
+    is gone; only the immediately preceding receive_input() call matters."""
+    n = Neuron(n_inputs=2, threshold=1.5, refractory_period=0,
+               learning_rate=0.1, weight_cap=10.0, leak_rate=0.0)
+    n.weights = np.array([0.4, 0.4])
+    n.receive_input(np.array([1, 0]))                # line 0 contributes 0.4, potential=0.4
+    n.receive_input(np.array([0, 1]))                # line 1 contributes 0.4, potential=0.8
+    n.potential = 1.5                                 # force threshold crossing on a line-1-only step
+    n.receive_input(np.array([0, 1]))                # only line 1 active THIS step
+    assert n.check_threshold()
+    n.fire()
+    assert np.isclose(n.weights[0], 0.4)              # line 0's earlier contribution: NOT credited
+    assert n.weights[1] > 0.4                          # line 1 (this step's participant): credited
+    print("PASS: only the most recent triggering event's spikes are credited, not a multi-step history")
+
+
+def test_fire_only_updates_positive_weights():
+    """apply_inhibition is the only rule that ever moves a negative synapse;
+    firing never touches one, even if it delivered charge this step.
+    (threshold=0.0 would make p=theta/v_pre degenerate to 0 for the new
+    charge-based rule -- unlike the old trace rule, this one needs theta>0.)"""
+    n = Neuron(n_inputs=2, threshold=0.5, refractory_period=2,
                learning_rate=0.1, weight_cap=10.0, leak_rate=0.0)
     n.weights = np.array([0.4, -0.4])                # one excitatory, one inhibitory synapse
     n.receive_input(np.array([1, 1]))
-    n.potential = 1.0                                # force a spike
+    n.potential = 1.0                                # force a spike, above threshold
     assert n.check_threshold()
     n.fire()
-    assert np.isclose(n.weights[0], 0.5), n.weights  # excitatory grows more positive
-    assert np.isclose(n.weights[1], -0.5), n.weights # inhibitory grows more negative
-    print("PASS: update is sign-preserving (|w| grows in each synapse's own direction)")
+    assert n.weights[0] > 0.4, n.weights              # excitatory grows
+    assert np.isclose(n.weights[1], -0.4), n.weights  # inhibitory UNTOUCHED by fire()
+    print("PASS: fire() only ever updates positive weights; negative ones are untouched")
 
 
 def test_no_update_without_firing():
@@ -63,19 +100,26 @@ def test_membrane_and_trace_leak_together():
     print("PASS: membrane potential and eligibility trace leak with the same rate")
 
 
-def test_weight_cap():
-    n = Neuron(n_inputs=2, threshold=0.0, refractory_period=0,
-               learning_rate=0.3, weight_cap=0.5, leak_rate=0.0)
-    n.weights = np.array([0.4, -0.4])
-    for _ in range(10):
+def test_weight_cap_and_saturation_equilibrium():
+    """Repeated firing drives the active positive weight toward its natural
+    equilibrium w* = sqrt(w_max) when w_max > 1 (same quadratic-saturation
+    property as apply_inhibition -- see neuron.py's note on that), never past
+    w_max. (For w_max < 1, sqrt(w_max) > w_max, so growth never reverses
+    within the clip range and the weight simply saturates at the cap instead
+    -- see test_inhibitory_saturation_at_wmax for that regime.)"""
+    n = Neuron(n_inputs=2, threshold=0.5, refractory_period=0,
+               learning_rate=0.3, weight_cap=2.0, leak_rate=0.0)
+    n.weights = np.array([0.1, -0.4])
+    for _ in range(500):
         n.receive_input(np.array([1, 1]))
         n.potential = 5.0                            # force firing every step
         if n.check_threshold():
             n.fire()
         n.update()
-    assert np.max(np.abs(n.weights)) <= 0.5 + 1e-9   # never exceeds cap
-    assert np.isclose(n.weights[0], 0.5) and np.isclose(n.weights[1], -0.5)  # both reached cap
-    print("PASS: repeated firing drives active weights to +/-cap, never beyond")
+    assert n.weights[0] <= 2.0 + 1e-9                # never exceeds cap
+    assert np.isclose(n.weights[0], np.sqrt(2.0), atol=1e-3)   # settles at sqrt(w_max), not w_max
+    assert np.isclose(n.weights[1], -0.4)             # inhibitory weight never touched by fire()
+    print("PASS: repeated firing drives the active weight to its sqrt(w_max) equilibrium, never beyond w_max")
 
 
 def test_refractory_blocks_accumulation():
@@ -88,6 +132,35 @@ def test_refractory_blocks_accumulation():
     assert np.isclose(n.potential, 0.0)
     assert np.allclose(n.trace, 0.0)
     print("PASS: no charge or trace accumulates during the refractory period")
+
+
+def test_charge_based_excitatory_rule_smaller_for_more_charge():
+    """The core property requested: a neuron that fires with LESS charge
+    (closer to its own threshold) gets a BIGGER update; one that fires with
+    MORE charge gets a SMALLER one -- the inverse of apply_inhibition's p."""
+    marginal = Neuron(n_inputs=1, threshold=1.0, weight_cap=10.0, leak_rate=0.0, learning_rate=0.2)
+    overshoot = Neuron(n_inputs=1, threshold=1.0, weight_cap=10.0, leak_rate=0.0, learning_rate=0.2)
+    marginal.weights = np.array([0.3]); marginal.receive_input(np.array([1])); marginal.potential = 1.0   # v_pre = theta
+    overshoot.weights = np.array([0.3]); overshoot.receive_input(np.array([1])); overshoot.potential = 5.0  # v_pre >> theta
+    marginal.fire()
+    overshoot.fire()
+    d_marginal = marginal.weights[0] - 0.3
+    d_overshoot = overshoot.weights[0] - 0.3
+    assert d_marginal > d_overshoot > 0, (d_marginal, d_overshoot)
+    print("PASS: firing with less charge drives a bigger update than firing with more charge")
+
+
+def test_charge_based_excitatory_exact_numeric():
+    """Exact numeric check, mirroring test_inhibitory_event_dynamics_and_learning."""
+    n = Neuron(n_inputs=1, threshold=2.0, weight_cap=1.0, leak_rate=0.0, learning_rate=0.1)
+    n.weights = np.array([0.4])
+    n.receive_input(np.array([1]))
+    n.potential = 4.0                                 # v_pre = 4.0 (theta=2.0 -> p=0.5)
+    n.fire()
+    # p = clamp(theta/v_pre, 0, 1) = clamp(2.0/4.0, 0, 1) = 0.5
+    # dw = eta*p*(1 - w^2/w_max) = 0.1*0.5*(1 - 0.16) = 0.042 -> w = 0.442
+    assert np.isclose(n.weights[0], 0.442)
+    print("PASS: charge-based excitatory update matches eta*p*(1-w^2/w_max) exactly, p=theta/v_pre")
 
 
 def test_inhibitory_event_dynamics_and_learning():
@@ -103,10 +176,10 @@ def test_inhibitory_event_dynamics_and_learning():
     assert np.isclose(ev['v_pre'], 1.0)
     # p = V_pre/theta = 1.0/2.0 = 0.5
     assert np.isclose(ev['p'], 0.5)
-    # dw = eta*p*(1 - w/w_max) = 0.1*0.5*(1 - 0.4) = 0.03  ->  w = 0.43
-    assert np.isclose(ev['delta_w'], 0.03) and np.isclose(ev['w_after'], 0.43)
-    assert np.isclose(n.weights[0], -0.43)           # still inhibitory, magnitude grew
-    print("PASS: inhibitory event applies V=V-w and strengthens the gate by eta*p*(1-w/w_max)")
+    # dw = eta*p*(1 - w^2/w_max) = 0.1*0.5*(1 - 0.16) = 0.042  ->  w = 0.442
+    assert np.isclose(ev['delta_w'], 0.042) and np.isclose(ev['w_after'], 0.442)
+    assert np.isclose(n.weights[0], -0.442)          # still inhibitory, magnitude grew
+    print("PASS: inhibitory event applies V=V-w and strengthens the gate by eta*p*(1-w^2/w_max)")
 
 
 def test_inhibitory_learning_prefers_near_threshold():
@@ -149,7 +222,7 @@ def test_inhibitory_refractory_gate():
 
 def test_inhibitory_independent_of_excitatory():
     """apply_inhibition leaves excitatory weights alone; a postsynaptic spike
-    delivered via receive_input leaves separately-delivered inhibitory gates alone."""
+    delivered via fire() leaves separately-delivered inhibitory gates alone."""
     n = Neuron(n_inputs=2, threshold=0.5, refractory_period=0,
                learning_rate=0.1, weight_cap=10.0, leak_rate=0.0, inhibitory_learning_rate=0.3)
     n.weights = np.array([0.6, -0.4])                # [excitatory, inhibitory]
@@ -157,8 +230,7 @@ def test_inhibitory_independent_of_excitatory():
     n.potential = 0.4
     n.apply_inhibition(np.array([0, 1]))
     assert np.isclose(n.weights[0], 0.6), "excitatory weight changed on an inhibitory event"
-    # Excitatory spike (charge only on line 0) must not touch the inhibitory gate,
-    # because the inhibitory line delivered no excitatory trace.
+    # Excitatory spike (charge only on line 0) must not touch the inhibitory gate.
     w_inh = n.weights[1]
     n.receive_input(np.array([1, 0]))
     n.potential = 1.0
@@ -177,140 +249,26 @@ def test_flexible_neuron_inhibition_parity():
     fn.potential = 1.0
     ev = fn.apply_inhibition(np.array([0, 1]))[0]
     assert np.isclose(fn.potential, 0.6)
-    assert np.isclose(ev['p'], 0.5) and np.isclose(ev['delta_w'], 0.03)
-    assert np.isclose(fn.weights[1], -0.43) and np.isclose(fn.weights[0], 0.5)
+    assert np.isclose(ev['p'], 0.5) and np.isclose(ev['delta_w'], 0.042)
+    assert np.isclose(fn.weights[1], -0.442) and np.isclose(fn.weights[0], 0.5)
     print("PASS: flexible neuron applies the inhibitory rule identically (excitatory synapse untouched)")
 
 
 def test_flexible_neuron_parity():
-    fn = FlexNeuron(threshold=0.0, refractory_period=2,
+    """Flexible-fan-in neuron runs the identical charge-based excitatory rule."""
+    fn = FlexNeuron(threshold=0.5, refractory_period=2,
                     learning_rate=0.1, weight_cap=10.0, leak_rate=0.0)
-    for w in [0.4, -0.4, 0.4]:
+    for w in [0.4, 0.4, -0.4]:
         fn.add_input_connection(w)
     fn.finalize_connections()
-    fn.receive_input(np.array([1, 1, 0]))
-    fn.potential = 1.0
+    fn.receive_input(np.array([1, 1, 0]))            # v_pre = 0.4 + 0.4 = 0.8; line 2 silent
     assert fn.check_threshold()
     fn.fire()
-    assert np.isclose(fn.weights[0], 0.5)            # active excitatory -> more positive
-    assert np.isclose(fn.weights[1], -0.5)           # active inhibitory -> more negative
-    assert np.isclose(fn.weights[2], 0.4)            # silent -> untouched
-    print("PASS: flexible-fan-in neuron behaves identically (trace + sign preserving)")
-
-
-# ---------------------------------------------------------------------------
-# Confidence-mode excitatory plasticity (trace_mode="confidence")
-# ---------------------------------------------------------------------------
-
-def _fire_once(n, spikes):
-    """Deliver one input vector, fire if threshold reached, advance one step."""
-    n.receive_input(np.asarray(spikes, dtype=float))
-    fired = n.check_threshold()
-    if fired:
-        n.fire()
-    n.update()
-    return fired
-
-
-def test_activity_is_default_and_confidence_untouched():
-    n = Neuron(n_inputs=3, threshold=0.5, refractory_period=0, leak_rate=0.0,
-               learning_rate=0.1, weight_cap=10.0)
-    assert n.trace_mode == "activity"                 # default preserves old behavior
-    n.weights = np.array([0.4, 0.4, 0.4])
-    _fire_once(n, [1, 1, 0])
-    assert np.allclose(n.weights[:2], 0.5)            # original rule: dw = lr*trace*sign
-    assert np.isclose(n.weights[2], 0.4)
-    assert np.allclose(n.confidence, 0.10)            # confidence never consulted/changed
-    print("PASS: activity mode is the default and leaves confidence untouched")
-
-
-def test_confidence_starts_small_grows_and_saturates():
-    n = Neuron(n_inputs=3, threshold=0.5, refractory_period=0, leak_rate=0.0,
-               learning_rate=0.05, weight_cap=10.0, trace_mode="confidence",
-               confidence_init=0.10, confidence_beta=0.30, confidence_gamma=0.02)
-    n.weights = np.array([0.5, 0.5, 0.5])
-    assert np.allclose(n.confidence, 0.10)            # small but non-zero start
-    _fire_once(n, [1, 1, 0])                          # 0,1 participate; 2 silent
-    assert np.isclose(n.confidence[0], 0.10 + 0.30 * 0.90)   # 0.37 (fast growth)
-    assert np.isclose(n.confidence[1], 0.37)
-    assert np.isclose(n.confidence[2], 0.10 * (1 - 0.02))    # 0.098 (slow decay)
-    for _ in range(80):
-        _fire_once(n, [1, 1, 0])
-    assert 0.99 < n.confidence[0] < 1.0               # asymptotes toward 1
-    print("PASS: confidence starts small, grows fast, saturates <1; idle synapses decay slowly")
-
-
-def test_confidence_unchanged_without_a_spike():
-    n = Neuron(n_inputs=3, threshold=10.0, refractory_period=0, leak_rate=0.0,
-               trace_mode="confidence")
-    n.weights = np.array([0.5, 0.5, 0.5])
-    c0 = n.confidence.copy()
-    for _ in range(5):
-        n.receive_input(np.array([1, 1, 1]))          # accumulates but never fires
-        assert not n.check_threshold()
-        n.update()
-    assert np.allclose(n.confidence, c0)              # participation alone is not permanent
-    print("PASS: confidence changes only on a successful spike, not on mere participation")
-
-
-def test_confidence_credit_is_normalized_and_budget_preserved():
-    n = Neuron(n_inputs=3, threshold=0.5, refractory_period=0, leak_rate=0.0,
-               learning_rate=0.1, weight_cap=10.0, trace_mode="confidence")
-    n.weights = np.array([0.4, 0.4, 0.4])
-    n.weight_budget = 1.2
-    n.confidence = np.array([0.8, 0.2, 0.5])          # unequal -> unequal credit
-    _fire_once(n, [1, 1, 0])                          # 0,1 active excitatory; 2 silent
-    ev = n.last_excitatory_event
-    assert ev['participating'] == [0, 1]
-    assert np.isclose(sum(ev['credits']), 1.0)        # credit normalized over active exc.
-    assert ev['credits'][0] > ev['credits'][1]        # more-trusted gate gets more credit
-    assert np.isclose(n.weights[n.weights > 0].sum(), 1.2)   # budget conserved
-    print("PASS: credit is confidence-weighted, normalized to 1, and budget is conserved")
-
-
-def test_confidence_diverges_from_weight():
-    # Two synapses share a pixel that is always on; one also carries a pixel that
-    # is only sometimes on. The always-on gate should accrue higher confidence.
-    n = Neuron(n_inputs=2, threshold=0.5, refractory_period=0, leak_rate=0.0,
-               learning_rate=0.05, weight_cap=10.0, trace_mode="confidence")
-    n.weights = np.array([0.5, 0.5])
-    n.weight_budget = 1.0
-    rng = np.random.default_rng(0)
-    for _ in range(200):
-        common = 1.0
-        rare = 1.0 if rng.random() < 0.3 else 0.0
-        # ensure it fires: common alone (0.5*budget-share) may be sub-threshold, so
-        # drive with both lines' current weights; potential = w0*common + w1*rare.
-        n.receive_input(np.array([common, rare]))
-        if n.potential < n.threshold:                 # top up so the common line always fires
-            n.potential = n.threshold
-        if n.check_threshold():
-            n.fire()
-        n.update()
-    assert n.confidence[0] > n.confidence[1]           # always-present gate is trusted more
-    print("PASS: confidence diverges from weight (always-present input earns more trust)")
-
-
-def test_flexible_confidence_parity():
-    base = Neuron(n_inputs=3, threshold=0.5, refractory_period=0, leak_rate=0.0,
-                  learning_rate=0.1, weight_cap=10.0, trace_mode="confidence")
-    base.weights = np.array([0.5, 0.5, 0.4])
-    base.weight_budget = 1.0
-    fx = FlexNeuron(threshold=0.5, refractory_period=0, leak_rate=0.0,
-                    learning_rate=0.1, weight_cap=10.0, trace_mode="confidence")
-    for w in [0.5, 0.5, 0.4]:
-        fx.add_input_connection(w)
-    fx.finalize_connections()
-    fx.weight_budget = 1.0
-    for _ in range(20):
-        for n in (base, fx):
-            n.receive_input(np.array([1, 1, 0]))
-            if n.check_threshold():
-                n.fire()
-            n.update()
-    assert np.allclose(base.weights, fx.weights)
-    assert np.allclose(base.confidence, fx.confidence)
-    print("PASS: flexible-fan-in neuron matches base neuron in confidence mode")
+    # p = clamp(0.5/0.8, 0, 1) = 0.625; dw = 0.1*0.625*(1-0.16/10) = 0.0615
+    assert np.isclose(fn.weights[0], 0.4615, atol=1e-4)   # active excitatory grew
+    assert np.isclose(fn.weights[1], 0.4615, atol=1e-4)   # active excitatory grew
+    assert np.isclose(fn.weights[2], -0.4)                 # inhibitory (and silent) untouched by fire()
+    print("PASS: flexible-fan-in neuron behaves identically to the base neuron")
 
 
 # ---------------------------------------------------------------------------
@@ -390,12 +348,15 @@ def test_flexible_homeostasis_parity():
 
 if __name__ == "__main__":
     test_receive_accumulates_potential_and_trace()
-    test_trace_gating_only_active_synapses_grow()
-    test_sign_preserving_update()
+    test_only_instantaneously_active_synapses_grow()
+    test_participation_does_not_persist_across_steps()
+    test_fire_only_updates_positive_weights()
     test_no_update_without_firing()
     test_membrane_and_trace_leak_together()
-    test_weight_cap()
+    test_weight_cap_and_saturation_equilibrium()
     test_refractory_blocks_accumulation()
+    test_charge_based_excitatory_rule_smaller_for_more_charge()
+    test_charge_based_excitatory_exact_numeric()
     test_flexible_neuron_parity()
     test_inhibitory_event_dynamics_and_learning()
     test_inhibitory_learning_prefers_near_threshold()
@@ -403,12 +364,6 @@ if __name__ == "__main__":
     test_inhibitory_refractory_gate()
     test_inhibitory_independent_of_excitatory()
     test_flexible_neuron_inhibition_parity()
-    test_activity_is_default_and_confidence_untouched()
-    test_confidence_starts_small_grows_and_saturates()
-    test_confidence_unchanged_without_a_spike()
-    test_confidence_credit_is_normalized_and_budget_preserved()
-    test_confidence_diverges_from_weight()
-    test_flexible_confidence_parity()
     test_homeostasis_off_by_default_leaves_weights_alone()
     test_homeostasis_grows_a_chronically_silent_neuron()
     test_homeostasis_shrinks_a_hyperactive_neuron()

@@ -63,23 +63,16 @@ class Neuron:
             leak_rate (float): Fraction of potential that leaks away per time step (0 = no leak, 1 = full leak)
             inhibitory_learning_rate (float): eta for the inhibitory-discharge plasticity rule
                 (see apply_inhibition). 0 disables inhibitory learning.
-            trace_mode (str): meaning of the excitatory eligibility trace when the
-                neuron fires (see _update_weights):
-                  "activity"   -- original rule: dw = lr * trace * sign(w), where
-                                  trace is recent per-synapse charge. Every active
-                                  synapse gets near-equal credit.
-                  "confidence" -- trace is instead a slowly-changing per-synapse
-                                  CONFIDENCE (how useful this gate has historically
-                                  been for producing this neuron's spikes). Learning
-                                  is allocated by confidence-weighted credit; see the
-                                  confidence_* args. Weight = gate size, confidence =
-                                  trust in that gate: two separate quantities.
-            confidence_init (float): starting confidence for every synapse in
-                "confidence" mode (small but non-zero, so credit is well-defined).
-            confidence_beta (float): growth rate toward 1 for synapses that
-                participated in a successful spike: c += beta * (1 - c).
-            confidence_gamma (float): slow decay for synapses that did NOT
-                participate in a successful spike: c *= (1 - gamma).
+            trace_mode, confidence_init, confidence_beta, confidence_gamma: ARCHIVED.
+                _update_weights no longer branches on trace_mode or uses
+                confidence/credit-splitting -- every neuron now uses the single
+                charge-based rule described on _update_weights (same structure
+                as apply_inhibition, applied to positive synapses on this
+                neuron's own fire). These parameters are still accepted (and
+                self.trace_mode / self.confidence are still set) purely so
+                existing callers and serialization code don't break; they no
+                longer affect learning. See git history prior to this change,
+                and Weight_Update_Unification.md, for the previous rule.
             homeostasis (bool): enable homeostatic synaptic scaling -- a THIRD
                 local plasticity system, independent of the two above (see
                 _homeostatic_scaling). Off by default (preserves prior behavior).
@@ -125,21 +118,24 @@ class Neuron:
         # apply_inhibition() call (one dict per event). See apply_inhibition.
         self.last_inhibitory_events = []
 
-        # Per-synapse eligibility trace: integrates which input lines delivered
-        # charge, with the same leak as the membrane. In "activity" mode it IS
-        # the learning signal; in "confidence" mode it is used only to decide
-        # which synapses PARTICIPATED in the current integration window.
+        # ARCHIVED: per-synapse eligibility trace. No longer read by
+        # _update_weights (see that method) -- kept only so anything still
+        # inspecting .trace keeps working; still accumulated/decayed as before.
         self.trace = np.zeros(n_inputs)
 
-        # Excitatory-trace semantics and confidence state (see __init__ docs).
+        # ARCHIVED: trace_mode / confidence. self.confidence is allocated and
+        # never updated (frozen at confidence_init) so serialization code that
+        # reads it doesn't break; it plays no role in learning. See the
+        # __init__ docstring.
         self.trace_mode = trace_mode
         self.confidence_beta = confidence_beta
         self.confidence_gamma = confidence_gamma
-        # Confidence = the neuron's trust that opening each gate contributes to a
-        # successful spike. A separate biological quantity from the weight (gate
-        # size). Only consulted in "confidence" mode. Starts small but non-zero
-        # so credit_i = c_i / sum(c_active) is always well-defined.
         self.confidence = np.full(n_inputs, float(confidence_init))
+
+        # Instantaneous participation signal for the charge-based excitatory
+        # rule (see _update_weights): which lines delivered a spike in the
+        # most recent receive_input() call. Set there; read in _update_weights.
+        self._last_input_spikes = np.zeros(n_inputs)
 
         # Debug record of the most recent excitatory (_update_weights) event, in
         # "confidence" mode -- participation, confidence before/after, credits,
@@ -170,7 +166,7 @@ class Neuron:
     def receive_input(self, input_spikes):
         """
         Accumulate charge based on weighted inputs.
-        
+
         Args:
             input_spikes (array-like): Binary array indicating which inputs spiked (1) or not (0)
         """
@@ -180,8 +176,15 @@ class Neuron:
             # Charge accumulation: sum of weight * input for all connections
             input_current = np.dot(self.weights, input_spikes)
             self.potential += input_current
-            # Track which lines delivered the charge (un-summed membrane)
+            # Track which lines delivered the charge (un-summed membrane).
+            # ARCHIVED: no longer read by _update_weights (see that method) --
+            # kept only so anything still inspecting .trace keeps working.
             self.trace += input_spikes
+            # Instantaneous participation signal for the charge-based excitatory
+            # rule: which lines delivered a spike in THIS receive_input call,
+            # i.e. the immediate triggering event, not an accumulated window.
+            # This is what replaced the trace-based participation check.
+            self._last_input_spikes = input_spikes
 
     def apply_inhibition(self, inhibitory_spikes):
         """
@@ -197,9 +200,15 @@ class Neuron:
             2. V      = V - w   (w = |weight|)  (linear inhibitory discharge)
                V_post = V
             3. p      = V_pre / theta           (normalized closeness to firing)
-            4. dw     = eta * p * (1 - w / w_max)   (saturating; w_max = inhibitory_weight_cap
+            4. dw     = eta * p * (1 - w^2 / w_max)   (saturating; w_max = inhibitory_weight_cap
                                                     or weight_cap if that is None)
             5. w      = w + dw                   (gate strengthens toward w_max)
+
+        Note: the quadratic term means the *natural* equilibrium (where
+        dw = 0) is w* = sqrt(w_max), not w_max itself, whenever w_max != 1 --
+        growth reverses (dw < 0) for w > sqrt(w_max), so the gate settles
+        below the nominal ceiling rather than saturating at it. See
+        neuron_flexible.py's identical implementation for the same note.
 
         The gate strengthens most when it suppressed a neuron that was *close to
         firing* (p near 1) and saturates as w -> w_max (finite synaptic resource),
@@ -240,7 +249,7 @@ class Neuron:
             # neuron already at/above threshold caps the drive at p = 1.
             p = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
             if w_max > 0:
-                dw = self.inhibitory_learning_rate * p * (1.0 - w / w_max)
+                dw = self.inhibitory_learning_rate * p * (1.0 - (w * w) / w_max)
             else:
                 dw = 0.0
             w_new = min(max(w + dw, 0.0), w_max)   # saturate at the finite ceiling
@@ -295,109 +304,79 @@ class Neuron:
     
     def fire(self):
         """
-        Handle spike event: reset potential, start refractory period,
-        and update weights.
+        Handle spike event: capture charge, discharge (reset potential), start
+        refractory period, and update weights from the captured charge.
         """
         # Record spike time
         self.last_spike_time = 0  # Current time step
-        
-        # Reset potential after firing
+
+        # Capture charge BEFORE discharging -- this is what the weight update
+        # below is computed from. Mirrors apply_inhibition's V_pre capture.
+        v_pre = float(self.potential)
+
+        # Discharge: reset potential after firing (the "subtract charge" step).
         self.potential = self.resting_potential
-        
+
         # Start refractory period
         self.refractory_timer = self.refractory_period
-        
+
         # Mark that we spiked this time step
         self.spiked = True
-        
-        # Update weights (only happens when neuron fires)
-        self._update_weights()
 
-        # Evidence consumed: clear the trace so the next cycle starts fresh
+        # Update weights from the charge captured before discharge.
+        self._update_weights(v_pre)
+
+        # Evidence consumed: clear the trace so the next cycle starts fresh.
+        # ARCHIVED bookkeeping only -- trace is no longer read by _update_weights.
         self.trace = np.zeros_like(self.trace)
 
-    def _update_weights(self):
+    def _update_weights(self, v_pre):
         """
-        Hebbian weight update, applied only when the neuron fires. Dispatches on
-        trace_mode; both variants end with the SAME budget normalization + cap.
-        """
-        if self.trace_mode == "confidence":
-            self._update_weights_confidence()
-        else:
-            self._update_weights_activity()
+        Charge-based excitatory weight update -- the SAME algorithm as
+        apply_inhibition (see that method), applied to positive synapses and
+        triggered by this neuron's own fire instead of an incoming inhibitory
+        spike. Both rules now share one structure:
 
-    def _update_weights_activity(self):
-        """
-        Original rule: strengthen each synapse in proportion to its eligibility
-        trace -- how much that input line contributed charge over the recent
-        window. Silent lines have trace ~0 and are left essentially unchanged.
+            capture charge (v_pre) -> discharge -> p from v_pre/theta ->
+            dw = eta * p * (1 - w^2 / w_max) -> w += dw, clipped to w_max
 
-        Sign-preserving: excitatory inputs grow more positive, inhibitory inputs
-        grow more negative (|w| increases either way). A neuron is excitatory or
-        inhibitory purely by the sign of the weight it lands on in its target.
+        For excitation, p is INVERTED relative to inhibition -- a neuron that
+        fires with only just enough charge (v_pre close to theta) gets the
+        LARGEST update; one that fires with much more charge than it needed
+        gets the SMALLEST:
+
+            p = clamp(theta / v_pre, 0, 1)     (v_pre >= theta always here,
+                                                 since check_threshold() already
+                                                 required potential >= threshold)
+
+        Only synapses whose presynaptic line delivered a spike in the most
+        recent receive_input() call are updated (self._last_input_spikes) --
+        the instantaneous analogue of apply_inhibition's own spike-gated
+        synapses. This REPLACES the old accumulated eligibility trace and the
+        confidence-weighted credit-splitting rule (both ARCHIVED -- see git
+        history prior to this change, and Weight_Update_Unification.md).
+
+        Only positive (excitatory) weights move here; negative (inhibitory)
+        synapses never move in this method -- they only ever move in
+        apply_inhibition, on an inhibitory discharge into this neuron. After
+        the per-synapse update, the existing budget/cap tail
+        (_apply_budget_and_cap) runs exactly as before: neurons with a
+        weight_budget or homeostasis get renormalized to that resource;
+        neurons with neither (weight_budget=None, homeostasis=False) are
+        simply clipped to weight_cap, same as apply_inhibition's own
+        no-renormalization policy. This rule only changes how dw is computed,
+        not what happens to the result afterward.
         """
-        self.weights += self.learning_rate * self.trace * np.sign(self.weights)
+        theta = self.threshold
+        p = min(max(theta / v_pre, 0.0), 1.0) if v_pre > 0 else 0.0
+        participating = self._last_input_spikes > 0.5
+        active = np.nonzero((self.weights > 0) & participating)[0]
+        w_max = self.weight_cap
+        if w_max > 0 and active.size > 0:
+            w = self.weights[active]
+            dw = self.learning_rate * p * (1.0 - (w * w) / w_max)
+            self.weights[active] = w + dw
         self._apply_budget_and_cap()
-
-    def _update_weights_confidence(self):
-        """
-        Confidence-weighted excitatory allocation (trace_mode="confidence").
-
-        Weight = gate size; confidence = the neuron's trust that opening that
-        gate helps it fire. These evolve on different timescales:
-
-          1. Participation is read from the eligibility trace (which synapses
-             delivered charge in the window that led to THIS spike). Participation
-             alone does not permanently raise confidence.
-          2. Confidence updates only on a successful spike:
-               participating:      c += beta * (1 - c)      (fast, saturating -> 1)
-               non-participating:   c *= (1 - gamma)         (slow forgetting)
-          3. The fixed learning budget is then allocated across the ACTIVE
-             EXCITATORY synapses in proportion to their (updated) confidence:
-               credit_i = c_i / sum(c over active excitatory)
-               dw_i     = learning_rate * credit_i           (>= 0, excitatory only)
-          4. The existing weight-budget normalization + cap run exactly as in the
-             activity rule, preserving the finite-resource interpretation.
-
-        Inhibitory synapses receive no excitatory credit here (their plasticity is
-        the separate apply_inhibition rule), so the two systems stay disjoint.
-        Everything is local: only this neuron's trace, confidence, and weights.
-        """
-        participated = self.trace > PARTICIPATION_EPS
-        conf_before = self.confidence.copy()
-
-        # 2. Confidence dynamics (only on this spike).
-        self.confidence[participated] += self.confidence_beta * (1.0 - self.confidence[participated])
-        self.confidence[~participated] *= (1.0 - self.confidence_gamma)
-
-        # 3. Confidence-weighted credit over active EXCITATORY synapses.
-        exc_active = participated & (self.weights > 0)
-        credit = np.zeros_like(self.weights)
-        denom = float(self.confidence[exc_active].sum())
-        if denom > PARTICIPATION_EPS:
-            credit[exc_active] = self.confidence[exc_active] / denom
-        dw = self.learning_rate * credit
-        self.weights += dw
-
-        # Instrumentation: capture the full event before budget normalization.
-        pos = self.weights > 0
-        budget_before = float(self.weights[pos].sum())
-
-        # 4. Existing budget normalization + cap.
-        self._apply_budget_and_cap()
-
-        pos = self.weights > 0
-        budget_after = float(self.weights[pos].sum())
-        idx = np.nonzero(participated)[0]
-        self.last_excitatory_event = dict(
-            participating=idx.tolist(),
-            confidence_before=conf_before[idx].tolist(),
-            confidence_after=self.confidence[idx].tolist(),
-            credits=credit[idx].tolist(),
-            delta_w=dw[idx].tolist(),
-            budget_before=budget_before,
-            budget_after=budget_after,
-        )
 
     def _apply_budget_and_cap(self):
         """Shared tail of both excitatory rules: renormalize positive (excitatory)

@@ -63,15 +63,18 @@ learns from how close that neuron was to firing at the moment of inhibition
 ```
 V_pre  = V ;  V = V - w ;  V_post = V     # linear discharge
 p      = clamp(V_pre / theta, 0, 1)       # normalized closeness to firing
-delta_w = eta * p * (1 - w / w_max)       # saturating; finite synaptic resource
+delta_w = eta * p * (1 - w^2 / w_max)     # saturating; finite synaptic resource
 w      = w + delta_w                      # gate strengthens toward w_max
 ```
 
 The gate strengthens most when it suppresses a **near-winner** (`p → 1`) and
 saturates as `w → w_max` (`inhibitory_weight_cap`, kept separate from the
 feedforward `weight_cap`), so competition stays bounded **with no global
-normalization**. Sign is preserved (inhibitory weights stay negative; `|w|`
-grows). The two systems never touch the same weights: excitatory plasticity moves
+normalization**. Because the saturation term is quadratic, the gate's *natural*
+equilibrium is `w* = sqrt(w_max)`, not `w_max` itself, whenever `w_max != 1`
+(growth reverses past that point) — e.g. with `L2_GATE_WMAX = 1.5` the L2
+gates settle at `w* ≈ 1.22`, not 1.5. Sign is preserved (inhibitory weights
+stay negative; `|w|` grows). The two systems never touch the same weights: excitatory plasticity moves
 only positive synapses, inhibitory plasticity only the negative gate it
 discharged through.
 
@@ -95,10 +98,27 @@ the rate axis (see the caveat under the benchmark).
 ### L2 competition = adaptive lateral inhibition
 
 In the dashboard network, competition among the L2 excitatory pool is produced by
-this inhibitory rule, **not** by a procedural winner-take-all reset. When one L2E
-fires it drives the shared inhibitory neuron `L2I`, which then discharges the
-**entire rest of the pool** through the `L2I→L2E` gate — not just the neurons that
-also crossed threshold. This is deliberate: the neurons that cause a *flickering*
+this inhibitory rule, **not** by a procedural winner-take-all reset. `L2I` starts
+as a **temporal integrator** of L2 population activity and, through learning,
+can turn into a single-source relay for a *specific, trusted* winner. Each
+`L2E→L2I` synapse is randomly initialized (independently per source), well
+below `L2I`'s own threshold (`L2_EI_WEIGHT_INIT_LOW`/`_HIGH` in
+`backend/simulation.py`) — early on, no single L2E winner can fire `L2I`
+alone; a fast membrane leak (`L2I_LEAK_RATE`, much faster than L2E's slow
+`leak_l2`) gives `L2I` a short evidence-retention window, so it only fires
+once **several distinct L2E neurons** have spiked within that window (a
+"round robin" phase). But these synapses are **not weight-budgeted** and each
+is individually capped at `threshold_l2` itself, so as the same unmodified
+Hebbian rule keeps crediting whichever L2E habitually co-occurs with an `L2I`
+discharge (`L2E` fires → `L2I` fires → that `L2E` gets inhibited, repeat),
+that one synapse can grow all the way to threshold and become sufficient
+alone — a single spike from that now-trusted source then fires `L2I`
+immediately, without needing the rest of the pool. Whenever `L2I` fires
+(either regime) it discharges the **entire rest of the pool** through the
+`L2I→L2E` gate — not just the neurons that also crossed threshold this step.
+See `L2I_Temporal_Integration.md` for the original derivation (now partially
+superseded — see the note at the top of that file) and validation
+methodology. This is deliberate: the neurons that cause a *flickering*
 winner are the ones sitting just **below** threshold; if only co-threshold-crossers
 were inhibited, those sub-threshold rivals coasted through untouched and won the
 next volley, so the winner rotated every burst. Discharging the whole pool subtracts
