@@ -237,6 +237,13 @@ L1I_LEAK_RATE = 0.07       # L1I's own membrane/trace leak (>> leak_l1)
 # Weight_Update_Unification.md for the full derivation and validation.
 ETA_FRAC = 0.01
 
+# Floor for L2E's feedforward (positive) weights after budget renormalization
+# (see min_positive_weight in neuron.Neuron._apply_budget_and_cap). An order
+# of magnitude below the feedforward init range (ff_weights ~ uniform[0.05,
+# 0.20] below) so a pattern the neuron hasn't seen in a while still delivers
+# some nonzero charge instead of literally none.
+L2E_MIN_WEIGHT_FLOOR = 0.01
+
 
 class SimulationEngine:
     def __init__(self, seed: int = 1,
@@ -348,6 +355,16 @@ class SimulationEngine:
         for nid, n in self.neurons.items():
             if self.meta[nid]['type'] == 'E' and nid.startswith('L2'):
                 n.weight_budget = thr_l2
+                # Floor for feedforward weights: without this, heavy training on
+                # one pattern erodes every OTHER pixel's weight toward 0 (budget
+                # renormalization rescales participating and non-participating
+                # synapses alike on every update), so switching patterns later
+                # accumulates no charge even though L1E still fires correctly.
+                # L2E_MIN_WEIGHT_FLOOR is an order of magnitude below the
+                # feedforward init range (ff_weights ~ [0.05, 0.20]) -- small
+                # enough not to distort normal competition, nonzero enough that
+                # every pixel keeps some baseline responsiveness.
+                n.min_positive_weight = L2E_MIN_WEIGHT_FLOOR
                 # Adaptive lateral-inhibition gate: dedicated (lower) saturation
                 # ceiling and its own learning rate, independent of feedforward.
                 n.inhibitory_weight_cap = L2_GATE_WMAX
@@ -376,6 +393,14 @@ class SimulationEngine:
                     # above, so L1I and L2I reach self-sufficiency at
                     # comparable relative paces despite an 8x cap difference.
                     n.learning_rate = ETA_FRAC * n.weight_cap
+                    # Decouple the saturation ceiling from the hard clip (see
+                    # excitatory_saturation_cap in neuron.Neuron): without
+                    # this, the quadratic term's natural equilibrium
+                    # sqrt(weight_cap) sits at ~2.83 for weight_cap=8, well
+                    # below the threshold a synapse needs to reach to become
+                    # self-sufficient. weight_cap**2 makes sqrt(w_max) land
+                    # exactly on weight_cap, so growth CAN reach it.
+                    n.excitatory_saturation_cap = n.weight_cap ** 2
 
         self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)

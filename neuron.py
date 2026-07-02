@@ -44,6 +44,7 @@ class Neuron:
     def __init__(self, n_inputs, threshold=1.0, refractory_period=2,
                  weight_init_range=(-0.5, 0.5), learning_rate=0.1, weight_cap=1.0, leak_rate=0.01,
                  inhibitory_learning_rate=0.05, inhibitory_weight_cap=None,
+                 excitatory_saturation_cap=None,
                  trace_mode="activity", confidence_init=0.10,
                  confidence_beta=0.30, confidence_gamma=0.02,
                  homeostasis=False, ca_rate=0.01, ca_target=0.02, ca_band=0.5,
@@ -113,6 +114,17 @@ class Neuron:
         # fully reset the membrane (which would recreate hard-WTA collapse).
         # Defaults to weight_cap when None.
         self.inhibitory_weight_cap = inhibitory_weight_cap
+        # Saturation ceiling (w_max) for the EXCITATORY quadratic term, kept
+        # separate from the hard clip weight_cap -- mirrors inhibitory_weight_cap
+        # above but for positive weights. The natural equilibrium of
+        # dw = eta*p*(1-w^2/w_max) is w* = sqrt(w_max): if this stays at its
+        # default (None -> weight_cap), a synapse can never approach the hard
+        # cap whenever weight_cap > 1 (equilibrium undershoots it). Setting
+        # this to weight_cap**2 makes sqrt(w_max) == weight_cap exactly, so a
+        # habitually-participating synapse CAN reach full self-sufficiency
+        # while still using the same saturating shape. Defaults to weight_cap
+        # when None (old behavior, e.g. L2E's feedforward weights).
+        self.excitatory_saturation_cap = excitatory_saturation_cap
 
         # Debug record of the inhibitory-discharge events from the most recent
         # apply_inhibition() call (one dict per event). See apply_inhibition.
@@ -158,6 +170,10 @@ class Neuron:
         # (excitatory) afferent weights are renormalized to sum to this value after
         # each update, so strengthening one synapse weakens the others.
         self.weight_budget = None
+
+        # Optional floor for positive weights after renormalization (see
+        # _apply_budget_and_cap). None = no floor (old behavior).
+        self.min_positive_weight = None
 
         # Spike tracking
         self.last_spike_time = -np.inf      # Time of last spike
@@ -338,7 +354,7 @@ class Neuron:
         spike. Both rules now share one structure:
 
             capture charge (v_pre) -> discharge -> p from v_pre/theta ->
-            dw = eta * p * (1 - w^2 / w_max) -> w += dw, clipped to w_max
+            dw = eta * p * (1 - w^2 / w_max) -> w += dw, clipped to weight_cap
 
         For excitation, p is INVERTED relative to inhibition -- a neuron that
         fires with only just enough charge (v_pre close to theta) gets the
@@ -348,6 +364,17 @@ class Neuron:
             p = clamp(theta / v_pre, 0, 1)     (v_pre >= theta always here,
                                                  since check_threshold() already
                                                  required potential >= threshold)
+
+        w_max here is excitatory_saturation_cap (defaults to weight_cap when
+        None) -- kept separate from the hard clip weight_cap exactly like
+        apply_inhibition's inhibitory_weight_cap. This matters because the
+        natural equilibrium of this formula is w* = sqrt(w_max): if w_max ==
+        weight_cap and weight_cap > 1, a synapse can never approach the hard
+        cap (equilibrium undershoots it, e.g. weight_cap=8 -> equilibrium
+        ~2.83). Setting excitatory_saturation_cap = weight_cap**2 makes
+        sqrt(w_max) == weight_cap exactly, so growth CAN reach the hard clip
+        for a habitually-participating synapse, while still saturating
+        smoothly rather than hitting a hard wall.
 
         Only synapses whose presynaptic line delivered a spike in the most
         recent receive_input() call are updated (self._last_input_spikes) --
@@ -371,7 +398,7 @@ class Neuron:
         p = min(max(theta / v_pre, 0.0), 1.0) if v_pre > 0 else 0.0
         participating = self._last_input_spikes > 0.5
         active = np.nonzero((self.weights > 0) & participating)[0]
-        w_max = self.weight_cap
+        w_max = self.excitatory_saturation_cap if self.excitatory_saturation_cap is not None else self.weight_cap
         if w_max > 0 and active.size > 0:
             w = self.weights[active]
             dw = self.learning_rate * p * (1.0 - (w * w) / w_max)
@@ -384,13 +411,29 @@ class Neuron:
         runaway growth), then clip to [-weight_cap, weight_cap]. When homeostasis
         is on, the target total is the homeostatic resource R (self.homeo_budget)
         rather than the fixed weight_budget -- so the resource is regulated by the
-        neuron's own activity instead of being a hard constant."""
+        neuron's own activity instead of being a hard constant.
+
+        When min_positive_weight is set, a positive weight is floored there
+        after renormalization -- a budgeted neuron that trains heavily on one
+        input otherwise erodes EVERY other positive synapse toward 0 (the
+        renormalization ratio is applied to participating and
+        non-participating synapses alike, every single update, so an unused
+        synapse shrinks a little on every event even though it never itself
+        gets credited). Left unbounded, a neuron can go permanently deaf to
+        any pattern that doesn't touch its currently-favored synapses. The
+        floor means the post-floor sum can exceed target by a small amount
+        (at most n_inputs * min_positive_weight) -- an intentional, bounded
+        relaxation of the exact budget in exchange for guaranteed baseline
+        responsiveness to every input. None (default) preserves old behavior."""
         target = self._resource_target()
         if target is not None:
             pos = self.weights > 0
             total = float(self.weights[pos].sum())
             if total > 1e-9:
                 self.weights[pos] *= target / total
+        if self.min_positive_weight is not None:
+            pos = self.weights > 0
+            self.weights[pos] = np.maximum(self.weights[pos], self.min_positive_weight)
         self.weights = np.clip(self.weights, -self.weight_cap, self.weight_cap)
 
     def _resource_target(self):

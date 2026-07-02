@@ -21,6 +21,7 @@ class Neuron:
     def __init__(self, threshold=1.0, refractory_period=2,
                  learning_rate=0.1, weight_cap=1.0, leak_rate=0.01,
                  inhibitory_learning_rate=0.05, inhibitory_weight_cap=None,
+                 excitatory_saturation_cap=None,
                  trace_mode="activity", confidence_init=0.10,
                  confidence_beta=0.30, confidence_gamma=0.02,
                  homeostasis=False, ca_rate=0.01, ca_target=0.02, ca_band=0.5,
@@ -80,6 +81,7 @@ class Neuron:
         self.ca = 0.0                 # slow EMA of the neuron's OWN firing ("calcium")
         self.homeo_budget = None      # homeostatic excitatory resource R (lazy-init)
         self.weight_budget = None      # optional homeostatic budget for positive weights
+        self.min_positive_weight = None  # optional floor for positive weights (see _apply_budget_and_cap)
         self.learning_rate = learning_rate  # Weight increase amount when neuron fires (excitatory)
         self.weight_cap = weight_cap        # Maximum absolute value for weights (also w_max for inhibition)
         self.leak_rate = leak_rate          # Leak rate (fraction of potential lost per ms)
@@ -87,6 +89,11 @@ class Neuron:
         # Saturation ceiling (w_max) for inhibitory gates, kept separate from the
         # feedforward weight_cap (defaults to weight_cap when None). See apply_inhibition.
         self.inhibitory_weight_cap = inhibitory_weight_cap
+        # Saturation ceiling (w_max) for the EXCITATORY quadratic term, kept
+        # separate from the hard clip weight_cap -- see neuron.Neuron for the
+        # full rationale (sqrt(w_max) equilibrium; set to weight_cap**2 so a
+        # habitually-participating synapse can reach the hard cap exactly).
+        self.excitatory_saturation_cap = excitatory_saturation_cap
         self.last_inhibitory_events = []    # debug records from the most recent apply_inhibition()
         self._connections_finalized = False  # Flag to prevent changes after finalization
         
@@ -291,10 +298,13 @@ class Neuron:
         rationale to neuron.Neuron._update_weights (same structure as
         apply_inhibition: capture charge, discharge, then
         dw = eta * p * (1 - w^2/w_max), with p = clamp(theta/v_pre, 0, 1) for
-        excitation. Only synapses active in the most recent receive_input()
-        call are updated (self._last_input_spikes), replacing the ARCHIVED
-        trace-based participation and confidence-weighted credit-splitting
-        rules. See neuron.Neuron for the full derivation.
+        excitation. w_max here is excitatory_saturation_cap (defaults to
+        weight_cap when None), kept separate from the hard clip weight_cap so
+        the sqrt(w_max) equilibrium can be made to land exactly on weight_cap
+        -- see neuron.Neuron for the full rationale. Only synapses active in
+        the most recent receive_input() call are updated
+        (self._last_input_spikes), replacing the ARCHIVED trace-based
+        participation and confidence-weighted credit-splitting rules.
         """
         if self._weights_array is None or len(self._weights_array) == 0:
             return
@@ -302,7 +312,7 @@ class Neuron:
         p = min(max(theta / v_pre, 0.0), 1.0) if v_pre > 0 else 0.0
         participating = self._last_input_spikes > 0.5
         active = np.nonzero((self._weights_array > 0) & participating)[0]
-        w_max = self.weight_cap
+        w_max = self.excitatory_saturation_cap if self.excitatory_saturation_cap is not None else self.weight_cap
         if w_max > 0 and active.size > 0:
             w = self._weights_array[active]
             dw = self.learning_rate * p * (1.0 - (w * w) / w_max)
@@ -312,13 +322,17 @@ class Neuron:
     def _apply_budget_and_cap(self):
         """Shared tail: renormalize positive weights to the resource target, then
         the absolute cap. Under homeostasis the target is the homeostatic resource
-        R; otherwise the fixed weight_budget. See neuron.Neuron for details."""
+        R; otherwise the fixed weight_budget. See neuron.Neuron for details,
+        including the min_positive_weight floor applied below."""
         target = self._resource_target()
         if target is not None:
             pos = self._weights_array > 0
             total = float(self._weights_array[pos].sum())
             if total > 1e-9:
                 self._weights_array[pos] *= target / total
+        if self.min_positive_weight is not None:
+            pos = self._weights_array > 0
+            self._weights_array[pos] = np.maximum(self._weights_array[pos], self.min_positive_weight)
         self._weights_array = np.clip(self._weights_array, -self.weight_cap, self.weight_cap)
 
     def _resource_target(self):
