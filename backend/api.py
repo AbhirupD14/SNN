@@ -25,7 +25,22 @@ from .websocket import ConnectionManager, SimulationRunner
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
 
 app = FastAPI(title="SNN Dashboard")
-engine = SimulationEngine()
+# Dashboard config: homeostasis OFF so the fixed weight_budget (= threshold_l2)
+# governs each L2E's total feedforward weight -- receptive fields concentrate to
+# large, visible values instead of being shrunk by homeostatic scaling. A faster
+# L2E learning rate sharpens them. Edit these lines to change what you observe.
+engine = SimulationEngine(
+    homeostasis=False,   # use the fixed weight_budget=threshold_l2 (visible, strong RFs)
+    l2e_lr_frac=0.02,    # faster L2E feedforward learning (sharper receptive fields)
+    ei_sat_mult=4.0,     # push E->I saturation equilibrium above the clip so L2E->L2I /
+                         # L2E->L1I weights REACH the cap (single-spike relay), instead of
+                         # asymptoting just under it. Higher = reaches cap faster / more
+                         # linear; 1.0 = old asymptote-at-cap behavior. Tune here.
+    l1i_ei_init_frac=1.0,  # init EVERY L2E->L1I feedback synapse at L1I threshold, so any
+                           # L2E winner fires ALL L1I at once (synchronous global input
+                           # suppression / "recognition -> quiet all inputs"), instead of
+                           # the per-winner single-relay lockout. None = old round-robin.
+)
 manager = ConnectionManager()
 runner = SimulationRunner(engine, manager)
 

@@ -203,7 +203,9 @@ class Neuron:
         for idx in active:
             w = -float(self._weights_array[idx])   # magnitude of the inhibitory gate
             v_pre = float(self.potential)
-            self.potential -= w                    # linear discharge: V = V - w
+            # Linear discharge FLOORED at rest (see neuron.Neuron.apply_inhibition):
+            # inhibition cannot push the membrane below resting potential.
+            self.potential = max(self.potential - w, self.resting_potential)
             v_post = float(self.potential)
             # Normalized closeness to firing, clamped to [0, 1].
             p = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
@@ -252,12 +254,12 @@ class Neuron:
     def check_threshold(self):
         """
         Check if neuron should fire based on threshold.
-        
+
         Returns:
             bool: True if neuron fires, False otherwise
         """
         self._ensure_finalized()
-        
+
         # Only check threshold if not in refractory period
         if self.refractory_timer <= 0 and self.potential >= self.threshold:
             return True

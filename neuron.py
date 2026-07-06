@@ -258,7 +258,12 @@ class Neuron:
         for idx in active:
             w = -float(self.weights[idx])          # magnitude of the inhibitory gate
             v_pre = float(self.potential)
-            self.potential -= w                    # linear discharge: V = V - w
+            # Linear discharge, FLOORED at rest: inhibition removes only the charge
+            # actually present -- it cannot drive the membrane below resting
+            # potential (no negative "charge"). v_pre was captured above, so the
+            # weight update below is unchanged; p is already 0 when v_pre <= 0, so a
+            # neuron with nothing to lose gets no weight update.
+            self.potential = max(self.potential - w, self.resting_potential)
             v_post = float(self.potential)
             # Normalized closeness to firing at inhibition time, clamped to [0, 1]:
             # a hyperpolarized membrane never drives negative learning, and a
@@ -309,7 +314,7 @@ class Neuron:
     def check_threshold(self):
         """
         Check if neuron should fire based on threshold.
-        
+
         Returns:
             bool: True if neuron fires, False otherwise
         """

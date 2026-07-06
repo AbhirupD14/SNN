@@ -257,6 +257,7 @@ class SimulationEngine:
                  volley_period: int = 4,
                  input_period: int | None = None,
                  cycle_period: int | None = None,
+                 membrane_noise: float = 0.0,
                  trace_mode: str = "confidence",
                  confidence_beta: float = 0.30,
                  confidence_gamma: float = 0.02,
@@ -266,7 +267,15 @@ class SimulationEngine:
                                              # tyrant's (~0.02): below it a unit is grown,
                                              # above it a unit is shrunk (see sweep in memory)
                  homeo_up: float = 0.01,
-                 homeo_down: float = 0.01):
+                 homeo_down: float = 0.01,
+                 l2e_lr_frac: float | None = None,
+                 l2i_lr_frac: float | None = None,
+                 l1i_lr_frac: float | None = None,
+                 l2_gate_eta: float | None = None,
+                 l2i_threshold_frac: float = 1.0,
+                 l1i_threshold_frac: float = 1.0,
+                 ei_sat_mult: float = 1.0,
+                 l1i_ei_init_frac: float | None = None):
         # Decouple the SENSORY input rate from the INTRINSIC competition clock.
         # input_period: steps between external input bursts (how fast the world
         #   throws spikes at the network -- "nature" is slow, a "rave" is fast).
@@ -278,23 +287,49 @@ class SimulationEngine:
         #   existing callers/tests are unchanged.
         input_period = volley_period if input_period is None else input_period
         cycle_period = volley_period if cycle_period is None else cycle_period
+        # Separate learning-rate controls for the E and I populations (Phase 1 of
+        # the symmetry-breaking plan). Each defaults to the module constant that
+        # was previously applied uniformly, so the defaults reproduce prior
+        # behavior exactly. l2i_threshold_frac / l1i_threshold_frac (Phase 2)
+        # scale each inhibitory neuron's OWN threshold; their E->I init range and
+        # learning cap scale with that same (possibly lowered) threshold below,
+        # so lowering an I threshold does not trivially overdrive it.
+        l2e_lr_frac = ETA_FRAC if l2e_lr_frac is None else l2e_lr_frac
+        l2i_lr_frac = ETA_FRAC if l2i_lr_frac is None else l2i_lr_frac
+        l1i_lr_frac = ETA_FRAC if l1i_lr_frac is None else l1i_lr_frac
+        l2_gate_eta = L2_GATE_ETA if l2_gate_eta is None else l2_gate_eta
         self.params = dict(seed=seed, threshold=threshold, threshold_l2=threshold_l2,
                            leak_l1=leak_l1, leak_l2=leak_l2,
                            learning_rate=learning_rate, weight_cap=weight_cap,
                            refractory=refractory, volley_period=volley_period,
                            input_period=input_period, cycle_period=cycle_period,
+                           membrane_noise=membrane_noise,
                            trace_mode=trace_mode, confidence_beta=confidence_beta,
                            confidence_gamma=confidence_gamma,
                            homeostasis=homeostasis, ca_rate=ca_rate, ca_target=ca_target,
-                           homeo_up=homeo_up, homeo_down=homeo_down)
+                           homeo_up=homeo_up, homeo_down=homeo_down,
+                           l2e_lr_frac=l2e_lr_frac, l2i_lr_frac=l2i_lr_frac,
+                           l1i_lr_frac=l1i_lr_frac, l2_gate_eta=l2_gate_eta,
+                           l2i_threshold_frac=l2i_threshold_frac,
+                           l1i_threshold_frac=l1i_threshold_frac,
+                           ei_sat_mult=ei_sat_mult,
+                           l1i_ei_init_frac=l1i_ei_init_frac)
         self._build()
 
     # ------------------------------------------------------------------ build
     def _build(self):
         p = self.params
         rng = np.random.default_rng(p['seed'])
+        # Separate RNG for symmetry-breaking L2E membrane noise (see step()), so
+        # enabling noise does not perturb the weight-init RNG stream above.
+        self._noise_rng = np.random.default_rng(p['seed'] + 12345)
         thr_l1 = p['threshold']      # L1 neurons fire on a single pixel hit
         thr_l2 = p['threshold_l2']   # L2 neurons must accumulate many volleys
+        # Inhibitory-neuron thresholds (Phase 2): each defaults to its excitatory
+        # layer's threshold (frac 1.0 -> unchanged). When lowered, the E->I init
+        # range and learning cap below scale with THIS threshold, not the E one.
+        thr_l2i = thr_l2 * p['l2i_threshold_frac']   # L2I's own firing threshold
+        thr_l1i = thr_l1 * p['l1i_threshold_frac']   # each L1I's own firing threshold
 
         self.l1 = InputLayer(n_neurons=N_PIX, threshold=thr_l1,
                              refractory_period=p['refractory'], learning_rate=p['learning_rate'],
@@ -313,9 +348,20 @@ class SimulationEngine:
         # round-robin -> single-trusted-source rationale (identical mechanism
         # to L2I, just scaled to thr_l1). The per-synapse LEARNING ceiling is
         # thr_l1 itself, set per-neuron below.
+        # L2E->L1I feedback init. Default (None) uses the [0.25,0.5] round-robin
+        # integrator range. Setting l1i_ei_init_frac initializes EVERY feedback
+        # synapse at that fraction of L1I's threshold -- at >= 1.0 a single spike
+        # from ANY L2E winner fires EVERY L1I, giving synchronous global input
+        # suppression (recognition -> quiet all inputs) instead of the per-winner
+        # single-relay lockout that leaves most L1I subthreshold. The weights are
+        # unbudgeted so they stay pinned there.
+        if p['l1i_ei_init_frac'] is None:
+            lo_frac, hi_frac = L1_EI_WEIGHT_INIT_LOW_FRAC, L1_EI_WEIGHT_INIT_HIGH_FRAC
+        else:
+            lo_frac = hi_frac = p['l1i_ei_init_frac']
         for inh in self.l1.inhibitory_neurons:
-            inh.weights = rng.uniform(L1_EI_WEIGHT_INIT_LOW_FRAC * thr_l1,
-                                       L1_EI_WEIGHT_INIT_HIGH_FRAC * thr_l1, size=N_OUT)
+            inh.threshold = thr_l1i    # Phase 2: L1I's own (possibly lowered) threshold
+            inh.weights = rng.uniform(lo_frac * thr_l1i, hi_frac * thr_l1i, size=N_OUT)
             inh.leak_rate = L1I_LEAK_RATE
 
         self.l2 = CorticalColumn(n_neurons=N_OUT, threshold=thr_l2,
@@ -337,14 +383,15 @@ class SimulationEngine:
         # per-neuron below -- much higher than this init range -- so growth
         # can carry a habitually-participating synapse to self-sufficiency.
         self.l2.set_lateral_excitation_weights(
-            rng.uniform(L2_EI_WEIGHT_INIT_LOW_FRAC * thr_l2,
-                        L2_EI_WEIGHT_INIT_HIGH_FRAC * thr_l2, size=N_OUT))
+            rng.uniform(L2_EI_WEIGHT_INIT_LOW_FRAC * thr_l2i,
+                        L2_EI_WEIGHT_INIT_HIGH_FRAC * thr_l2i, size=N_OUT))
         # Small random feedforward weights: neurons must accumulate across many
         # volleys initially (LIF phase), then specialise toward single-volley
         # firing (pattern integrator phase).
         ff_weights = rng.uniform(0.05, 0.20, size=(N_OUT, N_PIX))
         self.l2.set_feedforward_weights(ff_weights)
         self.l2.inhibitory_neuron.refractory_period = 0
+        self.l2.inhibitory_neuron.threshold = thr_l2i   # Phase 2: L2I's own threshold
         # Short evidence-retention window: much faster than L2E's leak_l2 (its
         # slow multi-volley accumulator). See L2I_LEAK_RATE derivation above.
         self.l2.inhibitory_neuron.leak_rate = L2I_LEAK_RATE
@@ -352,6 +399,11 @@ class SimulationEngine:
         self.neurons: dict[str, object] = {}
         self.meta: dict[str, dict] = {}
         self._register_neurons()
+        # Phase 2: reflect the (possibly lowered) inhibitory thresholds in meta
+        # so the dashboard/serialization show each I neuron's real threshold.
+        self.meta['L2I']['threshold'] = thr_l2i
+        for i in range(N_PIX):
+            self.meta[f'L1I{i}']['threshold'] = thr_l1i
 
         # Budget / cap assignment:
         #   L2E → budget = thr_l2 (positive feedforward weights only).
@@ -382,10 +434,11 @@ class SimulationEngine:
                 # Adaptive lateral-inhibition gate: dedicated (lower) saturation
                 # ceiling and its own learning rate, independent of feedforward.
                 n.inhibitory_weight_cap = L2_GATE_WMAX
-                n.inhibitory_learning_rate = L2_GATE_ETA
+                n.inhibitory_learning_rate = p['l2_gate_eta']   # Phase 1: gate plasticity eta
                 # Charge-based excitatory rule (see neuron.Neuron._update_weights);
                 # eta scaled to this neuron's own weight_cap -- see ETA_FRAC note.
-                n.learning_rate = ETA_FRAC * n.weight_cap
+                # Phase 1: L2E feedforward learning uses its own l2e_lr_frac.
+                n.learning_rate = p['l2e_lr_frac'] * n.weight_cap
                 # Homeostatic synaptic scaling: recruits silent units and tames
                 # over-active ones by regulating each neuron's own firing rate to a
                 # set-point (see neuron.Neuron._homeostatic_scaling). When on, this
@@ -401,20 +454,30 @@ class SimulationEngine:
             else:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
-                    n.weight_cap = thr_l2 if nid.startswith('L2') else thr_l1
+                    # Phase 2: the E->I learning ceiling scales with THIS
+                    # inhibitory neuron's own (possibly lowered) threshold, not
+                    # the E threshold -- otherwise a single source could exceed a
+                    # lowered I threshold and trivially overdrive inhibition.
+                    n.weight_cap = thr_l2i if nid.startswith('L2') else thr_l1i
                     # Charge-based excitatory rule for these incoming (E->I)
                     # weights too -- same eta-scaled-to-cap principle as L2E
-                    # above, so L1I and L2I reach self-sufficiency at
-                    # comparable relative paces despite an 8x cap difference.
-                    n.learning_rate = ETA_FRAC * n.weight_cap
+                    # above. Phase 1: L2I and L1I get separate lr fractions.
+                    lr_frac = p['l2i_lr_frac'] if nid.startswith('L2') else p['l1i_lr_frac']
+                    n.learning_rate = lr_frac * n.weight_cap
                     # Decouple the saturation ceiling from the hard clip (see
-                    # excitatory_saturation_cap in neuron.Neuron): without
-                    # this, the quadratic term's natural equilibrium
-                    # sqrt(weight_cap) sits at ~2.83 for weight_cap=8, well
-                    # below the threshold a synapse needs to reach to become
-                    # self-sufficient. weight_cap**2 makes sqrt(w_max) land
-                    # exactly on weight_cap, so growth CAN reach it.
-                    n.excitatory_saturation_cap = n.weight_cap ** 2
+                    # excitatory_saturation_cap in neuron.Neuron). The quadratic
+                    # rule dw = eta*p*(1 - w^2/w_max) has its natural equilibrium
+                    # (dw=0) at w = sqrt(w_max). With w_max = weight_cap**2 the
+                    # equilibrium lands EXACTLY on the clip -- so the weight only
+                    # ASYMPTOTES toward the cap (dw -> 0 as w -> cap) and never
+                    # actually reaches it. ei_sat_mult > 1 pushes the equilibrium
+                    # sqrt(w_max) = weight_cap * sqrt(ei_sat_mult) ABOVE the clip,
+                    # so dw stays large as w passes the clip and the HARD clip
+                    # catches it AT weight_cap in finite time -- the rule stays
+                    # nonlinear/saturating in [0, cap] but now actually reaches
+                    # the cap (a trained E->I synapse becomes a true single-source
+                    # relay: one presynaptic spike is enough to fire the neuron).
+                    n.excitatory_saturation_cap = (n.weight_cap ** 2) * p['ei_sat_mult']
 
         self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)
@@ -569,6 +632,16 @@ class SimulationEngine:
 
         # Capture pre-WTA potential for the charge visualisation.
         self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
+
+        # Symmetry-breaking membrane noise: a small zero-mean perturbation of each
+        # non-refractory L2E potential every step, so near-ties resolve and the
+        # Hebbian rule can amplify a consistent first-mover per pattern. 0.0
+        # (default) disables it and leaves dynamics deterministic.
+        sigma = self.params['membrane_noise']
+        if sigma > 0.0:
+            for e in l2.excitatory_neurons:
+                if e.refractory_timer <= 0:
+                    e.potential += float(self._noise_rng.normal(0.0, sigma))
 
         # 2c. L2 competition via adaptive lateral inhibition (NOT a hard reset).
         #     One L2E fires; the shared inhibitory neuron L2I then discharges the
