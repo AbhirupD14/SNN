@@ -255,6 +255,8 @@ class SimulationEngine:
                  weight_cap: float = 1.0,
                  refractory: int = 2,
                  volley_period: int = 4,
+                 input_period: int | None = None,
+                 cycle_period: int | None = None,
                  trace_mode: str = "confidence",
                  confidence_beta: float = 0.30,
                  confidence_gamma: float = 0.02,
@@ -265,10 +267,22 @@ class SimulationEngine:
                                              # above it a unit is shrunk (see sweep in memory)
                  homeo_up: float = 0.01,
                  homeo_down: float = 0.01):
+        # Decouple the SENSORY input rate from the INTRINSIC competition clock.
+        # input_period: steps between external input bursts (how fast the world
+        #   throws spikes at the network -- "nature" is slow, a "rave" is fast).
+        # cycle_period: the intrinsic gamma-like clock that structures L2
+        #   competition and L2I evidence integration. FIXED regardless of the
+        #   input rate, so which pattern wins does not depend on how fast input
+        #   arrives. Both default to volley_period, which reproduces the old
+        #   input-locked behavior exactly (input_period == cycle_period), so
+        #   existing callers/tests are unchanged.
+        input_period = volley_period if input_period is None else input_period
+        cycle_period = volley_period if cycle_period is None else cycle_period
         self.params = dict(seed=seed, threshold=threshold, threshold_l2=threshold_l2,
                            leak_l1=leak_l1, leak_l2=leak_l2,
                            learning_rate=learning_rate, weight_cap=weight_cap,
                            refractory=refractory, volley_period=volley_period,
+                           input_period=input_period, cycle_period=cycle_period,
                            trace_mode=trace_mode, confidence_beta=confidence_beta,
                            confidence_gamma=confidence_gamma,
                            homeostasis=homeostasis, ca_rate=ca_rate, ca_target=ca_target,
@@ -512,20 +526,27 @@ class SimulationEngine:
         t = self.timestep
 
         # 1. L1E: [paired I1's previous spike (local inhibition), external pixel].
-        #    Pixels fire in synchronized volleys so charge arrives in bursts.
+        #    Pixels fire in bursts every input_period steps (the SENSORY rate);
+        #    L2 competition resolves every cycle_period steps (the INTRINSIC
+        #    clock). The two are decoupled so which pattern wins does not depend
+        #    on how fast input arrives -- see the input_period/cycle_period note
+        #    in __init__. When they are equal (default) this reproduces the old
+        #    input-locked "volley" behavior exactly.
         #    Excitatory pixel drive goes through receive_input; the inhibitory
         #    discharge is delivered as its own event via apply_inhibition, which
         #    also runs the inhibitory-gate plasticity rule. The net membrane before
         #    threshold (ext - |w_inh|) is identical to the old summed delivery, so
         #    spike timing and event ordering are unchanged.
-        volley = (t % self.params['volley_period'] == 0)
+        input_arrives = (t % self.params['input_period'] == 0)
+        cycle_boundary = (t % self.params['cycle_period'] == 0)
         self._inh_events = []
         for i, e in enumerate(l1.excitatory_neurons):
-            ext = 1.0 if (volley and self.input_vec[i] > 0.5) else 0.0
+            ext = 1.0 if (input_arrives and self.input_vec[i] > 0.5) else 0.0
             e.receive_input(np.array([0.0, ext]))
-            # Inhibition is only relevant on volley steps; the hold persists from
-            # the previous volley's L1I activity so refractory doesn't swallow it.
-            inh = float(self.l1i_hold[i]) if volley else 0.0
+            # Inhibition counteracts the external drive, so it is applied on the
+            # same input steps; the hold persists from the last cycle's L1I
+            # activity so refractory doesn't swallow it.
+            inh = float(self.l1i_hold[i]) if input_arrives else 0.0
             if inh > 0.5:
                 for ev in e.apply_inhibition(np.array([1.0, 0.0])):
                     self._inh_events.append((f'L1E{i}', ev))
@@ -567,36 +588,44 @@ class SimulationEngine:
         #     learned per target by Neuron.apply_inhibition (grows most when it
         #     suppresses a neuron that was close to firing), so the gates onto the
         #     habitual runners-up strengthen and the suppression self-organizes.
+        #     Resolution is gated to the intrinsic cycle clock (cycle_boundary),
+        #     NOT to input arrival: between cycle boundaries L2E keeps integrating
+        #     the continuous input (2b), and exactly one competition is resolved
+        #     per cycle. This is what makes the winner identity independent of the
+        #     input rate -- L2I integrates one winner per cycle regardless of how
+        #     many input bursts landed within the cycle.
         l2e = np.zeros(N_OUT)
-        eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
+        l2i = 0.0
         inhibited = []
-        if eligible:
-            winner = max(eligible, key=lambda j: l2.excitatory_neurons[j].potential)
-            l2.excitatory_neurons[winner].fire()
-            l2e[winner] = 1.0
-            # The winner drives L2I, which fires (E->I weight = thr_l2) and
-            # laterally inhibits the whole rest of the pool.
-            l2.inhibitory_neuron.receive_input(l2e)
-            l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
-            if l2i:
-                l2.inhibitory_neuron.fire()
-                inh_spk = np.zeros(L2E_FANIN)
-                inh_spk[0] = 1.0                       # index 0 = the L2I->L2E gate
-                for j in range(N_OUT):
-                    if j == winner:
-                        continue                        # winner already fired / refractory
-                    # apply_inhibition no-ops on refractory neurons; sub-threshold
-                    # rivals (the real cause of the rotation) are now discharged too.
-                    events = l2.excitatory_neurons[j].apply_inhibition(inh_spk)
-                    for ev in events:
-                        self._inh_events.append((f'L2E{j}', ev))
-                    if events:
-                        inhibited.append(j)
-        else:
-            l2.inhibitory_neuron.receive_input(l2e)
-            l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
-            if l2i:
-                l2.inhibitory_neuron.fire()
+        if cycle_boundary:
+            eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
+            if eligible:
+                winner = max(eligible, key=lambda j: l2.excitatory_neurons[j].potential)
+                l2.excitatory_neurons[winner].fire()
+                l2e[winner] = 1.0
+                # The winner drives L2I, which fires (E->I weight = thr_l2) and
+                # laterally inhibits the whole rest of the pool.
+                l2.inhibitory_neuron.receive_input(l2e)
+                l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
+                if l2i:
+                    l2.inhibitory_neuron.fire()
+                    inh_spk = np.zeros(L2E_FANIN)
+                    inh_spk[0] = 1.0                       # index 0 = the L2I->L2E gate
+                    for j in range(N_OUT):
+                        if j == winner:
+                            continue                        # winner already fired / refractory
+                        # apply_inhibition no-ops on refractory neurons; sub-threshold
+                        # rivals (the real cause of the rotation) are now discharged too.
+                        events = l2.excitatory_neurons[j].apply_inhibition(inh_spk)
+                        for ev in events:
+                            self._inh_events.append((f'L2E{j}', ev))
+                        if events:
+                            inhibited.append(j)
+            else:
+                l2.inhibitory_neuron.receive_input(l2e)
+                l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
+                if l2i:
+                    l2.inhibitory_neuron.fire()
 
         # 2d. Deliver L2E winner spike immediately to all L1I neurons (feedback).
         #     l2e is length N_OUT with a 1 at the winner index, matching each
@@ -638,9 +667,11 @@ class SimulationEngine:
 
         # 5. Bookkeeping.
         self._record_spikes(l1e, l1i, l2e, l2i)
-        # Latch L1I activity so it blocks L1E on the NEXT volley, not the next
-        # time step (where refractory would silently swallow the inhibition).
-        if volley:
+        # Latch L1I activity so it blocks L1E on the NEXT input burst, not the
+        # next time step (where refractory would silently swallow the
+        # inhibition). L1I responds to the per-cycle winner, so latch on the
+        # intrinsic cycle boundary; the hold is applied on input steps above.
+        if cycle_boundary:
             self.l1i_hold = l1i
         self.timestep += 1
         self._detect_weight_changes()
