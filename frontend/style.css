@@ -122,6 +122,20 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--txt-1); cursor: pointer; }
 .check input { accent-color: var(--accent); }
 
+/* ------------------------------------------------------------- model config */
+.config-note { font-size: 10.5px; color: var(--txt-2); margin: 0 0 4px; line-height: 1.4; }
+.config-item { padding: 7px 0; border-top: 1px solid var(--line); }
+.config-item:first-child { border-top: none; }
+.config-desc { font-size: 10.5px; color: var(--txt-2); margin: 5px 0 0; line-height: 1.45; }
+
+/* --------------------------------------------------------------- auto-cycle */
+.autocycle { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+             display: flex; flex-direction: column; gap: 9px; }
+.ac-status { font-size: 11px; color: var(--txt-1); background: var(--bg-2);
+             border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
+             font-variant-numeric: tabular-nums; }
+.ac-status.done { color: var(--accent); border-color: var(--accent); }
+
 /* Pixel grid (pattern input) */
 .pixel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .pixel {

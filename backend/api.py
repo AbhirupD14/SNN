@@ -19,6 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .simulation import SimulationEngine
+from neuron import UNIT   # fixed-point scale (potentials/thresholds run at * UNIT)
 from .serializer import topology_message, full_state
 from .websocket import ConnectionManager, SimulationRunner
 
@@ -36,10 +37,13 @@ engine = SimulationEngine(
                          # L2E->L1I weights REACH the cap (single-spike relay), instead of
                          # asymptoting just under it. Higher = reaches cap faster / more
                          # linear; 1.0 = old asymptote-at-cap behavior. Tune here.
-    l1i_ei_init_frac=1.0,  # init EVERY L2E->L1I feedback synapse at L1I threshold, so any
-                           # L2E winner fires ALL L1I at once (synchronous global input
-                           # suppression / "recognition -> quiet all inputs"), instead of
-                           # the per-winner single-relay lockout. None = old round-robin.
+    # l1i_ei_init_frac left at the default (None -> [0.25,0.5]*thr round-robin
+    # init). Setting it to 1.0 fires ALL L1I from any L2E winner (synchronous
+    # global input suppression), but without homeostasis to recruit units that
+    # starves participation: it alone collapses confidence-gated consolidation to
+    # ~2/8 winners with ~6 dead neurons, whereas the round-robin init reaches the
+    # full 8/8 one-to-one tiling the consolidation mechanism produces. Restore
+    # l1i_ei_init_frac=1.0 here to get synchronous suppression back at that cost.
 )
 manager = ConnectionManager()
 runner = SimulationRunner(engine, manager)
@@ -53,7 +57,7 @@ async def _startup():
 # --------------------------------------------------------------------- models
 class StimulateBody(BaseModel):
     neuron_id: str
-    magnitude: float = 1.0
+    magnitude: float = 1 * UNIT   # 1 threshold-unit of charge at the fixed-point scale
     continuous: bool = False
 
 
@@ -163,6 +167,83 @@ async def stimulate(body: StimulateBody):
         return JSONResponse({"error": f"unknown neuron '{body.neuron_id}'"}, status_code=404)
     await runner.broadcast_dynamic()
     return {"ok": True}
+
+
+# ------------------------------------------------------------------- config
+# Tunable-parameter spec the frontend renders as sliders/toggles. Each entry
+# drives one control and its help text; "kind" is "range" or "toggle".
+CONFIG_SPEC = [
+    {"key": "signed_depression", "label": "Signed depression (4a)", "kind": "toggle",
+     "desc": "On fire, OFF pixels (absent inputs) push their positive gates DOWN. "
+             "Sharpens receptive fields; needs eta_off > 0 to have any effect."},
+    {"key": "eta_off", "label": "OFF-gate depression rate (eta_off)", "kind": "range",
+     "min": 0.0, "max": 0.4, "step": 0.01,
+     "desc": "How hard absent inputs are depressed. ~0.05 sharpens RFs and lifts "
+             "old-pattern retention at little cost; higher over-specializes and can "
+             "destabilize the tiling."},
+    {"key": "event_driven", "label": "Event-driven firing", "kind": "toggle",
+     "desc": "Fire an L2E the instant it crosses threshold (every step) instead of "
+             "one argmax winner per cycle. Bounds the membrane near threshold (no "
+             "charge pile-up) but re-couples winner timing to input rate."},
+    {"key": "l2e_budget", "label": "L2E weight budget", "kind": "toggle",
+     "desc": "Sum-renormalization competition on each L2E's feedforward weights. "
+             "Required for clean 8/8 tiling — turning it off collapses competition "
+             "(dead neurons, no clear winners). Kept ON."},
+    {"key": "l2e_lr_frac", "label": "L2E learning rate", "kind": "range",
+     "min": 0.005, "max": 0.1, "step": 0.005,
+     "desc": "Feedforward potentiation speed for L2E. Higher = faster, sharper RFs "
+             "but noisier competition."},
+    {"key": "confidence_consolidation", "label": "Confidence consolidation", "kind": "toggle",
+     "desc": "Mature gates learn slower and resist depression (protects specialists). "
+             "Also gates signed depression via (1 - C)."},
+    {"key": "loser_depression", "label": "Loser depression", "kind": "toggle",
+     "desc": "Depress the active gates of neurons that were suppressed by lateral "
+             "inhibition — pushes losers away from the winner's pattern."},
+    {"key": "eta_loss", "label": "Loser-depression rate (eta_loss)", "kind": "range",
+     "min": 0.0, "max": 0.05, "step": 0.005,
+     "desc": "Strength of loser depression. 0 disables it even if the toggle is on."},
+    {"key": "leak_l2", "label": "L2 leak", "kind": "range",
+     "min": 0.001, "max": 0.05, "step": 0.001,
+     "desc": "Fraction of L2 potential that decays per step. The main lever on winner "
+             "rotation/stability — lower holds charge longer."},
+]
+
+
+class ConfigBody(BaseModel):
+    overrides: dict
+
+
+def _current_config():
+    p = engine.params
+    values = {s["key"]: p.get(s["key"]) for s in CONFIG_SPEC}
+    return {"spec": CONFIG_SPEC, "values": values}
+
+
+@app.get("/api/config")
+async def get_config():
+    return _current_config()
+
+
+class AutoCycleBody(BaseModel):
+    enabled: bool
+    streak: int | None = None
+    visit_steps: int | None = None
+
+
+@app.post("/api/autocycle")
+async def set_autocycle(body: AutoCycleBody):
+    state = engine.set_auto_cycle(body.enabled, body.streak, body.visit_steps)
+    await runner.broadcast_dynamic()
+    return state
+
+
+@app.post("/api/config")
+async def set_config(body: ConfigBody):
+    runner.running = False
+    applied = engine.apply_config(body.overrides)
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return {"applied": applied, **_current_config()}
 
 
 # ----------------------------------------------------------------- websocket

@@ -88,6 +88,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
+from neuron import UNIT, LEAK_SCALE                  # noqa: E402  fixed-point convention
 
 
 PATTERNS = {
@@ -136,9 +137,20 @@ EPISODE_MAX_LEN = 12   # Condition B: hard cap on episode length in steps (spec:
 # parameter sweep (see the competition investigation) as the point giving the
 # broadest participation with the most per-pattern differentiation; crucially
 # L2_GATE_WMAX < thr_l2 so a saturated gate can't fully reset the membrane.
-L2_GATE_INIT = -0.5    # initial gate weight (magnitude 0.5)
-L2_GATE_WMAX = 1.5     # saturation ceiling for the gate magnitude (< thr_l2)
-L2_GATE_ETA = 0.1      # inhibitory-plasticity learning rate for the gate
+#
+# FIXED-POINT SCALE (see the neuron.py module header): the model runs at the
+# UNIT-scaled fixed-point scale, so thresholds are the integers 1000 / 8000 and
+# all charge-like magnitudes are scaled by UNIT. Scaling rules by role:
+#   - LINEAR magnitudes (gate init, potentials, weights, clips) scale by UNIT.
+#   - the learning rate eta scales by UNIT (dw must scale with w).
+#   - the QUADRATIC saturation denominator w_max in dw = eta*p*(1 - w^2/w_max)
+#     scales by UNIT**2, because w^2 scales by UNIT**2. The gate MAGNITUDE still
+#     settles at its natural equilibrium sqrt(w_max) = UNIT*sqrt(1.5) ~= 1225,
+#     which is still well below thr_l2 = 8000 -- the "< threshold, partial
+#     discharge" property is preserved; only the numeric denominator is large.
+L2_GATE_INIT = -500          # initial gate magnitude 500 == 0.5 * UNIT (linear)
+L2_GATE_WMAX = 1500 * UNIT   # quadratic w_max == 1.5 * UNIT**2; equilibrium sqrt ~= 1225 (< thr_l2)
+L2_GATE_ETA = 100            # inhibitory-plasticity eta == 0.1 * UNIT (scales with charge)
 
 # L2E->L2I "assembly evidence" synapses.
 #
@@ -185,12 +197,13 @@ L2_GATE_ETA = 0.1      # inhibitory-plasticity learning rate for the gate
 # dynamics validated in L2I_Temporal_Integration.md (a single contribution at
 # ~37.5% of threshold; 4 volley-spaced contributions needed to cross) at
 # whatever threshold_l2 is actually configured to.
-L2_EI_WEIGHT_INIT_LOW_FRAC = 0.25   # low end of the random E->I init range,
-L2_EI_WEIGHT_INIT_HIGH_FRAC = 0.5   # high end -- both as a fraction of threshold_l2.
+# Init fractions as integer rationals (1/4, 1/2) per the fixed-point convention.
+L2_EI_WEIGHT_INIT_LOW_FRAC = 1 / 4   # low end of the random E->I init range,
+L2_EI_WEIGHT_INIT_HIGH_FRAC = 1 / 2  # high end -- both as a fraction of threshold_l2.
                                      # The LEARNING ceiling is threshold_l2 itself
                                      # (see the per-neuron cap assignment below),
                                      # not this range -- this is an INITIAL value only.
-L2I_LEAK_RATE = 0.07       # L2I's own membrane/trace leak (>> leak_l2)
+L2I_LEAK_RATE = 70 / LEAK_SCALE      # L2I's own membrane/trace leak (>> leak_l2); 70/1000 == 0.07
 
 # L2E->L1I feedback weights (the "quiet the inputs" loop). Governed by
 # EXACTLY the same two-regime "assembly evidence" policy as L2E->L2I above,
@@ -211,11 +224,11 @@ L2I_LEAK_RATE = 0.07       # L2I's own membrane/trace leak (>> leak_l2)
 # depends only on the weight/threshold fraction and the leak rate, not the
 # absolute threshold value, so the identical fractions and leak rate carry
 # over unchanged from threshold_l2=8 to thr_l1=1).
-L1_EI_WEIGHT_INIT_LOW_FRAC = 0.25    # low end of the random L2E->L1I init range,
-L1_EI_WEIGHT_INIT_HIGH_FRAC = 0.5    # high end -- both as a fraction of thr_l1.
+L1_EI_WEIGHT_INIT_LOW_FRAC = 1 / 4   # low end of the random L2E->L1I init range,
+L1_EI_WEIGHT_INIT_HIGH_FRAC = 1 / 2  # high end -- both as a fraction of thr_l1.
                                       # Learning ceiling is thr_l1 itself (see the
                                       # per-neuron cap assignment below), not this.
-L1I_LEAK_RATE = 0.07       # L1I's own membrane/trace leak (>> leak_l1)
+L1I_LEAK_RATE = 70 / LEAK_SCALE      # L1I's own membrane/trace leak (>> leak_l1); 70/1000 == 0.07
 
 # Learning rate for the charge-based excitatory rule (neuron.Neuron._update_weights),
 # used by every positive-weight population: L1I's incoming weights, L2I's
@@ -242,26 +255,35 @@ ETA_FRAC = 0.01
 # of magnitude below the feedforward init range (ff_weights ~ uniform[0.05,
 # 0.20] below) so a pattern the neuron hasn't seen in a while still delivers
 # some nonzero charge instead of literally none.
-L2E_MIN_WEIGHT_FLOOR = 0.01
+L2E_MIN_WEIGHT_FLOOR = 10   # fixed-point weight floor; 10 == 0.01 * UNIT (linear)
+
+# L2E feedforward weight budget as a multiple of threshold_l2. The old 1x forced
+# every neuron to the SAME total weight, flattening winner-vs-rival margins and
+# causing pattern collisions (7/8 distinct). Loosening to 2x lets specialists
+# separate -> a clean 8/8 distinct map with 0 dead units, at no dominance cost.
+# See memory note one-to-one-and-lasting-inhibition for the frontier this sits on.
+L2E_BUDGET_MULT = 2
 
 
 class SimulationEngine:
     def __init__(self, seed: int = 1,
-                 threshold: float = 1.0,
-                 threshold_l2: float = 8.0,
-                 leak_l1: float = 0.10,
-                 leak_l2: float = 0.01,
+                 # Fixed-point scale (see the neuron.py module header): the model
+                 # runs at the UNIT-scaled scale, so thresholds are INTEGERS and
+                 # every charge-like magnitude (potentials, weights, gate, clips)
+                 # is scaled by UNIT. Leak rates stay dimensionless ratios stored
+                 # as integer numerators over LEAK_SCALE.
+                 threshold: int = 1 * UNIT,           # 1000
+                 threshold_l2: int = 8 * UNIT,        # 8000
+                 leak_l1: float = 100 / LEAK_SCALE,   # 0.10
+                 leak_l2: float = 10 / LEAK_SCALE,    # 0.01
                  learning_rate: float = 0.05,
-                 weight_cap: float = 1.0,
+                 weight_cap: int = 1 * UNIT,          # 1000
                  refractory: int = 2,
                  volley_period: int = 4,
                  input_period: int | None = None,
                  cycle_period: int | None = None,
                  membrane_noise: float = 0.0,
-                 trace_mode: str = "confidence",
-                 confidence_beta: float = 0.30,
-                 confidence_gamma: float = 0.02,
-                 homeostasis: bool = True,
+                 homeostasis: bool = False,
                  ca_rate: float = 0.01,
                  ca_target: float = 0.012,   # between a specialist's rate (~0.01) and a
                                              # tyrant's (~0.02): below it a unit is grown,
@@ -272,10 +294,56 @@ class SimulationEngine:
                  l2i_lr_frac: float | None = None,
                  l1i_lr_frac: float | None = None,
                  l2_gate_eta: float | None = None,
-                 l2i_threshold_frac: float = 1.0,
-                 l1i_threshold_frac: float = 1.0,
-                 ei_sat_mult: float = 1.0,
-                 l1i_ei_init_frac: float | None = None):
+                 l2i_threshold_frac: float = 1,   # unit multiplier (1 == unchanged)
+                 l1i_threshold_frac: float = 1,   # unit multiplier (1 == unchanged)
+                 ei_sat_mult: float = 1,          # unit multiplier (1 == unchanged)
+                 l1i_ei_init_frac: float | None = None,
+                 # Confidence-gated consolidation (see Claude_Confidence_Consolidation_Plan.md
+                 # and neuron.Neuron). Enabled on L2E by default: a local, label-free
+                 # consolidation rule that protects mature specialists, depresses
+                 # losing near-winners, and keeps stale neurons reusable. All the
+                 # numeric knobs below are DIMENSIONLESS (scale-invariant) except
+                 # conf_cap, which is a weight and scales with thr_l2 via conf_cap_frac.
+                 confidence_consolidation: bool = True,
+                 loser_depression: bool = True,
+                 conf_cap_frac: float = 1 / 3,   # effective mature gate value = frac * thr_l2
+                 conf_beta: float = 0.05,        # confidence EMA rate toward maturity
+                 eta_min: float = 0.05,          # plasticity floor fraction for mature gates
+                 eta_loss: float = 0.01,         # loser-depression rate (dimensionless)
+                 loss_gamma: float = 2,          # protect-small / punish-large exponent
+                 conf_rho_active: float = 1e-5,  # confidence decay while recently active
+                 conf_rho_dead: float = 1e-3,    # confidence decay once dead past grace
+                 conf_ca_dead: float = 0.002,    # ca below this counts the neuron inactive
+                 conf_grace: int = 5000,         # inactive steps before dead-decay engages
+                 # Signed-spike depression ("4a"): OFF pixels deliver no charge but
+                 # their positive gates are depressed on fire. L2E only; default off
+                 # so the baseline is untouched. eta_off is the depression rate.
+                 # ON by default: sharpens receptive-field margins, which is what
+                 # keeps the 8 specialists distinct AND lifts sustained-presentation
+                 # dominance (0.23->0.36) with no measured cost. eta_off is the rate.
+                 signed_depression: bool = True,
+                 eta_off: float = 0.20,          # OFF-gate depression rate (dimensionless)
+                 # L2E feedforward weight budget (sum-renormalization competition).
+                 # ON (default) is required for clean 8/8 tiling -- turning it off
+                 # collapses tiling and cannot be substituted by signed depression.
+                 l2e_budget: bool = True,
+                 # Event-driven firing: resolve L2 competition EVERY step (fire the
+                 # moment a neuron crosses threshold) instead of only at the cycle
+                 # boundary. Bounds the membrane near threshold (no charge pile-up)
+                 # but re-couples winner timing to input rate. Off = current
+                 # charge/rank-coded, cycle-quantized argmax competition.
+                 event_driven: bool = False,
+                 # Lasting inhibition: replace the one-shot lateral discharge with a
+                 # LEAKY decaying inhibitory field. L2I (a leaky integrator) pumps a
+                 # shared field when it fires; the field hyperpolarizes the whole L2E
+                 # pool every step and decays with inh_decay. A pattern's specialist
+                 # keeps the field pumped (rivals stay suppressed for a finite window
+                 # = sustained ownership); when the pattern changes the field decays
+                 # and the new specialist takes over. inh_boost_frac scales the per-
+                 # fire field increment as a fraction of threshold_l2.
+                 lasting_inhibition: bool = False,
+                 inh_decay: float = 0.15,
+                 inh_boost_frac: float = 1.0):
         # Decouple the SENSORY input rate from the INTRINSIC competition clock.
         # input_period: steps between external input bursts (how fast the world
         #   throws spikes at the network -- "nature" is slow, a "rave" is fast).
@@ -304,8 +372,6 @@ class SimulationEngine:
                            refractory=refractory, volley_period=volley_period,
                            input_period=input_period, cycle_period=cycle_period,
                            membrane_noise=membrane_noise,
-                           trace_mode=trace_mode, confidence_beta=confidence_beta,
-                           confidence_gamma=confidence_gamma,
                            homeostasis=homeostasis, ca_rate=ca_rate, ca_target=ca_target,
                            homeo_up=homeo_up, homeo_down=homeo_down,
                            l2e_lr_frac=l2e_lr_frac, l2i_lr_frac=l2i_lr_frac,
@@ -313,7 +379,17 @@ class SimulationEngine:
                            l2i_threshold_frac=l2i_threshold_frac,
                            l1i_threshold_frac=l1i_threshold_frac,
                            ei_sat_mult=ei_sat_mult,
-                           l1i_ei_init_frac=l1i_ei_init_frac)
+                           l1i_ei_init_frac=l1i_ei_init_frac,
+                           confidence_consolidation=confidence_consolidation,
+                           loser_depression=loser_depression,
+                           conf_cap_frac=conf_cap_frac, conf_beta=conf_beta,
+                           eta_min=eta_min, eta_loss=eta_loss, loss_gamma=loss_gamma,
+                           conf_rho_active=conf_rho_active, conf_rho_dead=conf_rho_dead,
+                           conf_ca_dead=conf_ca_dead, conf_grace=conf_grace,
+                           signed_depression=signed_depression, eta_off=eta_off,
+                           l2e_budget=l2e_budget, event_driven=event_driven,
+                           lasting_inhibition=lasting_inhibition, inh_decay=inh_decay,
+                           inh_boost_frac=inh_boost_frac)
         self._build()
 
     # ------------------------------------------------------------------ build
@@ -336,10 +412,17 @@ class SimulationEngine:
                              weight_cap=thr_l1, leak_rate=p['leak_l1'],
                              n_feedback_inputs=N_OUT)
         # L1E: pre-trained pixel encoders — fixed weights, no learning.
+        # Fixed-point scale: gate -1*UNIT, excitatory drive +1*UNIT, so one pixel
+        # spike delivers UNIT charge == thr_l1 and fires the encoder in one hit.
         for e in self.l1.excitatory_neurons:
-            e.weights = np.array([-1.0, 1.0])
+            e.weights = np.array([-1.0, 1.0]) * UNIT
             e.learning_rate = 0.0
             e.weight_budget = None
+            # The local-inhibition gate (index 0, magnitude UNIT) is meant to sit
+            # frozen at saturation: unscaled its quadratic factor 1 - w^2/w_max was
+            # exactly 0 (w = w_max = weight_cap). At the UNIT scale that needs
+            # w_max = UNIT*weight_cap == weight_cap^2, so the gate still can't drift.
+            e.inhibitory_weight_cap = UNIT * e.weight_cap
         # L1I: incoming (L2E->L1I) weights start randomly in [0.25, 0.5] * thr_l1
         # -- well below L1I's own threshold, not at-or-above it -- so L1I
         # behaves as a genuine temporal integrator early on (several distinct
@@ -388,7 +471,7 @@ class SimulationEngine:
         # Small random feedforward weights: neurons must accumulate across many
         # volleys initially (LIF phase), then specialise toward single-volley
         # firing (pattern integrator phase).
-        ff_weights = rng.uniform(0.05, 0.20, size=(N_OUT, N_PIX))
+        ff_weights = rng.uniform(50, 200, size=(N_OUT, N_PIX))   # 0.05..0.20 * UNIT (linear weights)
         self.l2.set_feedforward_weights(ff_weights)
         self.l2.inhibitory_neuron.refractory_period = 0
         self.l2.inhibitory_neuron.threshold = thr_l2i   # Phase 2: L2I's own threshold
@@ -420,7 +503,7 @@ class SimulationEngine:
         #   against each other.
         for nid, n in self.neurons.items():
             if self.meta[nid]['type'] == 'E' and nid.startswith('L2'):
-                n.weight_budget = thr_l2
+                n.weight_budget = L2E_BUDGET_MULT * thr_l2 if p['l2e_budget'] else None
                 # Floor for feedforward weights: without this, heavy training on
                 # one pattern erodes every OTHER pixel's weight toward 0 (budget
                 # renormalization rescales participating and non-participating
@@ -438,7 +521,17 @@ class SimulationEngine:
                 # Charge-based excitatory rule (see neuron.Neuron._update_weights);
                 # eta scaled to this neuron's own weight_cap -- see ETA_FRAC note.
                 # Phase 1: L2E feedforward learning uses its own l2e_lr_frac.
+                # (Both auto-scale: learning_rate = frac * weight_cap, and
+                # weight_cap is UNIT-scaled, so eta scales by UNIT as required.)
                 n.learning_rate = p['l2e_lr_frac'] * n.weight_cap
+                # Feedforward quadratic saturation: the (w/w_cap)^2 form, i.e.
+                # w_max = weight_cap**2 so the term is 1 - (w/weight_cap)^2 and the
+                # equilibrium is weight_cap ITSELF (not sqrt). Moves the per-gate
+                # equilibrium from ~2828 to weight_cap (=8000): gates stay far from
+                # saturation for longer, so participating pixels can pile more
+                # weight onto a neuron's key pixels before the budget clips the
+                # sum -- sharper receptive fields / bigger winner-vs-rival margins.
+                n.excitatory_saturation_cap = n.weight_cap ** 2
                 # Homeostatic synaptic scaling: recruits silent units and tames
                 # over-active ones by regulating each neuron's own firing rate to a
                 # set-point (see neuron.Neuron._homeostatic_scaling). When on, this
@@ -449,8 +542,31 @@ class SimulationEngine:
                 n.ca_target = p['ca_target']
                 n.homeo_up = p['homeo_up']
                 n.homeo_down = p['homeo_down']
-                n.homeo_budget_min = 0.5
-                n.homeo_budget_max = 2.0 * thr_l2
+                n.homeo_budget_min = 500   # 0.5 * UNIT, fixed-point weight resource
+                n.homeo_budget_max = 2 * thr_l2
+                # Confidence-gated consolidation (see neuron.Neuron and
+                # Claude_Confidence_Consolidation_Plan.md): local, label-free
+                # protection of mature specialists + loser depression, on L2E only.
+                # conf_cap is the effective reachable mature per-gate value: the 8
+                # line primitives each have 3 active pixels, so a fully specialized
+                # neuron carries ~thr_l2/3 on each of its active gates (conf_cap_frac
+                # = 1/3). It scales with thr_l2, so maturity stays scale-invariant.
+                n.confidence_consolidation = p['confidence_consolidation']
+                n.loser_depression = p['loser_depression']
+                n.conf_cap = p['conf_cap_frac'] * thr_l2
+                n.conf_beta = p['conf_beta']
+                n.eta_min = p['eta_min']
+                n.eta_loss = p['eta_loss']
+                n.loss_gamma = p['loss_gamma']
+                n.conf_rho_active = p['conf_rho_active']
+                n.conf_rho_dead = p['conf_rho_dead']
+                n.conf_ca_dead = p['conf_ca_dead']
+                n.conf_grace = p['conf_grace']
+                # Signed-spike depression ("4a"), L2E only. Default off leaves the
+                # existing consolidation stack (confidence + loser depression +
+                # budget) untouched; when on, OFF gates are also depressed on fire.
+                n.signed_depression = p['signed_depression']
+                n.eta_off = p['eta_off']
             else:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
@@ -503,6 +619,33 @@ class SimulationEngine:
         self.episode_last_spike_time = -1
         self.episode_l2_spikes: list[tuple] = []   # list of (timestep, neuron_id)
 
+        # Auto-cycle: rotate through the patterns, showing each for a short bounded
+        # VISIT, and detect training per pattern. Sitting on one pattern can't
+        # work -- continuous single-pattern presentation makes the L2 pool
+        # round-robin (adaptive lateral inhibition spreads participation), so no
+        # single neuron "wins every time". Specialization only shows as a stable
+        # pattern->neuron map ACROSS visits. So each visit accumulates L2E spikes,
+        # takes the argmax as that visit's winner, and a pattern is "trained" once
+        # its winner is the same neuron for trained_streak consecutive rounds.
+        # After each visit the cycle advances to the next pattern; when every
+        # pattern is trained, auto-cycle disables itself (curriculum complete).
+        self.event_driven = self.params['event_driven']   # fire on threshold crossing every step
+        # Lasting-inhibition state (see step()): a decaying shared inhibitory field.
+        self.lasting_inhibition = self.params['lasting_inhibition']
+        self.inh_decay = self.params['inh_decay']
+        self.inh_boost = self.params['inh_boost_frac'] * self.params['threshold_l2']
+        self.l2_inh_field = 0.0
+        self.current_pattern = 'row 0'            # name backing self.input_vec
+        self.auto_cycle = False
+        self.visit_steps = max(1, self.params['cycle_period'])   # steps per pattern visit
+        self.trained_streak = 3                   # consecutive same-winner ROUNDS = trained
+        self._cycle_order = list(PATTERNS.keys())
+        self._visit_step = 0                      # steps elapsed in the current visit
+        self._visit_spikes = np.zeros(N_OUT, dtype=int)
+        self._pattern_last_winner: dict[str, int | None] = {n: None for n in PATTERNS}
+        self._pattern_streak: dict[str, int] = {n: 0 for n in PATTERNS}
+        self._pattern_trained: dict[str, bool] = {n: False for n in PATTERNS}
+
         self._log('backend', f'network built (seed={p["seed"]}, immediate delivery, '
                              f'{len(self.neurons)} neurons, {len(self.synapses)} synapses)')
 
@@ -548,11 +691,102 @@ class SimulationEngine:
     def reset(self):
         self._build()
 
+    # Parameters the dashboard is allowed to change live. Anything not listed here
+    # is rejected so a stray key can't silently no-op or corrupt self.params.
+    TUNABLE = ('signed_depression', 'eta_off', 'l2e_budget', 'l2e_lr_frac',
+               'confidence_consolidation', 'loser_depression', 'eta_loss',
+               'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven', 'seed')
+
+    def apply_config(self, overrides: dict):
+        """Merge tunable overrides into self.params and rebuild the network in
+        place (same object -- all external references stay valid). Rebuilding
+        restarts learning from fresh weights, which is the intended semantics of
+        changing a structural/plasticity parameter. Unknown keys are ignored;
+        bool/int params are coerced from the JSON the frontend sends."""
+        applied = {}
+        for k, v in overrides.items():
+            if k not in self.TUNABLE:
+                continue
+            if k in ('signed_depression', 'confidence_consolidation', 'loser_depression',
+                     'l2e_budget', 'event_driven'):
+                v = bool(v)
+            elif k == 'seed':
+                v = int(v)
+            else:
+                v = float(v)
+            self.params[k] = v
+            applied[k] = v
+        self._build()
+        self._log('control', f'config applied: {applied}')
+        return applied
+
     def set_pattern(self, name: str):
         if name not in PATTERNS:
             raise KeyError(name)
         self.input_vec = np.array(PATTERNS[name], dtype=float)
+        self.current_pattern = name
+        self._visit_step = 0                 # start a fresh visit window
+        self._visit_spikes[:] = 0
         self._log('control', f'pattern set: {name}')
+
+    def set_auto_cycle(self, enabled: bool, streak: int | None = None,
+                       visit_steps: int | None = None):
+        """Enable/disable auto-cycling and (optionally) its thresholds. Starts the
+        cycle from the currently-shown pattern; per-pattern training history is
+        cleared so a new run measures training fresh."""
+        self.auto_cycle = bool(enabled)
+        if streak is not None:
+            self.trained_streak = max(1, int(streak))
+        if visit_steps is not None:
+            self.visit_steps = max(1, int(visit_steps))
+        self._visit_step = 0
+        self._visit_spikes[:] = 0
+        for n in PATTERNS:
+            self._pattern_last_winner[n] = None
+            self._pattern_streak[n] = 0
+            self._pattern_trained[n] = False
+        self._log('control', f'auto-cycle {"on" if self.auto_cycle else "off"} '
+                             f'(trained_streak={self.trained_streak}, '
+                             f'visit_steps={self.visit_steps})')
+        return dict(enabled=self.auto_cycle, streak=self.trained_streak,
+                    visit_steps=self.visit_steps)
+
+    def _auto_cycle_tick(self):
+        """Called at the END of each step() while auto_cycle is on. Accumulates
+        this visit's L2E spikes; when the visit window closes, resolves the visit
+        winner (argmax), updates the current pattern's consecutive-round streak,
+        marks it trained at the threshold, then advances to the next pattern.
+        When every pattern is trained the cycle disables itself."""
+        for j in range(N_OUT):
+            if self.spiked[f'L2E{j}']:
+                self._visit_spikes[j] += 1
+        self._visit_step += 1
+        if self._visit_step < self.visit_steps:
+            return
+
+        p = self.current_pattern
+        winner = int(self._visit_spikes.argmax()) if self._visit_spikes.sum() > 0 else None
+        prev = self._pattern_last_winner[p]
+        if winner is not None and winner == prev:
+            self._pattern_streak[p] += 1
+        else:
+            self._pattern_streak[p] = 1 if winner is not None else 0
+        self._pattern_last_winner[p] = winner
+        if not self._pattern_trained[p] and self._pattern_streak[p] >= self.trained_streak:
+            self._pattern_trained[p] = True
+            self._log('learning', f'auto-cycle: "{p}" TRAINED '
+                                  f'-> L2E{winner} won {self._pattern_streak[p]} rounds')
+
+        if all(self._pattern_trained.values()):
+            self.auto_cycle = False
+            self._log('control', 'auto-cycle: all patterns trained -- curriculum complete')
+            self._visit_step = 0
+            self._visit_spikes[:] = 0
+            return
+
+        order = self._cycle_order
+        idx = order.index(p) if p in order else -1
+        self.set_pattern(order[(idx + 1) % len(order)])   # resets the visit window
 
     def set_input(self, vec):
         self.input_vec = np.array(vec, dtype=float).reshape(N_PIX)
@@ -670,7 +904,33 @@ class SimulationEngine:
         l2e = np.zeros(N_OUT)
         l2i = 0.0
         inhibited = []
-        if cycle_boundary:
+        if self.lasting_inhibition:
+            # Lasting inhibition: a decaying shared field raises the effective
+            # firing threshold for the WHOLE pool, and decays each step (finite
+            # window). Every step the strongest neuron clearing (threshold+field)
+            # fires; it drives the leaky L2I integrator, and when L2I fires it
+            # PUMPS the field -- so while a pattern persists its specialist keeps
+            # the field up and rivals stay locked out (sustained ownership), and
+            # when the pattern changes the field decays until the new specialist
+            # breaks through. Replaces the one-shot per-target discharge.
+            self.l2_inh_field *= (1.0 - self.inh_decay)
+            field = self.l2_inh_field
+            eligible = [j for j, e in enumerate(l2.excitatory_neurons)
+                        if e.refractory_timer <= 0 and e.potential >= e.threshold + field]
+            if eligible:
+                winner = max(eligible, key=lambda j: l2.excitatory_neurons[j].potential)
+                l2.excitatory_neurons[winner].fire()
+                l2e[winner] = 1.0
+                inhibited = [j for j in eligible if j != winner]
+                l2.inhibitory_neuron.receive_input(l2e)
+                if l2.inhibitory_neuron.check_threshold():
+                    l2.inhibitory_neuron.fire()
+                    l2i = 1.0
+                    self.l2_inh_field += self.inh_boost
+        # Competition resolves once per cycle (charge/rank-coded, default) OR every
+        # step (event_driven: fire the instant a neuron crosses threshold, so the
+        # membrane can't ratchet far past threshold between boundaries).
+        elif cycle_boundary or self.event_driven:
             eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
             if eligible:
                 winner = max(eligible, key=lambda j: l2.excitatory_neurons[j].potential)
@@ -751,6 +1011,8 @@ class SimulationEngine:
         self._detect_confidence_changes()
         self._log_inhibitory_events()
         self._update_episode(l2e, t)
+        if self.auto_cycle:
+            self._auto_cycle_tick()
         return self.dynamic_state()
 
     def _log_inhibitory_events(self):
@@ -959,6 +1221,13 @@ class SimulationEngine:
                     episode=dict(active=self.episode_active, timer=self.episode_timer,
                                  spikes=len(self.episode_l2_spikes),
                                  participants=sorted({nid for _, nid in self.episode_l2_spikes})),
+                    autocycle=dict(enabled=self.auto_cycle, pattern=self.current_pattern,
+                                   target=self.trained_streak, visit_steps=self.visit_steps,
+                                   last_winner=self._pattern_last_winner.get(self.current_pattern),
+                                   streak=self._pattern_streak.get(self.current_pattern, 0),
+                                   trained=sum(1 for v in self._pattern_trained.values() if v),
+                                   total=len(self._pattern_trained),
+                                   trained_map={n: self._pattern_trained[n] for n in self._cycle_order}),
                     stats=self.stats(), log=list(self.event_log)[-12:])
 
     def stats(self) -> dict:

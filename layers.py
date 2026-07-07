@@ -4,7 +4,7 @@ based on the specified architecture.
 """
 
 import numpy as np
-from neuron import Neuron
+from neuron import Neuron, UNIT, LEAK_SCALE
 
 class InputLayer:
     """
@@ -12,8 +12,8 @@ class InputLayer:
     Connections: I1_i -> E1_i (inhibitory, 1:1)
     """
     
-    def __init__(self, n_neurons, threshold=1.0, refractory_period=2,
-                 learning_rate=0.05, weight_cap=1.0, leak_rate=0.01,
+    def __init__(self, n_neurons, threshold=1000 / UNIT, refractory_period=2,
+                 learning_rate=0.05, weight_cap=1000 / UNIT, leak_rate=10 / LEAK_SCALE,
                  n_feedback_inputs=0):
         """
         Initialize input layer.
@@ -155,8 +155,8 @@ class CorticalColumn:
     - I2 -> E2_k (inhibitory for all k)  [lateral inhibition]
     """
     
-    def __init__(self, n_neurons, threshold=1.0, refractory_period=2, 
-                 learning_rate=0.05, weight_cap=1.0, leak_rate=0.01):
+    def __init__(self, n_neurons, threshold=1000 / UNIT, refractory_period=2,
+                 learning_rate=0.05, weight_cap=1000 / UNIT, leak_rate=10 / LEAK_SCALE):
         """
         Initialize cortical column.
         

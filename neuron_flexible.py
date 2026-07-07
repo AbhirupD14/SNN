@@ -5,7 +5,7 @@ during layer construction, while maintaining all required functionality.
 
 import numpy as np
 
-from neuron import _distribution_entropy, _concentration
+from neuron import _distribution_entropy, _concentration, UNIT, LEAK_SCALE, leak_num
 
 
 class Neuron:
@@ -18,12 +18,11 @@ class Neuron:
     the difference is in the sign of their synaptic weights.
     """
     
-    def __init__(self, threshold=1.0, refractory_period=2,
-                 learning_rate=0.1, weight_cap=1.0, leak_rate=0.01,
+    def __init__(self, threshold=1000 / UNIT, refractory_period=2,
+                 learning_rate=0.1, weight_cap=1000 / UNIT, leak_rate=10 / LEAK_SCALE,
                  inhibitory_learning_rate=0.05, inhibitory_weight_cap=None,
                  excitatory_saturation_cap=None,
-                 trace_mode="activity", confidence_init=0.10,
-                 confidence_beta=0.30, confidence_gamma=0.02,
+                 confidence_init=0.10,
                  homeostasis=False, ca_rate=0.01, ca_target=0.02, ca_band=0.5,
                  homeo_up=0.01, homeo_down=0.01,
                  homeo_budget_min=None, homeo_budget_max=None):
@@ -39,17 +38,13 @@ class Neuron:
             leak_rate (float): Fraction of potential that leaks away per time step (0 = no leak, 1 = full leak)
             inhibitory_learning_rate (float): eta for the inhibitory-discharge plasticity rule
                 (see apply_inhibition). 0 disables inhibitory learning.
-            trace_mode, confidence_init, confidence_beta, confidence_gamma: ARCHIVED.
-                See neuron.Neuron's __init__ docstring -- these are still
-                accepted and self.trace_mode/self._confidence are still set,
-                but no longer affect learning; every neuron now uses the
-                single charge-based rule (see _update_weights).
+            confidence_init (float): initial value of the active per-synapse
+                confidence array (see neuron.Neuron). The archived trace_mode /
+                confidence_beta / confidence_gamma params were removed.
             homeostasis, ca_rate, ca_target, ca_band, homeo_up, homeo_down,
             homeo_budget_min, homeo_budget_max: homeostatic synaptic scaling; see
                 neuron.Neuron for the full description (identical semantics).
         """
-        if trace_mode not in ("activity", "confidence"):
-            raise ValueError(f"trace_mode must be 'activity' or 'confidence', got {trace_mode!r}")
         # Neuron properties
         self.threshold = threshold          # Firing threshold (constant)
         self.resting_potential = 0.0        # Resting potential at 0
@@ -62,13 +57,33 @@ class Neuron:
         self._weights_array = None     # Numpy array after finalization
         self._trace = None             # Per-synapse eligibility trace (set at finalize)
         # Confidence state (see neuron.Neuron). Allocated at finalize once the
-        # fan-in is known. In "activity" mode it is left untouched.
+        # fan-in is known; seeded at confidence_init and updated by the active
+        # confidence-consolidation system.
         self._confidence = None
-        self.trace_mode = trace_mode
         self.confidence_init = float(confidence_init)
-        self.confidence_beta = confidence_beta
-        self.confidence_gamma = confidence_gamma
         self.last_excitatory_event = {}
+        # Confidence-gated consolidation (opt-in; see neuron.Neuron for the full
+        # description and Claude_Confidence_Consolidation_Plan.md). All flags off
+        # by default so bare neurons / L1 / inhibitory neurons are unaffected.
+        self.confidence_consolidation = False  # revive confidence, gate eta, decay
+        self.loser_depression = False          # depress active gates on inhibitory loss
+        self.conf_cap = None                   # effective mature gate value (None -> weight_cap)
+        self.conf_beta = 0.05                  # confidence EMA rate toward maturity
+        self.eta_min = 0.05                    # plasticity floor fraction for mature gates
+        self.eta_loss = 0.01                   # loser-depression rate (dimensionless)
+        self.loss_gamma = 2                    # protect-small / punish-large exponent
+        self.conf_rho_active = 1e-5            # confidence decay while recently active
+        self.conf_rho_dead = 1e-3              # confidence decay once dead past the grace window
+        self.conf_ca_dead = 0.002              # ca below this counts the neuron as inactive
+        self.conf_grace = 5000                 # inactive steps before dead-decay engages
+        self.inactive_steps = 0                # long grace counter (see update())
+        self.loser_depression_events = 0       # diagnostic counter
+        # Signed-spike depression ("4a"; opt-in; see _update_weights and
+        # neuron.Neuron). OFF pixels deliver no charge but their positive gates
+        # are depressed on this neuron's own fire. Default OFF -> baseline intact.
+        self.signed_depression = False         # enable OFF-gate depression on fire
+        self.eta_off = 0.0                     # depression rate for inactive gates
+        self.signed_depression_events = 0      # diagnostic counter
         # Homeostatic synaptic scaling (third local system; see neuron.Neuron).
         self.homeostasis = homeostasis
         self.ca_rate = ca_rate
@@ -84,7 +99,7 @@ class Neuron:
         self.min_positive_weight = None  # optional floor for positive weights (see _apply_budget_and_cap)
         self.learning_rate = learning_rate  # Weight increase amount when neuron fires (excitatory)
         self.weight_cap = weight_cap        # Maximum absolute value for weights (also w_max for inhibition)
-        self.leak_rate = leak_rate          # Leak rate (fraction of potential lost per ms)
+        self.leak_rate = leak_rate          # stored as integer numerator self._leak_num (see property)
         self.inhibitory_learning_rate = inhibitory_learning_rate  # eta for inhibitory plasticity
         # Saturation ceiling (w_max) for inhibitory gates, kept separate from the
         # feedforward weight_cap (defaults to weight_cap when None). See apply_inhibition.
@@ -100,7 +115,18 @@ class Neuron:
         # Spike tracking
         self.last_spike_time = -np.inf      # Time of last spike
         self.spiked = False                 # Did neuron spike in current step?
-        
+
+    @property
+    def leak_rate(self):
+        """Leak fraction per step, backed by the integer numerator
+        self._leak_num over LEAK_SCALE (fixed-point leak control; see
+        neuron.Neuron.leak_rate and the neuron.py module header)."""
+        return self._leak_num / LEAK_SCALE
+
+    @leak_rate.setter
+    def leak_rate(self, value):
+        self._leak_num = leak_num(value)
+
     def add_input_connection(self, weight):
         """
         Add an input connection with the specified weight.
@@ -199,6 +225,9 @@ class Neuron:
         spikes = np.asarray(inhibitory_spikes, dtype=float)
         theta = self.threshold
         w_max = self.inhibitory_weight_cap if self.inhibitory_weight_cap is not None else self.weight_cap
+        # Loser-depression closeness signal: how close to firing this neuron was
+        # BEFORE any inhibitory discharge this call (see _depress_losers).
+        v_entry = float(self.potential)
         active = np.nonzero((self._weights_array < 0) & (spikes > 0.5))[0]
         for idx in active:
             w = -float(self._weights_array[idx])   # magnitude of the inhibitory gate
@@ -218,7 +247,36 @@ class Neuron:
             events.append(dict(index=int(idx), v_pre=v_pre, v_post=v_post,
                                theta=theta, p=p, w_before=w,
                                delta_w=w_new - w, w_after=w_new))
+        # Loser depression: a real inhibitory discharge (events non-empty) means
+        # this neuron was a suppressed near-winner; depress the active positive
+        # feedforward gates that made it one. Opt-in; see _depress_losers.
+        if self.loser_depression and events:
+            self._depress_losers(v_entry)
         return events
+
+    def _depress_losers(self, v_pre_loss):
+        """Depress the ACTIVE positive feedforward gates of a neuron that was just
+        suppressed by an L2I->L2E discharge (see Claude_Confidence_Consolidation_Plan.md).
+        Nonlinear protect-small / punish-large, confidence-protected, and scaled by
+        how close the neuron was to firing (p_loss). Inactive and mature gates are
+        spared; the negative gate is never touched (positive weights only)."""
+        theta = self.threshold
+        p_loss = min(max(v_pre_loss / theta, 0.0), 1.0) if theta > 0 else 0.0
+        if p_loss <= 0.0:
+            return
+        participating = self._last_input_spikes > 0.5
+        active = np.nonzero((self._weights_array > 0) & participating)[0]
+        if active.size == 0:
+            return
+        w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
+        w = self._weights_array[active]
+        C = self._confidence[active]
+        ratio = self._maturity(w)
+        dw_minus = (self.eta_loss * p_loss * (1.0 - C)
+                    * (ratio ** self.loss_gamma) * (w - w_min))
+        self._weights_array[active] = w - dw_minus
+        self.loser_depression_events += 1
+        self._apply_budget_and_cap()
 
     def update(self):
         """
@@ -230,19 +288,25 @@ class Neuron:
         # Homeostatic firing-rate sensor: slow EMA of this neuron's own spiking.
         self.ca += self.ca_rate * (float(self.spiked) - self.ca)
 
+        # Activity-dependent confidence decay (long-term memory; opt-in). See
+        # neuron.Neuron.update for the full rationale.
+        if self.confidence_consolidation:
+            self._decay_confidence()
+
         # Handle refractory period
         if self.refractory_timer > 0:
             self.refractory_timer -= 1
             # Clamp potential to resting during refractory period
             self.potential = self.resting_potential
         else:
-            # Apply leak: potential decays toward resting potential
-            # leak_rate is the fraction of distance to resting potential that is closed each time step
-            # For example, leak_rate=0.01 means 1% of the way to resting potential each ms
-            leak_current = self.leak_rate * (self.resting_potential - self.potential)
-            self.potential += leak_current
-            # Decay the eligibility trace with the same leak as the membrane
-            self._trace *= (1.0 - self.leak_rate)
+            # Apply leak: potential decays toward resting potential. Fixed-point
+            # leak control -- the leak amount is the integer numerator
+            # self._leak_num over the integer LEAK_SCALE (see the neuron.py
+            # module header), so no float leak constant enters here.
+            # (Potential itself is still float on this scope's deferred path.)
+            self.potential += self._leak_num * (self.resting_potential - self.potential) / LEAK_SCALE
+            # Decay the eligibility trace with the same leak fraction.
+            self._trace *= (1.0 - self._leak_num / LEAK_SCALE)
 
         # Homeostatic synaptic scaling (slow, activity-driven, non-Hebbian).
         if self.homeostasis:
@@ -317,9 +381,44 @@ class Neuron:
         w_max = self.excitatory_saturation_cap if self.excitatory_saturation_cap is not None else self.weight_cap
         if w_max > 0 and active.size > 0:
             w = self._weights_array[active]
-            dw = self.learning_rate * p * (1.0 - (w * w) / w_max)
-            self._weights_array[active] = w + dw
+            if self.confidence_consolidation:
+                # Confidence-gated potentiation: mature (confident) gates learn
+                # less, with a floor eta_min so no gate freezes. See neuron.Neuron.
+                C = self._confidence[active]
+                eta = self.learning_rate * (self.eta_min + (1.0 - self.eta_min) * (1.0 - C))
+                self._weights_array[active] = w + eta * p * (1.0 - (w * w) / w_max)
+                # Mature confidence toward local instantaneous maturity of the
+                # (pre-update) gate; only active gates (x_i = 1) move.
+                self._confidence[active] = C + self.conf_beta * (self._maturity(w) - C)
+            else:
+                dw = self.learning_rate * p * (1.0 - (w * w) / w_max)
+                self._weights_array[active] = w + dw
+        # Signed-spike depression ("4a"): OFF pixels (positive gates whose input
+        # did NOT spike this fire) are pushed down. Confidence-gated when
+        # consolidation is on (mature gates resist via (1 - C_i)); shaped by
+        # (w_i - w_min) so a gate decelerates into the min_positive_weight floor
+        # applied by _apply_budget_and_cap() -- it never goes deaf or negative.
+        # Same event closeness p as potentiation. See neuron.Neuron.
+        if self.signed_depression and self.eta_off > 0.0:
+            inactive = np.nonzero((self._weights_array > 0) & ~participating)[0]
+            if inactive.size > 0:
+                w_off = self._weights_array[inactive]
+                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
+                gate = (1.0 - self._confidence[inactive]) if self.confidence_consolidation else 1.0
+                self._weights_array[inactive] = w_off - self.eta_off * p * gate * (w_off - w_min)
+                self.signed_depression_events += 1
         self._apply_budget_and_cap()
+
+    def _maturity(self, w):
+        """Local instantaneous maturity m in [0,1] of positive gate weights w:
+        (w - w_min) / (w_conf_cap - w_min), clamped. w_min is min_positive_weight
+        (or 0), w_conf_cap is conf_cap (the effective reachable mature value; falls
+        back to weight_cap). See Claude_Confidence_Consolidation_Plan.md."""
+        w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
+        cap = self.conf_cap if self.conf_cap is not None else self.weight_cap
+        if cap <= w_min:
+            return np.zeros_like(w)
+        return np.clip((w - w_min) / (cap - w_min), 0.0, 1.0)
 
     def _apply_budget_and_cap(self):
         """Shared tail: renormalize positive weights to the resource target, then
@@ -374,6 +473,19 @@ class Neuron:
         if total > 1e-9:
             self._weights_array[pos] *= self.homeo_budget / total
         self._weights_array = np.clip(self._weights_array, -self.weight_cap, self.weight_cap)
+
+    def _decay_confidence(self):
+        """Activity-dependent confidence decay; see neuron.Neuron._decay_confidence."""
+        if self._confidence is None:
+            return
+        if self.ca >= self.conf_ca_dead:
+            self.inactive_steps = 0
+            rho = self.conf_rho_active
+        else:
+            self.inactive_steps += 1
+            rho = self.conf_rho_dead if self.inactive_steps >= self.conf_grace else 0.0
+        if rho > 0.0:
+            self._confidence *= (1.0 - rho)
 
     def plasticity_stats(self):
         """Summary statistics over the excitatory (positive-weight) afferents --

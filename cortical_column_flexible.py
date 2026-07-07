@@ -21,6 +21,7 @@ at the target -- see neuron_flexible.Neuron._update_weights.
 """
 
 import numpy as np
+from neuron import UNIT, LEAK_SCALE
 from neuron_flexible import Neuron
 
 
@@ -28,8 +29,8 @@ class CorticalColumn:
     """Pool of excitatory neurons sharing one inhibitory neuron, with per-source
     feedforward fan-in and optional feedback fan-in from a higher layer."""
 
-    def __init__(self, n_neurons, threshold=1.0, refractory_period=2,
-                 learning_rate=0.05, weight_cap=1.0, leak_rate=0.01):
+    def __init__(self, n_neurons, threshold=1000 / UNIT, refractory_period=2,
+                 learning_rate=0.05, weight_cap=1000 / UNIT, leak_rate=10 / LEAK_SCALE):
         self.n_neurons = n_neurons
         # Excitatory neurons: afferents are [from_local_I, *from_below].
         self.excitatory_neurons = [

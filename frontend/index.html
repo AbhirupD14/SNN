@@ -76,6 +76,17 @@
             <button class="btn sm" id="p-clear">Clear</button>
             <button class="btn sm" id="p-noise">Noise</button>
           </div>
+          <div class="autocycle">
+            <label class="check"><input type="checkbox" id="ac-enable" /> Auto-cycle patterns</label>
+            <label class="field">
+              <span>Trained after <b id="ac-streak-val">3</b> stable rounds</span>
+              <input type="range" id="ac-streak" min="1" max="10" step="1" value="3" />
+            </label>
+            <p class="config-desc">Rotates through all patterns, a short visit each. A pattern is
+              "trained" once the same L2E neuron wins it for N rounds in a row; the cycle stops when
+              all are trained. (Sitting on one pattern can't train — the pool round-robins.)</p>
+            <div class="ac-status" id="ac-status">idle</div>
+          </div>
         </div>
       </section>
 
@@ -93,6 +104,18 @@
           <div class="btn-row">
             <button class="btn sm primary" id="mf-pulse">Single Pulse</button>
             <button class="btn sm" id="mf-hold" data-on="0">Continuous</button>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel" data-section>
+        <header class="panel-head"><span>Model Config</span><span class="chev"></span></header>
+        <div class="panel-body">
+          <p class="config-note">Applying rebuilds the network and restarts learning from fresh weights.</p>
+          <div id="config-controls"></div>
+          <div class="btn-row">
+            <button class="btn sm primary" id="config-apply">Apply &amp; Restart</button>
+            <button class="btn sm" id="config-reset-defaults">Defaults</button>
           </div>
         </div>
       </section>
