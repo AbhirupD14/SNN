@@ -367,7 +367,28 @@ class SimulationEngine:
                  # makes ongoing plasticity safe (only the owner fires, so only
                  # the owner learns). Pair with v_sat so a rival's bounded charge
                  # is within reach of the gate. L2E only.
-                 l2_gate_eq_frac: float | None = None):
+                 l2_gate_eq_frac: float | None = None,
+                 # Minimal SIGNED-SPIKE feedforward learning (see
+                 # Claude_Minimal_Signed_Spike_Learning_Prompt.md). Replaces the
+                 # potentiation + OFF-depression + confidence + budget stack with a
+                 # single local signed rule: on fire, active inputs (+1) potentiate
+                 # and inactive inputs (-1) depress, dw = eta*p*(1-(w/w_cap)^2)*sig,
+                 # bounded to [min_positive_weight, weight_cap], NO budget. Intended
+                 # to be run with the compensating mechanisms off and refractory=0
+                 # (the "minimal experiment"). L2E only; default off.
+                 signed_spike_learning: bool = False,
+                 # Capacity rule for the minimal experiment (see the prompt's
+                 # "Threshold, Cap, Floor" section). l2e_weight_cap_frac sets each
+                 # L2E positive feedforward weight cap to frac*thr_l2, so three
+                 # maximally strong active afferents reach threshold (1/3 for the
+                 # 3-pixel line patterns). Default 1.0 preserves the prior cap.
+                 l2e_weight_cap_frac: float = 1.0,
+                 # Positive-afferent weight FLOOR (L2E feedforward and E->I positive
+                 # afferents). None keeps legacy behaviour (L2E floor =
+                 # L2E_MIN_WEIGHT_FLOOR, E->I unfloored); the minimal experiment
+                 # sets 1. Negative inhibitory gates are never floored here -- they
+                 # are bounded by magnitude in apply_inhibition.
+                 pos_weight_floor: int | None = None):
         # Decouple the SENSORY input rate from the INTRINSIC competition clock.
         # input_period: steps between external input bursts (how fast the world
         #   throws spikes at the network -- "nature" is slow, a "rave" is fast).
@@ -416,7 +437,10 @@ class SimulationEngine:
                            inh_boost_frac=inh_boost_frac,
                            subtractive_reset=subtractive_reset,
                            v_sat_frac=v_sat_frac,
-                           l2_gate_eq_frac=l2_gate_eq_frac)
+                           l2_gate_eq_frac=l2_gate_eq_frac,
+                           signed_spike_learning=signed_spike_learning,
+                           l2e_weight_cap_frac=l2e_weight_cap_frac,
+                           pos_weight_floor=pos_weight_floor)
         self._build()
 
     # ------------------------------------------------------------------ build
@@ -531,6 +555,13 @@ class SimulationEngine:
         for nid, n in self.neurons.items():
             if self.meta[nid]['type'] == 'E' and nid.startswith('L2'):
                 n.weight_budget = L2E_BUDGET_MULT * thr_l2 if p['l2e_budget'] else None
+                # Per-afferent capacity rule (minimal experiment): the positive
+                # feedforward weight cap is a fraction of THIS E neuron's threshold
+                # (l2e_weight_cap_frac * thr_l2), so three maximally strong active
+                # afferents can reach threshold (frac=1/3 for the 3-pixel lines).
+                # learning_rate and excitatory_saturation_cap below auto-follow the
+                # cap. Default 1.0 reproduces the prior cap == thr_l2.
+                n.weight_cap = p['l2e_weight_cap_frac'] * thr_l2
                 # Floor for feedforward weights: without this, heavy training on
                 # one pattern erodes every OTHER pixel's weight toward 0 (budget
                 # renormalization rescales participating and non-participating
@@ -540,7 +571,8 @@ class SimulationEngine:
                 # feedforward init range (ff_weights ~ [0.05, 0.20]) -- small
                 # enough not to distort normal competition, nonzero enough that
                 # every pixel keeps some baseline responsiveness.
-                n.min_positive_weight = L2E_MIN_WEIGHT_FLOOR
+                n.min_positive_weight = (p['pos_weight_floor'] if p['pos_weight_floor'] is not None
+                                         else L2E_MIN_WEIGHT_FLOOR)
                 # Adaptive lateral-inhibition gate: dedicated (lower) saturation
                 # ceiling and its own learning rate, independent of feedforward.
                 # l2_gate_eq_frac (opt-in) retargets the gate equilibrium to
@@ -606,6 +638,9 @@ class SimulationEngine:
                 # Membrane saturation ceiling (L2E only; None = unbounded). Bounds
                 # accumulated charge near threshold so inhibition can regulate it.
                 n.v_sat = p['v_sat_frac'] * thr_l2 if p['v_sat_frac'] else None
+                # Minimal signed-spike feedforward learning (L2E only; default off).
+                # When on it takes over _update_weights entirely (see the neuron).
+                n.signed_spike_learning = p['signed_spike_learning']
             else:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
@@ -633,6 +668,10 @@ class SimulationEngine:
                     # the cap (a trained E->I synapse becomes a true single-source
                     # relay: one presynaptic spike is enough to fire the neuron).
                     n.excitatory_saturation_cap = (n.weight_cap ** 2) * p['ei_sat_mult']
+                    # Positive-afferent floor for E->I weights (minimal experiment).
+                    # Only floors positive weights; the inhibitory sign is untouched.
+                    if p['pos_weight_floor'] is not None:
+                        n.min_positive_weight = p['pos_weight_floor']
 
         self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)
@@ -735,7 +774,8 @@ class SimulationEngine:
     TUNABLE = ('signed_depression', 'eta_off', 'l2e_budget', 'l2e_lr_frac',
                'confidence_consolidation', 'loser_depression', 'eta_loss',
                'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven',
-               'subtractive_reset', 'refractory', 'v_sat_frac', 'seed')
+               'subtractive_reset', 'refractory', 'v_sat_frac',
+               'signed_spike_learning', 'seed')
 
     def apply_config(self, overrides: dict):
         """Merge tunable overrides into self.params and rebuild the network in
@@ -748,7 +788,8 @@ class SimulationEngine:
             if k not in self.TUNABLE:
                 continue
             if k in ('signed_depression', 'confidence_consolidation', 'loser_depression',
-                     'l2e_budget', 'event_driven', 'subtractive_reset'):
+                     'l2e_budget', 'event_driven', 'subtractive_reset',
+                     'signed_spike_learning'):
                 v = bool(v)
             elif k in ('seed', 'refractory'):
                 v = int(v)

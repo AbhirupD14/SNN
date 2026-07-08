@@ -147,6 +147,13 @@ class Neuron:
         self.signed_depression = False         # enable OFF-gate depression on fire
         self.eta_off = 0.0                     # depression rate for inactive gates
         self.signed_depression_events = 0      # diagnostic counter
+        # Minimal SIGNED-SPIKE feedforward learning (opt-in; see
+        # Claude_Minimal_Signed_Spike_Learning_Prompt.md and _update_weights).
+        # On fire, every POSITIVE feedforward synapse gets one local signed update
+        # -- active inputs (+1) potentiate, inactive inputs (-1) depress -- with no
+        # global weight budget. Replaces the whole potentiation / OFF-depression /
+        # confidence / budget stack with a single equation. Default OFF.
+        self.signed_spike_learning = False
         # Reset-by-subtraction on fire (opt-in; see fire()). Default OFF reproduces
         # the full reset-to-rest. When ON, a fired neuron keeps its residual
         # overshoot above threshold (standard LIF), floored at rest -- this attacks
@@ -474,6 +481,27 @@ class Neuron:
         theta = self.threshold
         p = min(max(theta / v_pre, 0.0), 1.0) if v_pre > 0 else 0.0
         participating = self._last_input_spikes > 0.5
+
+        # Minimal signed-spike feedforward rule (opt-in). Every POSITIVE synapse
+        # updates with a signed local signal -- +1 if its input participated in
+        # this firing volley, -1 if not -- through the same saturating term
+        # written with a LINEAR cap: dw = eta * p * (1 - (w/w_cap)^2) * signal.
+        # Active inputs potentiate toward the cap; inactive inputs depress toward
+        # the floor. No weight budget: the -1 signal on inactive inputs supplies
+        # the downward pressure the budget used to impose. Bounded locally to
+        # [min_positive_weight, weight_cap]. Negative inhibitory gates are NOT
+        # touched here (they learn only via apply_inhibition). This fully replaces
+        # the confidence / OFF-depression / budget path below, so return early.
+        if self.signed_spike_learning:
+            pos = self._weights_array > 0
+            if pos.any() and self.weight_cap > 0:
+                w = self._weights_array[pos]
+                signal = np.where(participating[pos], 1.0, -1.0)
+                dw = self.learning_rate * p * (1.0 - (w / self.weight_cap) ** 2) * signal
+                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
+                self._weights_array[pos] = np.clip(w + dw, w_min, self.weight_cap)
+            return
+
         active = np.nonzero((self._weights_array > 0) & participating)[0]
         w_max = self.excitatory_saturation_cap if self.excitatory_saturation_cap is not None else self.weight_cap
         if w_max > 0 and active.size > 0:

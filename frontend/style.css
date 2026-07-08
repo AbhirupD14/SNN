@@ -254,3 +254,51 @@ canvas.chart, #histogram { width: 100%; display: block; }
 .log-line.spike .kind { color: var(--exc); }
 .log-line.inhibition .kind { color: var(--inh); }
 .log-line .msg { color: var(--txt-0); }
+
+/* ── Receptive Fields (minimal signed-spike view) ─────────────────────── */
+.rf-wrap { display: flex; flex-direction: column; gap: 12px; height: 100%; }
+.rf-head { display: flex; gap: 14px; align-items: flex-start; }
+.rf-input-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; flex: 0 0 auto; }
+.rf-note { font-size: 12px; color: var(--txt-1); line-height: 1.5; margin: 0; flex: 1; }
+.rf-note code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; font-size: 11px; color: var(--exc); }
+.rf-input-legend { margin-top: 7px; font-size: 11px; color: var(--txt-2); text-align: center; }
+.pm { font-weight: 700; }
+.pm.plus { color: var(--ok); } .pm.minus { color: var(--inh); }
+
+.rf-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 900px) { .rf-grid { grid-template-columns: repeat(2, 1fr); } }
+.rf-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; transition: border-color .1s, box-shadow .1s; }
+.rf-card.rf-winner { border-color: var(--win); box-shadow: 0 0 10px rgba(255,206,92,.35); }
+.rf-card.rf-spike { border-color: var(--exc); }
+.rf-card.rf-dead { opacity: .5; }
+.rf-title { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--txt-1); margin-bottom: 7px; font-variant-numeric: tabular-nums; }
+.rf-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--inh); border: 1px solid var(--inh); border-radius: 4px; padding: 0 4px; }
+
+.rf-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.rf-cell { aspect-ratio: 1 / 1; border-radius: 4px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--txt-2); }
+.rf-input { width: 84px; }
+.rf-cell.sig-plus { background: rgba(69,212,131,.18); color: var(--ok); border-color: rgba(69,212,131,.5); }
+.rf-cell.sig-minus { background: transparent; color: var(--inh); border-color: var(--line); }
+
+/* RF cell weight overlay (weight / cap, on top of the color). */
+.rf-cell.rf-num { font-size: 9px; font-weight: 600; color: #eafaf6; text-shadow: 0 0 3px rgba(0,0,0,.9), 0 1px 1px rgba(0,0,0,.8); font-variant-numeric: tabular-nums; }
+
+/* ── Full-screen visualization overlays (raster / charge / weights) ────── */
+.viz-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg-1); display: flex; flex-direction: column; }
+.viz-overlay[hidden] { display: none; }
+.viz-bar { flex: none; height: 46px; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+.viz-title { font-weight: 600; color: var(--txt-0); }
+.viz-bar .check { margin: 0; }
+.viz-zoom { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--txt-2); }
+.viz-legend { font-size: 11px; color: var(--txt-2); display: flex; align-items: center; gap: 6px; }
+.viz-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.viz-hint { font-size: 11px; color: var(--txt-2); }
+.viz-bar .danger { margin-left: auto; }
+.viz-scroll { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; background: var(--bg-2); }
+.viz-spacer { position: absolute; top: 0; left: 0; height: 1px; pointer-events: none; }
+/* Raster & charge canvases are viewport-sized and pinned; only the visible time
+   window is drawn (virtualized), so the backing store stays small no matter how
+   deep the history. The weights canvas fits the viewport (no horizontal scroll). */
+#raster-canvas, #charge-canvas { position: sticky; left: 0; top: 0; display: block; }
+#weights-scroll { overflow: hidden; }
+#weights-canvas { display: block; }

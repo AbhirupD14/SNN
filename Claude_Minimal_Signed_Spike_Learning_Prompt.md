@@ -124,6 +124,90 @@ Notes:
 - If a flag is used, name it clearly, e.g. `signed_spike_learning=True`, and make
   the minimal experiment use it.
 
+## Threshold, Cap, Floor, And Initialization Changes
+
+Make the minimal experiment internally consistent around a simple capacity rule.
+
+Requested rule:
+
+```text
+per-afferent weight cap = one third of the corresponding excitatory-layer threshold
+I-neuron threshold      = one third of the corresponding E-neuron threshold
+positive afferent floor = 1
+```
+
+Concrete interpretation to implement and document:
+
+```text
+L2E threshold = threshold_l2
+L2E positive feedforward weight cap = threshold_l2 / 3
+L2E positive feedforward weight floor = 1
+
+L2I threshold = threshold_l2 / 3
+L2E -> L2I positive afferent cap = threshold_l2 / 3
+L2E -> L2I positive afferent floor = 1
+
+L1E threshold = threshold
+L1I threshold = threshold / 3
+L2E -> L1I positive afferent cap = threshold / 3
+L2E -> L1I positive afferent floor = 1
+```
+
+The intent is that three maximally strong active feedforward afferents can reach
+an E neuron's threshold, matching the 3-pixel line patterns. The I neuron is
+scaled to one third of its corresponding E threshold, so one sufficiently strong
+winner can recruit inhibition locally.
+
+Be explicit about how negative inhibitory gates are handled:
+
+- Do not apply a positive floor directly to negative weights.
+- If a floor is needed for inhibitory gates, define it as a magnitude floor.
+- Preserve sign: positive afferents stay positive, inhibitory gates stay negative.
+
+Remove the L2E budget for this minimal experiment. The signed `+1/-1` update and
+local floor/cap should provide the increase/decrease pressure.
+
+### Current Initialization Ranges
+
+As of the current code, `backend/simulation.py` initializes weights as follows:
+
+```text
+L1E fixed weights:
+  [I gate, external pixel] = [-1.0, +1.0] * UNIT
+  currently [-1000, +1000]
+
+L2I -> L2E inhibitory gates:
+  fixed initial gate = L2_GATE_INIT = -500
+  magnitude 500 = 0.5 * UNIT
+
+L2E -> L2I positive afferents:
+  random uniform [0.25, 0.5] * thr_l2i
+  with default thr_l2i = threshold_l2 = 8000, this is [2000, 4000]
+
+L2E -> L1I positive feedback afferents:
+  random uniform [0.25, 0.5] * thr_l1i
+  with default thr_l1i = threshold = 1000, this is [250, 500]
+
+L1E -> L2E positive feedforward afferents:
+  random uniform [50, 200]
+  equivalent to [0.05, 0.20] * UNIT
+```
+
+After changing I thresholds to one third of E thresholds, the E-to-I
+initialization ranges should be recomputed from the new I thresholds unless there
+is a documented reason to keep the old absolute values.
+
+For L2E feedforward initialization, make sure the range is sensible relative to:
+
+```text
+floor = 1
+cap = threshold_l2 / 3
+three active pixels per line pattern
+```
+
+Do not leave initialization values above the new cap. If necessary, choose a
+small local range such as a documented fraction of `threshold_l2 / 3`.
+
 ## Scale Consistency
 
 Keep weight, charge, and threshold units consistent. This is critical.
@@ -343,3 +427,136 @@ PYTHONPATH=. .venv/bin/python stage_learning_harness.py
 If any existing test must change because inactive positive synapses now depress
 instead of staying untouched, update the test to reflect the new intended local
 rule and explain why.
+
+## Dashboard Visualization Cleanup
+
+The dashboard is for debugging and visualizing the network. Some current panels
+are not giving useful information and should be redesigned or removed.
+
+Current issue:
+
+- The raster graph mixes spikes and charge buildup. It should not.
+- The weight heatmap is only a snapshot. It does not show how weights evolve.
+- The bottom `Charts` tab is cramped and currently contains low-value views.
+- The activation histogram, currently firing panel, and generic statistics panel
+  are not very useful for debugging this learning problem.
+
+Required visualization changes:
+
+### 1. Spike Raster
+
+Make the raster graph plot only discrete spikes.
+
+```text
+x-axis = time
+y-axis = neuron id
+mark = spike event only
+```
+
+Do not plot charge buildup or membrane potential on the raster. If a neuron did
+not spike at a timestep, the raster should show nothing for that neuron at that
+time.
+
+### 2. Charge Over Time
+
+Create a separate chart for membrane charge / potential over time.
+
+```text
+x-axis = time
+y-axis = charge / membrane potential
+series = every neuron, or filterable neuron groups
+```
+
+This should let us see:
+
+- charge accumulation
+- threshold crossing
+- inhibition discharge
+- reset behavior
+- whether losers carry charge across pattern switches
+
+Include threshold reference lines where practical. For readability, allow
+filtering by layer or neuron type if the full set is too crowded.
+
+### 3. Weights Over Time
+
+Add a chart that shows weights changing over time.
+
+The existing weight heatmap is still useful as a current snapshot, but we also
+need temporal weight evolution.
+
+Useful options:
+
+- selected neuron's incoming feedforward weights over time
+- selected synapse weight over time
+- all L1E -> selected L2E weights over time
+- L2I -> L2E inhibitory gate magnitudes over time
+
+Prioritize a view that helps debug whether receptive fields are forming and
+whether signed `+1/-1` updates replace the old budget.
+
+### 4. Pop-Up / Full-Page Chart Views
+
+These charts are large and should not be cramped inside the bottom tab panel.
+
+Implement them as larger views, for example:
+
+- modal / pop-up chart window
+- full-page overlay
+- route-like dashboard view
+- expandable chart workspace
+
+The user should be able to open a large spike raster, charge trace, or weight
+history view from the dashboard without losing the main simulation.
+
+### 5. Remove Or Replace Low-Value Panels
+
+Review the existing bottom `Charts` tab and remove panels that are not useful for
+debugging:
+
+- activation histogram
+- currently firing panel
+- generic statistics cards
+
+Keep a panel only if it directly helps answer one of these questions:
+
+- Which neuron owns this pattern?
+- Which neurons are firing over time?
+- Which neurons are accumulating charge but not firing?
+- Are inhibitory gates regulating competition?
+- Are feedforward weights forming a selective receptive field?
+- Are weights changing in the expected signed direction?
+- Are pattern switches causing state carryover?
+
+If a current chart does not answer one of those questions, remove it or replace it
+with a more relevant diagnostic.
+
+### 6. Frontend Integration
+
+Update the frontend files as needed:
+
+```text
+frontend/charts.js
+frontend/controls.js
+frontend/inspector.js
+frontend/renderer.js
+frontend/style.css
+frontend/index.html
+```
+
+Update backend serialization if the frontend needs more history data than it
+currently receives.
+
+Do not overload the WebSocket with unbounded full history. Use a bounded rolling
+history buffer on the frontend or backend. Keep the dashboard responsive.
+
+Run frontend checks:
+
+```bash
+node --check frontend/app.js
+node --check frontend/charts.js
+node --check frontend/controls.js
+node --check frontend/inspector.js
+node --check frontend/renderer.js
+node --check frontend/websocket.js
+```

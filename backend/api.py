@@ -30,20 +30,31 @@ app = FastAPI(title="SNN Dashboard")
 # governs each L2E's total feedforward weight -- receptive fields concentrate to
 # large, visible values instead of being shrunk by homeostatic scaling. A faster
 # L2E learning rate sharpens them. Edit these lines to change what you observe.
+# The dashboard runs the MINIMAL SIGNED-SPIKE experiment by default (see
+# Claude_Minimal_Signed_Spike_Learning_Prompt.md and the README section). The
+# feedforward rule is the signed one -- on fire, active inputs (+1) potentiate and
+# inactive inputs (-1) depress, dw = eta*p*(1-(w/w_cap)^2)*signal, no weight budget
+# -- and every compensating mechanism is off so the core local loop is what you
+# see: charge -> fire -> local signed update -> learned L2I lateral inhibition ->
+# L1I feedback inhibition -> repeat. refractory=0 (inhibition, not a hard lockout,
+# regulates frequency). Toggle any of these live in the "Model Config" panel.
 engine = SimulationEngine(
-    homeostasis=False,   # use the fixed weight_budget=threshold_l2 (visible, strong RFs)
-    l2e_lr_frac=0.02,    # faster L2E feedforward learning (sharper receptive fields)
-    ei_sat_mult=4.0,     # push E->I saturation equilibrium above the clip so L2E->L2I /
-                         # L2E->L1I weights REACH the cap (single-spike relay), instead of
-                         # asymptoting just under it. Higher = reaches cap faster / more
-                         # linear; 1.0 = old asymptote-at-cap behavior. Tune here.
-    # l1i_ei_init_frac left at the default (None -> [0.25,0.5]*thr round-robin
-    # init). Setting it to 1.0 fires ALL L1I from any L2E winner (synchronous
-    # global input suppression), but without homeostasis to recruit units that
-    # starves participation: it alone collapses confidence-gated consolidation to
-    # ~2/8 winners with ~6 dead neurons, whereas the round-robin init reaches the
-    # full 8/8 one-to-one tiling the consolidation mechanism produces. Restore
-    # l1i_ei_init_frac=1.0 here to get synchronous suppression back at that cost.
+    signed_spike_learning=True,   # signed +1/-1 feedforward learning (the algorithm)
+    l2e_budget=False,             # no positive-weight budget; -1 signal supplies down-pressure
+    confidence_consolidation=False,
+    loser_depression=False,
+    signed_depression=False,      # superseded by the unified signed rule
+    homeostasis=False,
+    refractory=0,                 # inhibition regulates frequency, not a hard lockout
+    # Capacity rule: per-afferent cap = thr/3 so three strong active afferents reach
+    # threshold (3-pixel lines); positive floor = 1; each I threshold = its E's / 3.
+    l2e_weight_cap_frac=1 / 3,
+    pos_weight_floor=1,
+    l2i_threshold_frac=1 / 3,     # L2I threshold = threshold_l2 / 3
+    l1i_threshold_frac=1 / 3,     # L1I threshold = threshold / 3
+    l2e_lr_frac=0.02,             # L2E feedforward learning rate (fraction of the cap)
+    ei_sat_mult=4.0,              # push E->I saturation above the clip so L2E->L2I reaches
+                                  # the cap and L2I can sharpen into a single-source relay.
 )
 manager = ConnectionManager()
 runner = SimulationRunner(engine, manager)
@@ -173,9 +184,16 @@ async def stimulate(body: StimulateBody):
 # Tunable-parameter spec the frontend renders as sliders/toggles. Each entry
 # drives one control and its help text; "kind" is "range" or "toggle".
 CONFIG_SPEC = [
+    {"key": "signed_spike_learning", "label": "Signed-spike learning (minimal)", "kind": "toggle",
+     "desc": "Minimal local feedforward rule: on fire, active inputs (+1) potentiate "
+             "and inactive inputs (-1) depress via dw=eta*p*(1-(w/w_cap)^2)*signal, "
+             "no weight budget. Replaces the confidence/OFF-depression/budget stack. "
+             "Run with those OFF, l2e_budget OFF, and refractory=0 for the minimal "
+             "experiment."},
     {"key": "signed_depression", "label": "Signed depression (4a)", "kind": "toggle",
      "desc": "On fire, OFF pixels (absent inputs) push their positive gates DOWN. "
-             "Sharpens receptive fields; needs eta_off > 0 to have any effect."},
+             "Sharpens receptive fields; needs eta_off > 0 to have any effect. "
+             "(Superseded by signed-spike learning; leave off when that is on.)"},
     {"key": "eta_off", "label": "OFF-gate depression rate (eta_off)", "kind": "range",
      "min": 0.0, "max": 0.4, "step": 0.01,
      "desc": "How hard absent inputs are depressed. ~0.05 sharpens RFs and lifts "

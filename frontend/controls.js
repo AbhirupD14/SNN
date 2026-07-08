@@ -201,6 +201,9 @@ export class Controls {
   // ------------------------------------------------------------------- tabs
   _wireTabs() {
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+      // Raster / Charge / Weights are not bottom panels -- they open full-screen
+      // overlays (handled in their own modules), so they don't switch the drawer.
+      if (['raster', 'charge', 'weights'].includes(tab.dataset.tab)) return;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');

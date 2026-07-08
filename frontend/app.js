@@ -6,6 +6,10 @@ import { NeuronRenderer } from './renderer.js';
 import { Inspector } from './inspector.js';
 import { Charts } from './charts.js';
 import { Controls } from './controls.js';
+import { ReceptiveFields } from './receptive.js';
+import { Raster } from './raster.js';
+import { ChargeChart } from './charge.js';
+import { WeightsChart } from './weights.js';
 
 const api = {
   async post(path, body) {
@@ -32,8 +36,12 @@ const renderer = new NeuronRenderer(document.getElementById('scene'), { onSelect
 const inspector = new Inspector(store);
 const charts = new Charts(store);
 const controls = new Controls(store, renderer, api);
+const receptive = new ReceptiveFields(store);
+const raster = new Raster(store);
+const chargeChart = new ChargeChart(store);
+const weightsChart = new WeightsChart(store);
 
-function select(id) { inspector.select(id); renderer.select(id); }
+function select(id) { inspector.select(id); renderer.select(id); weightsChart.setTarget(id); }
 
 // ---- FPS (simulation frames received per second) --------------------------
 let frameStamps = [];
@@ -56,6 +64,10 @@ function onMessage(msg) {
     renderer.build(topo);
     charts.buildStatic(topo);
     controls.onTopology(topo);
+    receptive.build();
+    raster.build(topo);
+    chargeChart.build(topo);
+    weightsChart.build();
   } else if (msg.type === 'dynamic') {
     const dyn = msg.data;
     store.dynamic = dyn;
@@ -65,6 +77,10 @@ function onMessage(msg) {
     const fps = tickFps();
     renderer.update(dyn);
     charts.update(dyn, fps);
+    receptive.update(dyn);
+    raster.update(dyn);
+    chargeChart.update(dyn);
+    weightsChart.update(dyn);
     inspector.refresh();   // re-renders if a neuron was already selected
     controls.onDynamic(dyn);
     updateTopbar(dyn, fps);

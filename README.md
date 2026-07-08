@@ -115,6 +115,91 @@ PYTHONPATH=. .venv/bin/uvicorn backend.api:app
 Then open <http://127.0.0.1:8000>. See `docs/DASHBOARD.md` for the REST and
 WebSocket protocol.
 
+## Minimal signed-spike experiment
+
+A stripped-down configuration that tests whether the **core local loop alone**
+(charge → fire → local feedforward update → learned L2I lateral inhibition → L1I
+feedback inhibition → repeat) can learn stable pattern ownership, with all the
+accumulated compensating mechanisms turned off. See
+`Claude_Minimal_Signed_Spike_Learning_Prompt.md`.
+
+**The rule (`signed_spike_learning=True`, L2E only, default off).** On a
+postsynaptic fire, every *positive* feedforward synapse gets one local **signed**
+update — active inputs potentiate, inactive inputs depress — through the same
+saturating term written with a **linear** cap:
+
+```
+signal_i = +1 if input i was active in the firing volley, else -1
+p        = clamp(theta / v_pre, 0, 1)
+dw_i     = learning_rate * p * (1 - (w_i / w_cap)^2) * signal_i
+w_i      = clip(w_i + dw_i, w_floor, w_cap)
+```
+
+There is **no weight budget**: the `-1` signal on inactive inputs supplies the
+downward pressure the budget used to impose. Negative inhibitory gates are never
+touched here (they still learn only via `apply_inhibition`). This one equation
+replaces the whole potentiation + OFF-depression + confidence + budget stack.
+
+**Minimal config** (used by `stage_learning_harness.py`, exposed on the engine
+and dashboard): `signed_spike_learning=True`; `confidence_consolidation`,
+`loser_depression`, `signed_depression`, `homeostasis`, `subtractive_reset`,
+`lasting_inhibition`, `event_driven`, membrane saturation (`v_sat_frac`), and
+`l2e_budget` all **off**; `refractory=0`. The no-refractory choice is
+deliberate: **inhibition**, not a hard lockout, is meant to regulate firing
+frequency. Lateral (L2I) and feedback (L1I) inhibition stay active.
+
+**Capacity rule** (`l2e_weight_cap_frac`, `pos_weight_floor`, and the I-threshold
+fractions, set in the dashboard/harness preset):
+
+```
+per-afferent positive weight cap = E-neuron threshold / 3   (l2e_weight_cap_frac=1/3)
+I-neuron threshold               = E-neuron threshold / 3   (l2i/l1i_threshold_frac=1/3)
+positive-afferent floor          = 1                        (pos_weight_floor=1)
+```
+
+so **three maximally strong active afferents reach threshold** (matching the
+3-pixel line patterns), one strong winner can recruit its inhibitory neuron, and
+E→I init ranges (`[0.25,0.5]×thr_I`) recompute from the lowered I thresholds.
+The negative L2I→L2E gate is **not** floored as a positive weight — it stays
+negative and is bounded by magnitude in `apply_inhibition`. Defaults
+(`l2e_weight_cap_frac=1.0`, `pos_weight_floor=None`, I-threshold fracs `=1`)
+reproduce the prior behavior, so the existing tests are unchanged.
+
+**Scale convention (Option A — current fixed-point `UNIT=1000`).** All
+charge/threshold/weight magnitudes share the linear `UNIT` scale
+(`threshold_l2 = 8*UNIT`, L2E `weight_cap = thr_l2/3`, floor `= 1`); `p`,
+`signal`, and leaks are dimensionless. The `w_cap` in `(1 - (w/w_cap)^2)` is the
+**linear** cap, not a squared denominator, so linear-vs-quadratic scaling is
+unambiguous. `test_neuron.py::test_fixed_point_scale_invariance` guards this.
+
+**Dashboard views.** The **Spike Raster** shows discrete spikes only; a separate
+**Charge / time** overlay shows membrane charge `V/θ` per neuron (threshold line,
+spike peaks, carryover across pattern switches); a **Weights / time** overlay
+shows a selected L2E's feedforward weights and inhibitory gate evolving toward
+the cap (RF formation under the signed `+1/-1` rule). All three open full-screen
+from the bottom tab bar; the low-value activation-histogram, "currently firing",
+statistics, and rolling-line-chart panels were removed.
+
+**Tiling metric.** Ownership is **visit-level**, not per-cycle:
+`owner(P)` = most common early (first) winner across P's repeated visits;
+`consistency(P)` = fraction of visits that owner won. Do **not** use
+`metrics_consolidation.py` dominance (short-window artifact).
+
+```bash
+PYTHONPATH=. .venv/bin/python stage_learning_harness.py
+```
+
+The harness grows the task in five stages (1 pattern → 2 disjoint → rows → rows +
+columns → all 8), sweeps dwell length `[1,2,4,8,16,40]`, runs seeds 1–4, and
+reports where ownership first collapses. **Finding:** receptive fields *do* form
+under the signed rule with no budget (RF-match ≈ 1.0 for simple stages), and
+distinct owners hold through stage 3, but patterns start **sharing owners at
+stage 4** (rows and columns overlap on a shared pixel) and per-pattern owner
+*stability* is weak from stage 1 — because with no budget nothing stops several
+neurons from co-specializing on the same pattern, and with `homeostasis` off
+there is **no recruitment** force, so lateral inhibition starves losing units
+(they rarely fire, so their feedforward weights rarely update) and they go dead.
+
 ## Next Experiment
 
 The most targeted next experiment is reset-by-subtraction behind a flag:

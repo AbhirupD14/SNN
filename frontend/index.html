@@ -163,40 +163,38 @@
     <div class="resize-handle" id="bottom-resize" title="drag to resize"></div>
     <nav class="tabs" id="tabs">
       <button class="tab active" data-tab="activity">Activity</button>
-      <button class="tab" data-tab="stats">Statistics</button>
-      <button class="tab" data-tab="charts">Charts</button>
+      <button class="tab" data-tab="rf">Receptive Fields</button>
+      <button class="tab" data-tab="raster">Spike Raster ⤢</button>
+      <button class="tab" data-tab="charge">Charge / time ⤢</button>
+      <button class="tab" data-tab="weights">Weights / time ⤢</button>
       <button class="tab" data-tab="log">Event Log</button>
     </nav>
 
     <div class="tab-panels">
       <div class="tab-panel active" data-panel="activity">
-        <div class="activity-grid">
-          <div class="card">
-            <div class="card-title">Layer 2 heat map</div>
-            <div class="heatmap" id="heatmap"></div>
-            <div class="card-foot">winner: <b id="hm-winner">—</b></div>
-          </div>
-          <div class="card">
-            <div class="card-title">Activation histogram</div>
-            <canvas id="histogram" height="120"></canvas>
-          </div>
-          <div class="card">
-            <div class="card-title">Currently firing</div>
-            <div class="firing-list" id="firing-list"></div>
-          </div>
+        <div class="card">
+          <div class="card-title">Layer 2 heat map — firing rate per L2E (winner highlighted)</div>
+          <div class="heatmap" id="heatmap"></div>
+          <div class="card-foot">winner: <b id="hm-winner">—</b> · open <b>Spike Raster</b>,
+            <b>Charge / time</b>, or <b>Weights / time</b> (⤢) for the full-screen debug views.</div>
         </div>
       </div>
 
-      <div class="tab-panel" data-panel="stats">
-        <div class="stats-grid" id="stats-grid"></div>
-      </div>
-
-      <div class="tab-panel" data-panel="charts">
-        <div class="charts-grid">
-          <div class="card"><div class="card-title">Firing rate</div><canvas class="chart" id="chart-rate" height="120"></canvas></div>
-          <div class="card"><div class="card-title">Active neurons</div><canvas class="chart" id="chart-active" height="120"></canvas></div>
-          <div class="card"><div class="card-title">Avg activation</div><canvas class="chart" id="chart-act" height="120"></canvas></div>
-          <div class="card"><div class="card-title">Avg synaptic weight (learning)</div><canvas class="chart" id="chart-weight" height="120"></canvas></div>
+      <div class="tab-panel" data-panel="rf">
+        <div class="rf-wrap">
+          <div class="rf-head">
+            <div class="rf-input-card">
+              <div class="card-title">Signed input</div>
+              <div class="rf-cells rf-input" id="rf-input"></div>
+              <div class="rf-input-legend"><span class="pm plus">+1</span> active&nbsp;·&nbsp;<span class="pm minus">−1</span> inactive</div>
+            </div>
+            <p class="rf-note">Signed-spike learning: on each L2E fire, its <b>active</b> pixels
+              (+1) potentiate and its <b>inactive</b> pixels (−1) depress —
+              <code>dw = η·p·(1−(w/w_cap)²)·signal</code>, no weight budget. Each 3×3 grid below is
+              one L2E neuron's feedforward receptive field (weight ÷ cap). A ring marks the current
+              winner; units that can no longer reach threshold are flagged <b>dead</b>.</p>
+          </div>
+          <div class="rf-grid" id="rf-grid"></div>
         </div>
       </div>
 
@@ -205,6 +203,55 @@
       </div>
     </div>
   </footer>
+
+  <!-- ───────────────── Full-screen spike raster (spikes only) ────────── -->
+  <div class="viz-overlay" id="raster-overlay" hidden>
+    <div class="viz-bar">
+      <span class="viz-title">Spike Raster · discrete spikes only</span>
+      <label class="check"><input type="checkbox" id="raster-l1" checked /> Layer 1</label>
+      <span class="viz-zoom">Zoom
+        <button class="btn sm" id="raster-zoom-out" title="zoom out">−</button>
+        <button class="btn sm" id="raster-zoom-in" title="zoom in">＋</button>
+      </span>
+      <span class="viz-legend"><span class="sw exc"></span>excitatory <span class="sw inh"></span>inhibitory · left bar = firing rate</span>
+      <span class="viz-hint">scroll ↔ timeline · pause to hold · Esc to close</span>
+      <button class="btn sm danger" id="raster-close">✕ Close</button>
+    </div>
+    <div class="viz-scroll" id="raster-scroll">
+      <div class="viz-spacer" id="raster-spacer"></div>
+      <canvas id="raster-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- ───────────────── Full-screen charge-over-time ──────────────────── -->
+  <div class="viz-overlay" id="charge-overlay" hidden>
+    <div class="viz-bar">
+      <span class="viz-title">Charge over time · V ÷ θ per neuron</span>
+      <label class="check"><input type="checkbox" id="charge-l1" checked /> Layer 1</label>
+      <span class="viz-zoom">Zoom
+        <button class="btn sm" id="charge-zoom-out" title="zoom out">−</button>
+        <button class="btn sm" id="charge-zoom-in" title="zoom in">＋</button>
+      </span>
+      <span class="viz-legend">bar = charge · dashed line = threshold · full-height = spike</span>
+      <span class="viz-hint">scroll ↔ timeline · pause to hold · Esc to close</span>
+      <button class="btn sm danger" id="charge-close">✕ Close</button>
+    </div>
+    <div class="viz-scroll" id="charge-scroll">
+      <div class="viz-spacer" id="charge-spacer"></div>
+      <canvas id="charge-canvas"></canvas>
+    </div>
+  </div>
+
+  <!-- ───────────────── Full-screen weights-over-time ─────────────────── -->
+  <div class="viz-overlay" id="weights-overlay" hidden>
+    <div class="viz-bar">
+      <span class="viz-title">Weights over time · <b id="weights-target">L2E0</b></span>
+      <span class="viz-legend">L1E→L2E feedforward (green) ÷ cap · L2I→L2E gate (red) ÷ cap · dashed = cap</span>
+      <span class="viz-hint">pick a neuron: click an L2E in the 3D view · full training history, newest right · Esc to close</span>
+      <button class="btn sm danger" id="weights-close">✕ Close</button>
+    </div>
+    <div class="viz-scroll" id="weights-scroll"><canvas id="weights-canvas"></canvas></div>
+  </div>
 
   <script type="module" src="app.js"></script>
 </body>
