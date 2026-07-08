@@ -16,3 +16,6 @@ env/
 
 # Generated benchmark / sweep outputs
 sweep_results/
+
+# Experiment run artifacts (durable on the cluster, not in git)
+experiments/runs/
