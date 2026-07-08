@@ -6,9 +6,9 @@ Each excitatory neuron's afferent weights are laid out as:
     [ from_local_I , from_below_0 , from_below_1 , ... , from_below_{n_ff-1} ]
 
 so every feedforward source (e.g. each L1 pixel) has its OWN trainable synapse.
-That is what lets the eligibility-trace Hebbian rule carve a selective receptive
-field per neuron -- a single aggregated "from_below" input cannot, because the
-pattern is summed away before it reaches a trainable weight.
+That is what lets the charge-based local plasticity rule carve a selective
+receptive field per neuron -- a single aggregated "from_below" input cannot,
+because the pattern is summed away before it reaches a trainable weight.
 
 The shared inhibitory neuron's afferent weights are:
 
@@ -21,8 +21,7 @@ at the target -- see neuron_flexible.Neuron._update_weights.
 """
 
 import numpy as np
-from neuron import UNIT, LEAK_SCALE
-from neuron_flexible import Neuron
+from neuron_flexible import LEAK_SCALE, UNIT, Neuron
 
 
 class CorticalColumn:

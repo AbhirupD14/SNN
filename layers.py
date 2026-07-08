@@ -4,7 +4,7 @@ based on the specified architecture.
 """
 
 import numpy as np
-from neuron import Neuron, UNIT, LEAK_SCALE
+from neuron_flexible import Neuron, UNIT, LEAK_SCALE
 
 class InputLayer:
     """

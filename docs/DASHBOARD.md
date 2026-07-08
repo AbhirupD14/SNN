@@ -7,7 +7,7 @@ UI — the dashboard reads state through a serializer and issues control verbs
 through a small HTTP/WebSocket API.
 
 ```
-neuron.py / layers.py / cortical_column_flexible.py   (unmodified network)
+neuron_flexible.py / layers.py / cortical_column_flexible.py   (network core)
         │
         ▼
 backend/simulation.py   SimulationEngine  (steppable wrapper, plain-Python state)
@@ -69,7 +69,7 @@ client over the WebSocket, so responses are minimal.
 | POST | `/api/step`  | Advance exactly one timestep |
 | POST | `/api/reset` | Rebuild the network from scratch |
 | POST | `/api/speed/{sps}` | Set target steps/second (0.5–120) |
-| POST | `/api/pattern/{name}` | Load a named line pattern |
+| POST | `/api/pattern` | Load a named line pattern (`{"name":"row 0"}`) |
 | POST | `/api/pixel/{i}` | Toggle input pixel `i` |
 | POST | `/api/input` | Set the full 9-pixel input vector (`{"vector":[…]}`) |
 | POST | `/api/clear` / `/api/random` | Clear / randomize the input |
@@ -135,13 +135,12 @@ weights are streamed as a sparse `changed_synapses` delta rather than the full
 matrix. The frontend keeps a running weight map so the inspector can always show
 current incoming/outgoing weights without a full retransmit.
 
-When the L2E neurons run in `trace_mode="confidence"` (the default engine mode),
-each feedforward synapse also carries a **confidence** value (the neuron's learned
-trust in that gate, distinct from the gate size = weight). Confidence is sent on
-the topology synapses and streamed as a sparse `changed_confidence` delta with the
-same running-map treatment as weights; the inspector shows it beside each weight,
-plus a per-neuron **budget usage** meter (sum of positive weights vs the fixed
-budget). See `neuron.Neuron` for the confidence learning rule.
+Each L2E feedforward synapse also carries a **confidence** value: the neuron's
+learned trust in that gate, distinct from the gate size (`weight`). Confidence is
+sent on topology synapses and streamed as a sparse `changed_confidence` delta with
+the same running-map treatment as weights. The inspector shows confidence beside
+each weight, plus a per-neuron **budget usage** meter (sum of positive weights vs
+the fixed budget). See `neuron_flexible.Neuron` for the confidence rule.
 
 ## Rendering pipeline
 

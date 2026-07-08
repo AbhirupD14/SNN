@@ -13,9 +13,9 @@ patterns are the horizontal/vertical/diagonal lines (`row 0..2`, `col 0..2`,
 `diag \`, `diag /`). Architecture: `L1E` pixel encoders → `L2E` (8 competing
 excitatory units) with a shared `L2I` inhibitory neuron providing lateral
 inhibition; `L1I` gives feedback suppression. The whole engine is
-`backend/simulation.py::SimulationEngine`; the neurons are **`neuron_flexible.py`**
-(the class the engine actually instantiates — `neuron.py` is a parallel copy kept
-in sync but NOT what runs; always edit both, verify with `neuron_flexible.py`).
+`backend/simulation.py::SimulationEngine`; the single neuron implementation is
+**`neuron_flexible.py`**. It supports both fixed fan-in (`Neuron(n_inputs=...)`)
+and staged fan-in (`add_input_connection()` / `finalize_connections()`).
 
 Fixed-point convention: potentials/thresholds/weights run at `UNIT=1000` scale.
 `threshold_l2 = 8*UNIT = 8000`.
@@ -84,7 +84,7 @@ config via `/api/config` (`apply_config` rebuilds; `CONFIG_SPEC` drives the
 
 New this branch: signed depression, 2× budget, `(w/w_cap)²`, event_driven &
 lasting_inhibition flags, live config panel, auto-cycle. Removed: dead
-`trace_mode`/`confidence_beta`/`confidence_gamma` params and `benchmark_trace_modes.py`.
+confidence-beta/gamma params and `benchmark_trace_modes.py`.
 
 ---
 
@@ -180,8 +180,7 @@ distinct + dead across ≥3 seeds. Do NOT optimize the artifact metric.
 
 - `backend/simulation.py` — engine, competition, all defaults & flags, auto-cycle,
   `apply_config`, module constants (`L2_GATE_WMAX`, `L2E_BUDGET_MULT`, etc.).
-- `neuron_flexible.py` — **the live neuron class** (learning rules). Edit here.
-- `neuron.py` — parallel copy, keep in sync.
+- `neuron_flexible.py` — the single neuron class and fixed-point constants.
 - `backend/api.py` — REST/ws, `CONFIG_SPEC`, `/api/config`, `/api/autocycle`.
 - `frontend/{index.html,controls.js,style.css}` — dashboard + Model Config +
   auto-cycle panels.

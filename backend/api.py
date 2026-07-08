@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .simulation import SimulationEngine
-from neuron import UNIT   # fixed-point scale (potentials/thresholds run at * UNIT)
+from neuron_flexible import UNIT   # fixed-point scale (potentials/thresholds run at * UNIT)
 from .serializer import topology_message, full_state
 from .websocket import ConnectionManager, SimulationRunner
 
@@ -185,6 +185,23 @@ CONFIG_SPEC = [
      "desc": "Fire an L2E the instant it crosses threshold (every step) instead of "
              "one argmax winner per cycle. Bounds the membrane near threshold (no "
              "charge pile-up) but re-couples winner timing to input rate."},
+    {"key": "subtractive_reset", "label": "Reset by subtraction", "kind": "toggle",
+     "desc": "On L2E fire, subtract threshold from the membrane (floored at rest) "
+             "instead of a full reset to rest. Leaves the winner its residual "
+             "overshoot like partially-inhibited losers keep theirs — attacks the "
+             "discharge asymmetry behind the sustained round-robin. (Inert at "
+             "refractory>0; hurts ownership at refractory=0. Leave off.)"},
+    {"key": "refractory", "label": "Refractory period", "kind": "range",
+     "min": 0, "max": 3, "step": 1,
+     "desc": "Steps a neuron is locked out (membrane clamped to rest) after firing. "
+             "0 = no lockout: inhibition alone regulates frequency. Ownership is "
+             "identical at 0 vs 2 under the visit-consistency metric."},
+    {"key": "v_sat_frac", "label": "L2E membrane saturation (×thr)", "kind": "range",
+     "min": 0.0, "max": 3.0, "step": 0.25,
+     "desc": "Ceiling on accumulated L2E charge as a multiple of threshold "
+             "(0 = unbounded). Keeps the membrane near threshold so the small "
+             "capped inhibitory gate can actually regulate firing. Local finite "
+             "driving force / reversal potential."},
     {"key": "l2e_budget", "label": "L2E weight budget", "kind": "toggle",
      "desc": "Sum-renormalization competition on each L2E's feedforward weights. "
              "Required for clean 8/8 tiling — turning it off collapses competition "

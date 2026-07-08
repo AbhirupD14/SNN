@@ -30,7 +30,7 @@ Every inhibitory event prints the REQUIRED debug outputs:
 """
 
 import numpy as np
-from neuron import Neuron
+from neuron_flexible import Neuron
 from cortical_column_flexible import CorticalColumn
 
 

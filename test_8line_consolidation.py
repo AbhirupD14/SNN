@@ -1,6 +1,6 @@
 """
-End-to-end test of the trace-gated, sign-preserving Hebbian rule on the
-8-line pattern task, using per-source feedforward fan-in.
+End-to-end characterization of local charge-based learning on the 8-line pattern
+task, using per-source feedforward fan-in.
 
 3x3 grid -> 8 line patterns (3 rows, 3 cols, 2 diagonals).
 L1: InputLayer of 9 E/I pairs (one excitatory neuron per pixel).
@@ -8,13 +8,12 @@ L2: CorticalColumn of 8 E neurons sharing 1 I neuron, each E neuron having ONE
     feedforward synapse per L1 pixel (9 of them) plus a local-inhibition synapse.
 
 This is the test the old demos could not be: because each L2 neuron now owns a
-per-pixel receptive field, the eligibility trace can actually shape it. We check
-two things:
+per-pixel receptive field, the local spike-triggered rule can actually shape it.
+We check two things:
 
   A. Receptive-field formation -- after training on a single pattern, the winning
      L2 neuron's feedforward weights on that pattern's ACTIVE pixels grow clearly
-     above its weights on the silent pixels. (Direct consequence of trace gating;
-     this is the hard assertion.)
+     above its weights on the silent pixels. This is the hard assertion.
   B. Characterization of the current limit -- after interleaved training on all
      8 patterns, we report how many distinct L2 neurons win. With no counter-force
      yet (deliberately deferred), the first neuron to win grows its weights
@@ -155,7 +154,7 @@ def test_receptive_field_forms():
     assert a_mean > s_mean + 0.2, f"active pixels not preferentially strengthened ({a_mean:.3f} vs {s_mean:.3f})"
     assert np.all(W[winner, active] >= W0[winner, active] - 1e-9), "active pixels should not shrink"
     assert np.allclose(W[winner, silent], W0[winner, silent], atol=1e-6), "silent pixels must be untouched"
-    print("  PASS: trace credited only the active pixels of the winner\n")
+    print("  PASS: learning credited only the active pixels of the winner\n")
 
 
 def test_differentiation():

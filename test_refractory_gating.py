@@ -8,27 +8,27 @@ while refractory: return [] (no events), leave the potential untouched, and leav
 the negative gate weight untouched. This preserves the principle that inhibitory
 plasticity fires only when inhibition actually reduces charge in an active target.
 
-Covers: base Neuron, flexible Neuron (identical behavior), and the in-engine
-L2I->L2E gate. Each also has an ACTIVE control showing the gate DOES update when
-the target is not refractory, so the no-op assertions can't pass vacuously.
+Covers: fixed-fan-in construction, dynamic fan-in construction, and the
+in-engine L2I->L2E gate. Each also has an ACTIVE control showing the gate DOES
+update when the target is not refractory, so the no-op assertions can't pass
+vacuously.
 
 Run:
     PYTHONPATH=. .venv/bin/python test_refractory_gating.py
 """
 import numpy as np
-from neuron import Neuron as BaseNeuron
-from neuron_flexible import Neuron as FlexNeuron
+from neuron_flexible import Neuron
 from backend.simulation import SimulationEngine, L2E_FANIN
 
 
-def _make_base():
-    n = BaseNeuron(n_inputs=2, threshold=1.0, inhibitory_learning_rate=0.1)
+def _make_fixed():
+    n = Neuron(n_inputs=2, threshold=1.0, inhibitory_learning_rate=0.1)
     n.weights = np.array([-0.5, 0.8])   # index 0 = inhibitory gate (negative)
     return n, "weights"
 
 
-def _make_flex():
-    n = FlexNeuron(threshold=1.0, inhibitory_learning_rate=0.1)
+def _make_dynamic():
+    n = Neuron(threshold=1.0, inhibitory_learning_rate=0.1)
     n.add_input_connection(-0.5)
     n.add_input_connection(0.8)
     n.finalize_connections()
@@ -62,12 +62,12 @@ def _active_updates(make, label):
     print(f"  PASS {label}: active apply_inhibition updates the gate (control)")
 
 
-def test_base_and_flexible_refractory_gating():
-    print("=== unit: base + flexible neuron refractory gating ===")
-    _refractory_noop(_make_base, "base")
-    _refractory_noop(_make_flex, "flexible")
-    _active_updates(_make_base, "base")
-    _active_updates(_make_flex, "flexible")
+def test_fixed_and_dynamic_refractory_gating():
+    print("=== unit: fixed + dynamic neuron refractory gating ===")
+    _refractory_noop(_make_fixed, "fixed")
+    _refractory_noop(_make_dynamic, "dynamic")
+    _active_updates(_make_fixed, "fixed")
+    _active_updates(_make_dynamic, "dynamic")
 
 
 def test_in_engine_gate_refractory():
@@ -98,6 +98,6 @@ def test_in_engine_gate_refractory():
 
 
 if __name__ == "__main__":
-    test_base_and_flexible_refractory_gating()
+    test_fixed_and_dynamic_refractory_gating()
     test_in_engine_gate_refractory()
     print("ALL REFRACTORY-GATING TESTS PASSED")

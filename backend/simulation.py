@@ -88,7 +88,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
-from neuron import UNIT, LEAK_SCALE                  # noqa: E402  fixed-point convention
+from neuron_flexible import UNIT, LEAK_SCALE         # noqa: E402  fixed-point convention
 
 
 PATTERNS = {
@@ -138,7 +138,7 @@ EPISODE_MAX_LEN = 12   # Condition B: hard cap on episode length in steps (spec:
 # broadest participation with the most per-pattern differentiation; crucially
 # L2_GATE_WMAX < thr_l2 so a saturated gate can't fully reset the membrane.
 #
-# FIXED-POINT SCALE (see the neuron.py module header): the model runs at the
+# FIXED-POINT SCALE (see neuron_flexible.py): the model runs at the
 # UNIT-scaled fixed-point scale, so thresholds are the integers 1000 / 8000 and
 # all charge-like magnitudes are scaled by UNIT. Scaling rules by role:
 #   - LINEAR magnitudes (gate init, potentials, weights, clips) scale by UNIT.
@@ -230,7 +230,7 @@ L1_EI_WEIGHT_INIT_HIGH_FRAC = 1 / 2  # high end -- both as a fraction of thr_l1.
                                       # per-neuron cap assignment below), not this.
 L1I_LEAK_RATE = 70 / LEAK_SCALE      # L1I's own membrane/trace leak (>> leak_l1); 70/1000 == 0.07
 
-# Learning rate for the charge-based excitatory rule (neuron.Neuron._update_weights),
+# Learning rate for the charge-based excitatory rule (Neuron._update_weights),
 # used by every positive-weight population: L1I's incoming weights, L2I's
 # incoming weights, and L2E's feedforward weights. Expressed as a FRACTION of
 # each neuron's OWN weight_cap (learning_rate = ETA_FRAC * weight_cap), not a
@@ -251,7 +251,7 @@ L1I_LEAK_RATE = 70 / LEAK_SCALE      # L1I's own membrane/trace leak (>> leak_l1
 ETA_FRAC = 0.01
 
 # Floor for L2E's feedforward (positive) weights after budget renormalization
-# (see min_positive_weight in neuron.Neuron._apply_budget_and_cap). An order
+# (see min_positive_weight in Neuron._apply_budget_and_cap). An order
 # of magnitude below the feedforward init range (ff_weights ~ uniform[0.05,
 # 0.20] below) so a pattern the neuron hasn't seen in a while still delivers
 # some nonzero charge instead of literally none.
@@ -267,7 +267,7 @@ L2E_BUDGET_MULT = 2
 
 class SimulationEngine:
     def __init__(self, seed: int = 1,
-                 # Fixed-point scale (see the neuron.py module header): the model
+                 # Fixed-point scale (see neuron_flexible.py): the model
                  # runs at the UNIT-scaled scale, so thresholds are INTEGERS and
                  # every charge-like magnitude (potentials, weights, gate, clips)
                  # is scaled by UNIT. Leak rates stay dimensionless ratios stored
@@ -299,7 +299,7 @@ class SimulationEngine:
                  ei_sat_mult: float = 1,          # unit multiplier (1 == unchanged)
                  l1i_ei_init_frac: float | None = None,
                  # Confidence-gated consolidation (see Claude_Confidence_Consolidation_Plan.md
-                 # and neuron.Neuron). Enabled on L2E by default: a local, label-free
+                 # and neuron_flexible.Neuron). Enabled on L2E by default: a local, label-free
                  # consolidation rule that protects mature specialists, depresses
                  # losing near-winners, and keeps stale neurons reusable. All the
                  # numeric knobs below are DIMENSIONLESS (scale-invariant) except
@@ -343,7 +343,31 @@ class SimulationEngine:
                  # fire field increment as a fraction of threshold_l2.
                  lasting_inhibition: bool = False,
                  inh_decay: float = 0.15,
-                 inh_boost_frac: float = 1.0):
+                 inh_boost_frac: float = 1.0,
+                 # Reset-by-subtraction on L2E fire: on spike, potential -= threshold
+                 # (floored at rest) instead of a full reset to rest. Standard LIF;
+                 # leaves the winner its residual overshoot like partially-inhibited
+                 # losers keep theirs, directly attacking the discharge asymmetry
+                 # that drives the round-robin (see AGENT_HANDOFF.md sec 5-6). L2E
+                 # only; default off so the baseline is untouched.
+                 subtractive_reset: bool = False,
+                 # Membrane saturation ceiling for L2E, as a multiple of thr_l2
+                 # (None = unbounded, the baseline). Bounds accumulated charge so
+                 # the membrane can't ratchet to ~2-3x threshold between cycles;
+                 # this keeps the (small, capped) L2I->L2E gate in a range where
+                 # it can actually regulate firing frequency -- inhibition, not a
+                 # pile-up, sets who fires. Local finite driving force; L2E only.
+                 v_sat_frac: float | None = None,
+                 # Learnable L2I->L2E gate equilibrium, as a fraction of thr_l2
+                 # (None = module default, ~0.15*thr). The gate grows by the
+                 # inhibitory rule and settles at sqrt(w_max); this sets that
+                 # target. Raising it toward/above 1.0 lets a fired owner's L2I
+                 # discharge FLOOR its rivals to rest (they lose all their charge
+                 # and cannot fire) -- the inhibitory winner-take-all lockout that
+                 # makes ongoing plasticity safe (only the owner fires, so only
+                 # the owner learns). Pair with v_sat so a rival's bounded charge
+                 # is within reach of the gate. L2E only.
+                 l2_gate_eq_frac: float | None = None):
         # Decouple the SENSORY input rate from the INTRINSIC competition clock.
         # input_period: steps between external input bursts (how fast the world
         #   throws spikes at the network -- "nature" is slow, a "rave" is fast).
@@ -389,7 +413,10 @@ class SimulationEngine:
                            signed_depression=signed_depression, eta_off=eta_off,
                            l2e_budget=l2e_budget, event_driven=event_driven,
                            lasting_inhibition=lasting_inhibition, inh_decay=inh_decay,
-                           inh_boost_frac=inh_boost_frac)
+                           inh_boost_frac=inh_boost_frac,
+                           subtractive_reset=subtractive_reset,
+                           v_sat_frac=v_sat_frac,
+                           l2_gate_eq_frac=l2_gate_eq_frac)
         self._build()
 
     # ------------------------------------------------------------------ build
@@ -516,9 +543,15 @@ class SimulationEngine:
                 n.min_positive_weight = L2E_MIN_WEIGHT_FLOOR
                 # Adaptive lateral-inhibition gate: dedicated (lower) saturation
                 # ceiling and its own learning rate, independent of feedforward.
-                n.inhibitory_weight_cap = L2_GATE_WMAX
+                # l2_gate_eq_frac (opt-in) retargets the gate equilibrium to
+                # frac*thr_l2 (w_max = equilibrium**2, since equilibrium=sqrt(w_max));
+                # raising it lets the discharge floor rivals for a WTA lockout.
+                if p['l2_gate_eq_frac']:
+                    n.inhibitory_weight_cap = (p['l2_gate_eq_frac'] * thr_l2) ** 2
+                else:
+                    n.inhibitory_weight_cap = L2_GATE_WMAX
                 n.inhibitory_learning_rate = p['l2_gate_eta']   # Phase 1: gate plasticity eta
-                # Charge-based excitatory rule (see neuron.Neuron._update_weights);
+                # Charge-based excitatory rule (see Neuron._update_weights);
                 # eta scaled to this neuron's own weight_cap -- see ETA_FRAC note.
                 # Phase 1: L2E feedforward learning uses its own l2e_lr_frac.
                 # (Both auto-scale: learning_rate = frac * weight_cap, and
@@ -534,7 +567,7 @@ class SimulationEngine:
                 n.excitatory_saturation_cap = n.weight_cap ** 2
                 # Homeostatic synaptic scaling: recruits silent units and tames
                 # over-active ones by regulating each neuron's own firing rate to a
-                # set-point (see neuron.Neuron._homeostatic_scaling). When on, this
+                # set-point (see Neuron._homeostatic_scaling). When on, this
                 # REPLACES the fixed weight budget as the resource regulator, so the
                 # total is set by activity, not a hard constant.
                 n.homeostasis = p['homeostasis']
@@ -544,7 +577,7 @@ class SimulationEngine:
                 n.homeo_down = p['homeo_down']
                 n.homeo_budget_min = 500   # 0.5 * UNIT, fixed-point weight resource
                 n.homeo_budget_max = 2 * thr_l2
-                # Confidence-gated consolidation (see neuron.Neuron and
+                # Confidence-gated consolidation (see neuron_flexible.Neuron and
                 # Claude_Confidence_Consolidation_Plan.md): local, label-free
                 # protection of mature specialists + loser depression, on L2E only.
                 # conf_cap is the effective reachable mature per-gate value: the 8
@@ -567,6 +600,12 @@ class SimulationEngine:
                 # budget) untouched; when on, OFF gates are also depressed on fire.
                 n.signed_depression = p['signed_depression']
                 n.eta_off = p['eta_off']
+                # Reset-by-subtraction on fire (L2E only; default off). Leaves the
+                # winner its residual overshoot instead of a full reset to rest.
+                n.subtractive_reset = p['subtractive_reset']
+                # Membrane saturation ceiling (L2E only; None = unbounded). Bounds
+                # accumulated charge near threshold so inhibition can regulate it.
+                n.v_sat = p['v_sat_frac'] * thr_l2 if p['v_sat_frac'] else None
             else:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
@@ -581,7 +620,7 @@ class SimulationEngine:
                     lr_frac = p['l2i_lr_frac'] if nid.startswith('L2') else p['l1i_lr_frac']
                     n.learning_rate = lr_frac * n.weight_cap
                     # Decouple the saturation ceiling from the hard clip (see
-                    # excitatory_saturation_cap in neuron.Neuron). The quadratic
+                    # excitatory_saturation_cap in Neuron). The quadratic
                     # rule dw = eta*p*(1 - w^2/w_max) has its natural equilibrium
                     # (dw=0) at w = sqrt(w_max). With w_max = weight_cap**2 the
                     # equilibrium lands EXACTLY on the clip -- so the weight only
@@ -695,7 +734,8 @@ class SimulationEngine:
     # is rejected so a stray key can't silently no-op or corrupt self.params.
     TUNABLE = ('signed_depression', 'eta_off', 'l2e_budget', 'l2e_lr_frac',
                'confidence_consolidation', 'loser_depression', 'eta_loss',
-               'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven', 'seed')
+               'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven',
+               'subtractive_reset', 'refractory', 'v_sat_frac', 'seed')
 
     def apply_config(self, overrides: dict):
         """Merge tunable overrides into self.params and rebuild the network in
@@ -708,9 +748,9 @@ class SimulationEngine:
             if k not in self.TUNABLE:
                 continue
             if k in ('signed_depression', 'confidence_consolidation', 'loser_depression',
-                     'l2e_budget', 'event_driven'):
+                     'l2e_budget', 'event_driven', 'subtractive_reset'):
                 v = bool(v)
-            elif k == 'seed':
+            elif k in ('seed', 'refractory'):
                 v = int(v)
             else:
                 v = float(v)
@@ -871,7 +911,12 @@ class SimulationEngine:
         # non-refractory L2E potential every step, so near-ties resolve and the
         # Hebbian rule can amplify a consistent first-mover per pattern. 0.0
         # (default) disables it and leaves dynamics deterministic.
-        sigma = self.params['membrane_noise']
+        # membrane_noise is DIMENSIONFUL (a potential magnitude), so it must scale
+        # with the fixed-point UNIT like every other charge-like quantity -- it is
+        # specified in small-float units (fraction of a unit threshold) and scaled
+        # here, so a given value keeps the same effect relative to threshold at any
+        # UNIT. (Pre-fixed-point it was added raw at the old scale of ~1-8.)
+        sigma = self.params['membrane_noise'] * UNIT
         if sigma > 0.0:
             for e in l2.excitatory_neurons:
                 if e.refractory_timer <= 0:
@@ -1147,10 +1192,10 @@ class SimulationEngine:
         """Per-synapse confidence for the L2E feedforward receptive fields, keyed by
         the same synapse ids as _all_weights (ff{i}->{j}). Confidence is the L2E
         neuron's trust that opening each EXCITATORY gate helps it fire (see
-        neuron.Neuron), so only the feedforward (positive) synapses are reported --
+        neuron_flexible.Neuron), so only the feedforward (positive) synapses are reported --
         the negative L2I->L2E gate has its own inhibitory plasticity and no
-        excitatory-trust value. In "activity" mode these are the untouched initial
-        values, so the field is always safe to serialize."""
+        excitatory-trust value. The field is always safe to serialize because
+        every neuron allocates a confidence vector during connection finalization."""
         c: dict[str, float] = {}
         for j in range(N_OUT):
             conf = self.l2.excitatory_neurons[j].confidence

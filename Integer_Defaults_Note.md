@@ -10,7 +10,7 @@ gate magnitudes simply ×1000).
 
 ## Fixed-point scale
 
-Defined once in `neuron.py`, imported everywhere:
+Defined once in `neuron_flexible.py`, imported everywhere:
 
 ```python
 UNIT = 1000          # charge scale: 1 old unit == UNIT fixed-point units

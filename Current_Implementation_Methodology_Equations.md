@@ -60,7 +60,7 @@ volley_period       = 4
 input_period        = volley_period
 cycle_period        = volley_period
 membrane_noise      = 0.0
-homeostasis         = True
+homeostasis         = False
 ca_rate             = 0.01
 ca_target           = 0.012
 homeo_up            = 0.01
@@ -73,6 +73,16 @@ l2i_threshold_frac  = 1.0
 l1i_threshold_frac  = 1.0
 ei_sat_mult         = 1.0
 l1i_ei_init_frac    = None
+confidence_consolidation = True
+loser_depression        = True
+conf_cap_frac           = 1/3
+eta_min                 = 0.05
+eta_loss                = 0.01
+signed_depression       = True
+eta_off                 = 0.20
+l2e_budget              = True
+event_driven            = False
+lasting_inhibition      = False
 ```
 
 Module constants:
@@ -97,7 +107,7 @@ The dashboard API overrides the engine for visualization:
 homeostasis        = False
 l2e_lr_frac        = 0.02
 ei_sat_mult        = 4.0
-l1i_ei_init_frac   = 1.0
+l1i_ei_init_frac   = None
 ```
 
 ## State Variables
@@ -220,7 +230,7 @@ Then the shared budget/cap tail runs.
 For L2E feedforward weights, the fixed positive-weight budget is normally:
 
 $$
-\sum_i \max(w_i, 0) = \theta_{\mathrm{L2}}
+\sum_i \max(w_i, 0) = 2\theta_{\mathrm{L2}}
 $$
 
 unless homeostasis is enabled, in which case the target resource is the
