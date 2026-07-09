@@ -89,6 +89,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
 from neuron_flexible import UNIT, LEAK_SCALE         # noqa: E402  fixed-point convention
+from weight_init import init_feedforward             # noqa: E402  pluggable ff init schemes
 
 
 PATTERNS = {
@@ -396,7 +397,16 @@ class SimulationEngine:
                  # L2E_MIN_WEIGHT_FLOOR, E->I unfloored); the minimal experiment
                  # sets 1. Negative inhibitory gates are never floored here -- they
                  # are bounded by magnitude in apply_inhibition.
-                 pos_weight_floor: int | None = None):
+                 pos_weight_floor: int | None = None,
+                 # L2E feedforward weight initialization scheme (see weight_init.py
+                 # and Input_Vector_Initialization_And_Distance_Weighting.md). Default
+                 # 'uniform' reproduces the legacy rng.uniform(50,200) init exactly.
+                 # Other schemes (uniform_normalized, sparse, sparse_normalized,
+                 # diversity, orthogonal, low_discrepancy) reduce duplicate initial
+                 # receptive fields / seed dependence WITHOUT assigning labels.
+                 # ff_init_kw passes scheme params (e.g. max_similarity, k).
+                 ff_init: str = 'uniform',
+                 ff_init_kw: dict | None = None):
         # Decouple the SENSORY input rate from the INTRINSIC competition clock.
         # input_period: steps between external input bursts (how fast the world
         #   throws spikes at the network -- "nature" is slow, a "rave" is fast).
@@ -448,7 +458,8 @@ class SimulationEngine:
                            l2_gate_eq_frac=l2_gate_eq_frac,
                            signed_spike_learning=signed_spike_learning,
                            l2e_weight_cap_frac=l2e_weight_cap_frac,
-                           pos_weight_floor=pos_weight_floor)
+                           pos_weight_floor=pos_weight_floor,
+                           ff_init=ff_init, ff_init_kw=dict(ff_init_kw or {}))
         self._build()
 
     # ------------------------------------------------------------------ build
@@ -527,10 +538,13 @@ class SimulationEngine:
         self.l2.set_lateral_excitation_weights(
             rng.uniform(L2_EI_WEIGHT_INIT_LOW_FRAC * thr_l2i,
                         L2_EI_WEIGHT_INIT_HIGH_FRAC * thr_l2i, size=N_OUT))
-        # Small random feedforward weights: neurons must accumulate across many
+        # Small positive feedforward weights: neurons must accumulate across many
         # volleys initially (LIF phase), then specialise toward single-volley
-        # firing (pattern integrator phase).
-        ff_weights = rng.uniform(50, 200, size=(N_OUT, N_PIX))   # 0.05..0.20 * UNIT (linear weights)
+        # firing (pattern integrator phase). The initialization SCHEME is pluggable
+        # (weight_init.py); 'uniform' reproduces the legacy rng.uniform(50,200)
+        # exactly, other schemes reduce duplicate initial RFs / seed dependence.
+        ff_weights = init_feedforward(rng, N_OUT, N_PIX,
+                                      scheme=p['ff_init'], **p['ff_init_kw'])
         self.l2.set_feedforward_weights(ff_weights)
         self.l2.inhibitory_neuron.refractory_period = 0
         self.l2.inhibitory_neuron.threshold = thr_l2i   # Phase 2: L2I's own threshold
