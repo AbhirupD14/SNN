@@ -1,5 +1,11 @@
 # Symbol Consolidation — Implementation Plan
 
+> Superseded for current work: do not pursue `membrane_noise` as the symmetry
+> breaker. The active plan is deterministic distance-weighted signal attenuation
+> with uniform feedforward initialization and `membrane_noise=0.0`; see
+> `Input_Vector_Initialization_And_Distance_Weighting.md` and `AGENT_HANDOFF.md`.
+> The historical noise results below are preserved only as implementation record.
+
 **Audience:** an implementing coding model (Nemotron Super). This plan is written to
 be executed literally and in order. Do exactly what each step says. Do not
 improvise, do not refactor unrelated code, and do not "improve" things that are

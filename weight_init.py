@@ -86,8 +86,8 @@ def sparse_normalized(rng, n_out, n_pix, k=3, floor=SPARSE_FLOOR):
 
 
 def diversity(rng, n_out, n_pix, max_similarity=0.8, max_tries=200):
-    """Random-normalized with diversity rejection (the plan's strongest near-term
-    candidate). For each neuron, resample a normalized positive vector until its
+    """Random-normalized with diversity rejection (archived init ablation). For
+    each neuron, resample a normalized positive vector until its
     cosine similarity to every already-accepted vector is <= max_similarity; if no
     sample clears the bar within max_tries, keep the least-similar one seen.
     Label-free: it reduces duplicate receptive fields without assigning ownership."""

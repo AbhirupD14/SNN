@@ -59,8 +59,11 @@ but inert). The pre-2026-07-08 budget/charge regime below can be reconstructed
 with `signed_spike_learning=False, l2e_budget=True`. Honest metric under the new
 default (via `ablation_harness.py`, 3 seeds): sustained dominance ≈0.55, distinct
 ≈4/8 with high seed variance (±0.8), no stable ownership — the budget was masking
-seed dependence; vector-aware init is now the lever being explored (see the
-init/distance ablation work and `Input_Vector_Initialization_And_Distance_Weighting.md`).
+seed dependence. The vector-init ablation is now de-scoped as the next lever:
+do **not** adopt sparse init as the standing default, and do **not** use
+`membrane_noise` as the symmetry breaker. The next planned lever is deterministic
+distance-weighted signal attenuation (see
+`Input_Vector_Initialization_And_Distance_Weighting.md`).
 
 Defaults in `SimulationEngine.__init__` (backend/simulation.py):
 
@@ -75,6 +78,7 @@ Defaults in `SimulationEngine.__init__` (backend/simulation.py):
 | `event_driven` | **False** | experimental; broke tiling — leave off |
 | `lasting_inhibition` | **False** | experimental scalar field; FAILED — leave off |
 | `homeostasis` | False | Turrigiano scaling; off by default |
+| `membrane_noise` | **0.0** | keep off for distance experiments; no random charge injection |
 | `refractory` | 2 | irrelevant to the round-robin (see §5) |
 
 Key mechanisms & locations:
@@ -159,20 +163,31 @@ was explicitly REJECTED as non-local. No cross-neuron rival lookup.
 
 ## 6. Next candidate experiments (ranked, all local)
 
-1. **Reset-by-subtraction in `fire()`** — `potential -= threshold` instead of
+1. **Distance-weighted signal attenuation** — keep uniform feedforward
+   initialization and `membrane_noise=0.0`, then deliver each synaptic event as
+   `w / d²` using deterministic functional positions. L2E positions should be a
+   compact lateral layer with small seed-deterministic jitter so L1E→L2E
+   distances vary without becoming random spatial slop. First test feedforward
+   L1E→L2E only; then test the competition-critical scope where L2I→L2E
+   inhibitory discharge is also attenuated by distance. Learning updates stored
+   weights normally in the first pass; distance changes delivered charge, not
+   the weight update equation.
+2. **Reset-by-subtraction in `fire()`** — `potential -= threshold` instead of
    `→ rest`. Standard LIF; leaves the winner its residual overshoot like the
    losers keep theirs, directly attacking the discharge asymmetry (a). Fully
-   local. Build behind a flag, measure sustained dominance. **Top pick.**
-2. **Unclamp `p`** in the gate rule — let `p = v_pre/theta` exceed 1 so the gate
+   local. Build behind a flag, measure sustained dominance.
+3. **Unclamp `p`** in the gate rule — let `p = v_pre/theta` exceed 1 so the gate
    grows MORE onto the worst overshooters (differentiates habitual runners-up).
    Local; does not raise the hard cap. Measure whether it differentiates gates
    without collapse.
-3. **Bound loser accumulation** so the membrane can't ratchet to 2× threshold
+4. **Bound loser accumulation** so the membrane can't ratchet to 2× threshold
    (makes the fixed-cap gate proportionally meaningful). Careful not to recreate
    the leak cliff.
 
 Always A/B behind a flag (default off), measure with SUSTAINED dominance +
-distinct + dead across ≥3 seeds. Do NOT optimize the artifact metric.
+distinct + dead across ≥3 seeds. For distance experiments also report attenuation
+matrix min/mean/max, firers per held pattern, L2I spike/discharge counts, and
+row/column/diagonal breakdown. Do NOT optimize the artifact metric.
 
 ---
 

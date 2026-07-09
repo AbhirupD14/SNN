@@ -6,6 +6,51 @@ This note captures options for managing afferent weight initialization and a pro
 
 The goal is not to externally assign labels or winners. The goal is to reduce unlucky seed dependence, improve finite-time consolidation, and keep the mechanism compatible with local/hardware-mappable computation.
 
+## Current Direction Update
+
+The vector-aware weight-initialization path is now de-scoped as the next lever.
+Keep the empirical results below as evidence, but do not adopt
+`sparse_normalized` as the standing default and do not continue optimizing
+`ff_init` schemes for this phase.
+
+Also do not use per-step membrane noise as the symmetry breaker for this phase:
+`membrane_noise=0.0` should stay fixed in the distance experiments. The next
+experiment should ask whether deterministic geometry and per-synapse distance
+attenuation can change competition without adding random charge to the membrane.
+
+The active plan is:
+
+```text
+baseline:
+  ff_init = uniform
+  membrane_noise = 0.0
+  distance_weighting = off
+
+distance ablation:
+  ff_init = uniform
+  membrane_noise = 0.0
+  distance_weighting = on
+  stored weights update normally
+```
+
+Distance should be tested as a local signal-dissipation factor:
+
+```text
+effective_weight_ji = w_ji / d_ji^2
+charge_j += signal_i * effective_weight_ji
+```
+
+For inhibitory synapses, the same rule means the delivered discharge is
+attenuated by distance:
+
+```text
+effective_inhibition_ji = |w_ji| / d_ji^2
+V_j = max(V_j - effective_inhibition_ji, rest)
+```
+
+The stored synaptic weight remains the learned state. Distance changes what is
+delivered through the synapse, not the initial stored weight distribution.
+
 ## Framing
 
 Each neuron's afferent weights can be viewed as a vector:
@@ -102,7 +147,8 @@ Cons:
 - adds an initialization-time global check
 - must choose a similarity threshold
 
-This is the strongest near-term candidate.
+This was the original strongest near-term candidate, but the empirical ablation
+below showed it was inert in this positive-only 9-D setting.
 
 ### 4. Sparse Random
 
@@ -208,7 +254,7 @@ Cons:
 
 - still needs sufficient initial diversity and threshold reachability
 
-## Recommended Initialization Ablations
+## Archived Initialization Ablations
 
 The experimental suite should compare:
 
@@ -239,6 +285,12 @@ The key question:
 ```text
 Which initialization reduces seed dependence and improves finite-time consolidation without smuggling in labels?
 ```
+
+These ablations have been run and are no longer the active direction. See
+`Empirical Results -- Initialization Ablation` below. The useful finding was
+that sparse normalized init improved tiling but did not produce stable
+ownership. The next phase returns to plain uniform initialization so distance is
+isolated cleanly.
 
 ## Distance-Weighted Input Rule
 
@@ -294,16 +346,15 @@ For a 2D input grid:
 d_ji = distance(input_pixel_position_i, neuron_position_j)
 ```
 
-Use a minimum distance floor to avoid division by zero:
+For the next experiment, do not use an artificial `max(d, d_min)` floor. Instead
+make the functional geometry guarantee nonzero distance. L1E neurons remain on
+the 3x3 input layer; L2E neurons live on a separate lateral layer/plane and get
+small deterministic jitter so their distances to the L1E pixels are varied but
+not chaotic.
 
 ```text
-d_eff = max(d_ji, d_min)
-```
-
-Then:
-
-```text
-attenuation = 1 / d_eff^2
+d_ji^2 = (x_j - x_i)^2 + (y_j - y_i)^2 + (z_j - z_i)^2
+attenuation = 1 / d_ji^2
 ```
 
 Possible distance metrics:
@@ -313,7 +364,30 @@ Possible distance metrics:
 - Chebyshev distance
 - graph distance over local connectivity
 
-Euclidean or Manhattan are the simplest first candidates.
+Euclidean is the first candidate because it directly matches the physical
+dissipation story. Manhattan can be tested later if Euclidean helps.
+
+### L2E Functional Placement
+
+Do not use a perfectly symmetric L2 grid where every L2E has nearly the same
+distance profile to L1E. Also do not scatter the L2E pool across a wide random
+area. Use a compact lateral layer with controlled jitter:
+
+```text
+L1E functional positions:
+  fixed 3x3 grid
+
+L2E functional positions:
+  same general lateral layer
+  compact centered scaffold or ring
+  fixed z gap from L1E
+  seed-deterministic xy jitter
+  bounded xy spread
+```
+
+The purpose of the jitter is only to make the L1E-to-L2E distance profiles
+different enough for competition to see geometry. It is not a noise source during
+spiking and it should not encode the eight target patterns.
 
 ## Locality Implications
 
@@ -352,6 +426,12 @@ w_cap / d^2
 ```
 
 This may make far afferents too weak to matter and nearby afferents dominate.
+
+Because this phase uses direct `1 / d^2` rather than a runtime distance floor,
+the functional coordinate system is part of the experiment. Choose the L1/L2
+spacing and L2 jitter so the attenuation matrix is not pathological. The
+nearest useful synapses should have `d^2` on the order of `1`, and the run should
+print attenuation min/mean/max before interpreting any ownership result.
 
 The implementation needs to decide whether caps apply to:
 
@@ -422,7 +502,8 @@ Cons:
 - far synapses may never learn enough
 - can make receptive fields too local
 
-For a first ablation, use Option 1. Then test Option 2 separately.
+For the first ablation, use Option 1. Then test Option 2 separately only if
+charge-only attenuation produces useful competition changes.
 
 ## Potential Benefits
 
@@ -480,33 +561,58 @@ Metrics:
 - pairwise RF similarity
 - dependence on seed
 
-## Recommended First Experiment
+## Recommended First Distance Experiment
 
 Start with:
 
 ```text
-initialization = random_normalized_with_diversity_rejection
+initialization = uniform
+membrane_noise = 0.0
 distance_weighting = off
 ```
 
 Then compare against:
 
 ```text
-initialization = random_normalized_with_diversity_rejection
+initialization = uniform
+membrane_noise = 0.0
 distance_weighting = euclidean_inverse_square
 distance_affects_learning = false
 weight_cap_mode = stored_weight_cap
 ```
 
-This isolates whether distance-weighted input helps or hurts without changing too many variables at once.
+Run the comparison in scopes:
+
+```text
+1. L1E -> L2E feedforward only
+2. L1E -> L2E feedforward + L2I -> L2E inhibition
+3. all E/I synapses that have defined functional positions
+```
+
+Scope 2 is the competition-critical condition: it tests whether distance-scaled
+inhibitory discharge changes the round-robin rather than only changing
+feedforward affinity.
+
+Measure:
+
+- sustained dominance
+- distinct modal owners / 8
+- dead L2E
+- firers per sustained hold
+- L2I spike rate and L2I->L2E discharge event count
+- peak L2E membrane charge relative to threshold
+- row, column, and diagonal results separately
+- attenuation matrix min/mean/max so scale mistakes are visible
 
 ## Bottom Line
 
-Vector-aware initialization is the safer immediate direction for reducing seed dependence.
+Weight initialization is no longer the active plan. The next plan is to test
+distance-weighted signal dissipation as a deterministic local factor in
+feedforward drive and then in L2 competition.
 
-Distance-weighted summation is promising for locality and hardware scaling, but it changes the effective input geometry and may hurt extended patterns if applied too strongly.
-
-Treat distance weighting as an ablation, not as an assumed improvement.
+Distance weighting remains an ablation, not an assumed improvement. It may help
+competition by giving different L2E neurons genuinely different geometric
+affinities, but it may also fragment the extended row/column/diagonal patterns.
 
 ## Empirical Results — Initialization Ablation (2026-07-08)
 
@@ -556,8 +662,8 @@ and improves finite-time consolidation without smuggling in labels?"):
   orthogonal to initialization. Init is a variance/tiling lever, not the fix for
   one-to-one holding.
 
-Recommendation: adopt `ff_init='sparse_normalized'` (k=3) as the init for
-subsequent experiments, but pursue the round-robin separately. Distance weighting
-remains untested (next ablation); given that the task patterns are spatially
-extended lines, expect it to help locality metrics at the risk of fragmenting
-extended-line ownership — measure with the same harness before adopting.
+Superseded recommendation: do not adopt `ff_init='sparse_normalized'` as the
+standing default for the next phase. Use uniform initialization and
+`membrane_noise=0.0`, then measure distance weighting directly. Given that the
+task patterns are spatially extended lines, expect distance to help locality at
+the risk of fragmenting extended-line ownership; measure before adopting.

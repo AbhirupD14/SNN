@@ -202,7 +202,12 @@ there is **no recruitment** force, so lateral inhibition starves losing units
 
 ## Next Experiment
 
-The most targeted next experiment is reset-by-subtraction behind a flag:
-`potential -= threshold` on `fire()` instead of resetting the winner to rest.
-That directly attacks the measured discharge asymmetry where the winner is fully
-reset but inhibited losers keep most of their accumulated charge.
+The next targeted experiment is deterministic distance-weighted signal
+attenuation. Keep uniform feedforward initialization and `membrane_noise=0.0`,
+place L2E functional positions on a compact jittered lateral layer, and deliver
+synaptic events as `w / d^2`.
+
+Measure it first on L1E→L2E feedforward drive, then on the competition-critical
+case where L2I→L2E inhibitory discharge is also distance-attenuated. The question
+is whether local geometry changes competition and tiling without adding random
+membrane noise or relying on special weight initialization.

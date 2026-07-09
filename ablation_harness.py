@@ -14,9 +14,9 @@ receptive-field similarity metrics.
 
 This module factors the honest protocol into a reusable function `evaluate()`
 that takes ANY SimulationEngine configuration (a dict of constructor kwargs),
-runs it across several seeds, and reports the exact metrics the input-init /
-distance-weighting ablation tables call for
-(Input_Vector_Initialization_And_Distance_Weighting.md):
+runs it across several seeds, and reports the metrics used by the archived
+input-init ablation and the next distance-weighting ablation
+(`Input_Vector_Initialization_And_Distance_Weighting.md`):
 
     - time-to-stable ownership (epochs until per-pattern modal winner stops moving)
     - sustained dominance (fraction of held cycles the modal specialist wins)
@@ -25,12 +25,10 @@ distance-weighting ablation tables call for
     - initial and final pairwise receptive-field cosine similarity
     - SEED VARIANCE (std across seeds) on every scalar above
 
-The RF-cosine metrics are the whole point of vector-aware initialization:
-diversity-rejection init is DESIGNED to lower the initial pairwise RF cosine,
-and the honest question is whether that survives to the final RFs and buys any
-sustained-dominance / distinctness / seed-variance improvement. This harness is
-the instrument that answers it -- build the ablation behind a flag, then compare
-conditions here.
+The vector-aware initialization ablation is now archived; RF-cosine metrics stay
+useful for showing whether distance-weighted geometry changes final receptive
+field overlap. Build distance behind flags, keep `membrane_noise=0.0`, and
+compare conditions here.
 
     PYTHONPATH=. .venv/bin/python ablation_harness.py                 # baseline demo
     PYTHONPATH=. .venv/bin/python ablation_harness.py --seeds 1 2 3   # pick seeds
@@ -51,7 +49,7 @@ TRAIN_EPOCHS = 60      # interleaved training sweeps over all 8 patterns
 HOLD_CYCLES = 40       # cycles a pattern is held during sustained measurement
 SEEDS = (1, 2, 3)      # >=3 seeds so seed variance is meaningful
 
-# CANONICAL BASELINE for the input-init / distance-weighting ablations: the
+# CANONICAL BASELINE for the distance-weighting ablation: the
 # minimal signed-spike rule with NO weight budget (neuron_flexible.py:495-503).
 # On fire, every positive feedforward synapse updates with a local signed signal
 # -- +1 if its input participated, -1 if not -- and the -1 supplies the downward
@@ -61,10 +59,10 @@ SEEDS = (1, 2, 3)      # >=3 seeds so seed variance is meaningful
 # explicit here so the baseline is pinned even if the defaults move again). It is
 # the regime where seed dependence actually appears: the budget masks it by
 # forcing 8/8 distinct on every seed (variance ~0), whereas here distinctness
-# collapses to ~4/8 and swings by seed -- exactly the duplicate-receptive-field
-# failure vector-aware initialization is meant to fix. Measure init/distance
-# ablations as deltas ON TOP OF this condition, e.g.
-#   compare({'baseline': dict(BASELINE), 'diversity': {**BASELINE, 'ff_init': 'diversity'}})
+# collapses to ~4/8 and swings by seed. Measure distance ablations as deltas ON
+# TOP OF this condition while keeping membrane_noise=0.0 and uniform init, e.g.
+#   compare({'baseline': dict(BASELINE),
+#            'distance_ff': {**BASELINE, 'distance_weighting': True}}, ...)
 BASELINE = {'signed_spike_learning': True, 'l2e_budget': False}
 
 
@@ -252,10 +250,8 @@ def main():
     args = ap.parse_args()
 
     # Canonical baseline = signed-spike / no-budget (see BASELINE above), the
-    # regime the init/distance ablations are measured against. Future ablations
-    # plug in as extra entries layered on top, e.g.
-    #   compare({'baseline': dict(BASELINE),
-    #            'diversity_rejected': {**BASELINE, 'ff_init': 'diversity'}}, ...)
+    # regime distance ablations are measured against. Future ablations plug in as
+    # extra entries layered on top.
     compare({'baseline (signed-spike, no budget)': dict(BASELINE)},
             seeds=tuple(args.seeds), epochs=args.epochs, hold_cycles=args.hold)
 
