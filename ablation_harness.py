@@ -57,9 +57,9 @@ SEEDS = (1, 2, 3)      # >=3 seeds so seed variance is meaningful
 # -- +1 if its input participated, -1 if not -- and the -1 supplies the downward
 # pressure the budget used to impose; stored weights are otherwise free.
 #
-# This is DELIBERATELY not the committed SimulationEngine default (which is still
-# budget-on / signed-spike-off). It is chosen as the ablation baseline because it
-# is the regime where seed dependence actually appears: the budget masks it by
+# As of 2026-07-08 this MATCHES the committed SimulationEngine defaults (kept
+# explicit here so the baseline is pinned even if the defaults move again). It is
+# the regime where seed dependence actually appears: the budget masks it by
 # forcing 8/8 distinct on every seed (variance ~0), whereas here distinctness
 # collapses to ~4/8 and swings by seed -- exactly the duplicate-receptive-field
 # failure vector-aware initialization is meant to fix. Measure init/distance

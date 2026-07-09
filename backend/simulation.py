@@ -324,9 +324,13 @@ class SimulationEngine:
                  signed_depression: bool = True,
                  eta_off: float = 0.20,          # OFF-gate depression rate (dimensionless)
                  # L2E feedforward weight budget (sum-renormalization competition).
-                 # ON (default) is required for clean 8/8 tiling -- turning it off
-                 # collapses tiling and cannot be substituted by signed depression.
-                 l2e_budget: bool = True,
+                 # DEFAULT OFF: the project moved to the signed-spike rule below,
+                 # whose -1 signal on inactive inputs supplies the downward pressure
+                 # the budget used to impose (see signed_spike_learning). Under the
+                 # signed rule this flag is inert anyway (_update_weights returns
+                 # before _apply_budget_and_cap); it is kept as a knob so the older
+                 # budget/charge regime can still be reconstructed for comparison.
+                 l2e_budget: bool = False,
                  # Event-driven firing: resolve L2 competition EVERY step (fire the
                  # moment a neuron crosses threshold) instead of only at the cycle
                  # boundary. Bounds the membrane near threshold (no charge pile-up)
@@ -375,8 +379,12 @@ class SimulationEngine:
                  # and inactive inputs (-1) depress, dw = eta*p*(1-(w/w_cap)^2)*sig,
                  # bounded to [min_positive_weight, weight_cap], NO budget. Intended
                  # to be run with the compensating mechanisms off and refractory=0
-                 # (the "minimal experiment"). L2E only; default off.
-                 signed_spike_learning: bool = False,
+                 # (the "minimal experiment"). L2E only. DEFAULT ON: this is now the
+                 # project's canonical L2E learning rule. When on it takes over
+                 # _update_weights entirely (returns early), so l2e_budget,
+                 # confidence_consolidation, loser_depression and signed_depression
+                 # are all bypassed for L2E regardless of their own defaults.
+                 signed_spike_learning: bool = True,
                  # Capacity rule for the minimal experiment (see the prompt's
                  # "Threshold, Cap, Floor" section). l2e_weight_cap_frac sets each
                  # L2E positive feedforward weight cap to frac*thr_l2, so three

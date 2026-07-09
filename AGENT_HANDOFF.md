@@ -47,16 +47,31 @@ take ~60% of cycles. True 1-to-1 is NOT solved.
 
 ## 3. Current code state (defaults + where things live)
 
-Defaults in `SimulationEngine.__init__` (backend/simulation.py), all live now:
+**DEFAULT REGIME CHANGED (2026-07-08):** the L2E learning rule is now the
+**minimal signed-spike rule with NO weight budget** —
+`signed_spike_learning=True`, `l2e_budget=False` by default. On fire, every
+positive feedforward synapse updates by `dw = eta·p·(1−(w/w_cap)²)·signal`,
+`signal=+1` if its input participated else `−1`; the `−1` supplies the downward
+pressure the budget used to. It `return`s early in `_update_weights`, so
+**`confidence_consolidation`, `loser_depression`, `signed_depression` and the
+budget are all bypassed for L2E** regardless of their own defaults (left `True`
+but inert). The pre-2026-07-08 budget/charge regime below can be reconstructed
+with `signed_spike_learning=False, l2e_budget=True`. Honest metric under the new
+default (via `ablation_harness.py`, 3 seeds): sustained dominance ≈0.55, distinct
+≈4/8 with high seed variance (±0.8), no stable ownership — the budget was masking
+seed dependence; vector-aware init is now the lever being explored (see the
+init/distance ablation work and `Input_Vector_Initialization_And_Distance_Weighting.md`).
+
+Defaults in `SimulationEngine.__init__` (backend/simulation.py):
 
 | feature | default | notes |
 |---|---|---|
-| `confidence_consolidation` | **True** | keeps specialists DISTINCT — load-bearing, do not remove |
-| `loser_depression` | **True** | decorrelation; keeps distinct high |
-| L2E weight budget | **2× thr_l2** | `L2E_BUDGET_MULT=2`; loosened from 1× → clean 8/8 distinct, 0 dead |
-| `signed_depression` (4a) | **True** | OFF-pixel gate depression; RF-margin lever |
-| `eta_off` | **0.20** | depression rate; **eta_off≈0.5 needed for full 8/8 with 2× budget** |
-| excitatory saturation | `(w/w_cap)²` | `excitatory_saturation_cap = weight_cap**2`; INERT given budget (see §5) |
+| `signed_spike_learning` | **True** | canonical L2E rule; takes over `_update_weights`, bypasses the four below |
+| `l2e_budget` | **False** | budget off; inert under signed-spike anyway |
+| `confidence_consolidation` | True | bypassed under signed-spike (was: keeps specialists distinct) |
+| `loser_depression` | True | bypassed under signed-spike (was: decorrelation) |
+| `signed_depression` (4a) | True | bypassed under signed-spike (was: OFF-pixel gate depression) |
+| `eta_off` | 0.20 | depression rate; only relevant in the old budget regime |
 | `event_driven` | **False** | experimental; broke tiling — leave off |
 | `lasting_inhibition` | **False** | experimental scalar field; FAILED — leave off |
 | `homeostasis` | False | Turrigiano scaling; off by default |
