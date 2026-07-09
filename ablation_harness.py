@@ -51,6 +51,22 @@ TRAIN_EPOCHS = 60      # interleaved training sweeps over all 8 patterns
 HOLD_CYCLES = 40       # cycles a pattern is held during sustained measurement
 SEEDS = (1, 2, 3)      # >=3 seeds so seed variance is meaningful
 
+# CANONICAL BASELINE for the input-init / distance-weighting ablations: the
+# minimal signed-spike rule with NO weight budget (neuron_flexible.py:495-503).
+# On fire, every positive feedforward synapse updates with a local signed signal
+# -- +1 if its input participated, -1 if not -- and the -1 supplies the downward
+# pressure the budget used to impose; stored weights are otherwise free.
+#
+# This is DELIBERATELY not the committed SimulationEngine default (which is still
+# budget-on / signed-spike-off). It is chosen as the ablation baseline because it
+# is the regime where seed dependence actually appears: the budget masks it by
+# forcing 8/8 distinct on every seed (variance ~0), whereas here distinctness
+# collapses to ~4/8 and swings by seed -- exactly the duplicate-receptive-field
+# failure vector-aware initialization is meant to fix. Measure init/distance
+# ablations as deltas ON TOP OF this condition, e.g.
+#   compare({'baseline': dict(BASELINE), 'diversity': {**BASELINE, 'ff_init': 'diversity'}})
+BASELINE = {'signed_spike_learning': True, 'l2e_budget': False}
+
 
 # ---------------------------------------------------------------------------
 # Protocol primitives
@@ -235,10 +251,12 @@ def main():
     ap.add_argument('--hold', type=int, default=HOLD_CYCLES)
     args = ap.parse_args()
 
-    # Baseline = current defaults (uniform-random init, no distance weighting).
-    # Future init/distance ablations plug in as extra entries here, e.g.
-    #   compare({'baseline': {}, 'diversity_rejected': {'ff_init': 'diversity'}}, ...)
-    compare({'baseline (current defaults)': {}},
+    # Canonical baseline = signed-spike / no-budget (see BASELINE above), the
+    # regime the init/distance ablations are measured against. Future ablations
+    # plug in as extra entries layered on top, e.g.
+    #   compare({'baseline': dict(BASELINE),
+    #            'diversity_rejected': {**BASELINE, 'ff_init': 'diversity'}}, ...)
+    compare({'baseline (signed-spike, no budget)': dict(BASELINE)},
             seeds=tuple(args.seeds), epochs=args.epochs, hold_cycles=args.hold)
 
 
