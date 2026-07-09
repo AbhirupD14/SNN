@@ -507,3 +507,57 @@ Vector-aware initialization is the safer immediate direction for reducing seed d
 Distance-weighted summation is promising for locality and hardware scaling, but it changes the effective input geometry and may hurt extended patterns if applied too strongly.
 
 Treat distance weighting as an ablation, not as an assumed improvement.
+
+## Empirical Results — Initialization Ablation (2026-07-08)
+
+Implemented in `weight_init.py`, selected via `SimulationEngine(ff_init=..., ff_init_kw=...)`.
+Measured with the honest sustained-presentation metric (`ablation_harness.py`),
+against the current default regime (signed-spike / no weight budget), 3 seeds.
+Distance weighting was left OFF, per "Recommended First Experiment".
+
+```text
+scheme              init_cos  sustained_dom  distinct/8   dead   final_cos
+uniform (baseline)  0.90      0.552 +-0.05   4.00 +-0.82  0.33   0.41
+uniform_normalized  0.90      0.548 +-0.07   3.67 +-0.94  0.00   0.44
+sparse (k=3)        0.44      0.167          1.33         6.67   0.44   (catastrophic)
+sparse_normalized   0.44      0.433 +-0.02   5.67 +-0.47  0.00   0.25   <-- best tiling
+diversity (<=0.8)   0.82      0.498          3.67         0.00   0.35
+orthogonal          0.84      0.500          3.67 +-0.94  0.00   0.40
+low_discrepancy     0.89      0.525          3.67         0.00   0.40
+```
+
+Answering the note's key question ("which initialization reduces seed dependence
+and improves finite-time consolidation without smuggling in labels?"):
+
+- **Sparsity is the only effective lever; dense direction-diversity is not.**
+  Dense positive vectors are inherently ~0.9-aligned in the 9-D positive orthant,
+  so diversity-rejection, near-orthogonal, and low-discrepancy can only pull the
+  initial pairwise cosine down to ~0.82–0.89 — and at that level they move
+  nothing (distinct, dominance, seed variance all ≈ baseline). Only sparsity
+  breaks through to ~0.44, and only there does tiling improve. This overturns the
+  note's prior ranking of diversity-rejection as the strongest candidate.
+- **`sparse_normalized` is the winner.** It lifts distinct tiling 4.0 → 5.7 with
+  0 dead, gives the most decorrelated final receptive fields (final cosine 0.25),
+  and the tightest seed variance on dominance (±0.02 vs ±0.05). It trades ~0.12
+  sustained dominance for that — the margin-vs-distinctness frontier, resolved
+  toward distinctness.
+- **Normalization is load-bearing for sparse init, inert for dense.** Raw
+  `sparse` is catastrophic (6.67 dead — the note's "too sparse → no reachable
+  owner"); renormalizing each afferent vector to a common total restores
+  reachability. For dense init, normalization changes magnitude but not
+  direction, so `uniform_normalized` ≡ `uniform`.
+- **`k` sweep confirms k=3 is a real optimum,** not task-length matching: distinct
+  = {k2: 4.67, k3: 5.67, k4: 4.0, k5: 3.67}, and k=2 (which does NOT match the
+  3-pixel line length) still beats baseline — it is the sparsity effect, not a
+  smuggled-in label.
+- **Initialization improves tiling, not holding.** NO scheme reached stable
+  ownership (`time_to_stable` never triggered); the round-robin under sustained
+  presentation is a competition/discharge problem (see `AGENT_HANDOFF.md` §5–6),
+  orthogonal to initialization. Init is a variance/tiling lever, not the fix for
+  one-to-one holding.
+
+Recommendation: adopt `ff_init='sparse_normalized'` (k=3) as the init for
+subsequent experiments, but pursue the round-robin separately. Distance weighting
+remains untested (next ablation); given that the task patterns are spatially
+extended lines, expect it to help locality metrics at the risk of fragmenting
+extended-line ownership — measure with the same harness before adopting.
