@@ -25,10 +25,10 @@ input-init ablation and the next distance-weighting ablation
     - initial and final pairwise receptive-field cosine similarity
     - SEED VARIANCE (std across seeds) on every scalar above
 
-The vector-aware initialization ablation is now archived; RF-cosine metrics stay
-useful for showing whether distance-weighted geometry changes final receptive
-field overlap. Build distance behind flags, keep `membrane_noise=0.0`, and
-compare conditions here.
+The vector-aware initialization ablation is now archived (feedforward init is
+plain uniform random again); RF-cosine metrics stay useful for showing whether
+distance-weighted geometry changes final receptive field overlap. Build distance
+behind flags and compare conditions here.
 
     PYTHONPATH=. .venv/bin/python ablation_harness.py                 # baseline demo
     PYTHONPATH=. .venv/bin/python ablation_harness.py --seeds 1 2 3   # pick seeds
@@ -60,7 +60,7 @@ SEEDS = (1, 2, 3)      # >=3 seeds so seed variance is meaningful
 # the regime where seed dependence actually appears: the budget masks it by
 # forcing 8/8 distinct on every seed (variance ~0), whereas here distinctness
 # collapses to ~4/8 and swings by seed. Measure distance ablations as deltas ON
-# TOP OF this condition while keeping membrane_noise=0.0 and uniform init, e.g.
+# TOP OF this condition, e.g.
 #   compare({'baseline': dict(BASELINE),
 #            'distance_ff': {**BASELINE, 'distance_weighting': True}}, ...)
 BASELINE = {'signed_spike_learning': True, 'l2e_budget': False}

@@ -62,7 +62,12 @@ suppression):
     L2E itself goes through.
   Whenever L2I fires (either regime) it laterally inhibits the rest of the L2
   pool through the L2I->L2E gate (see Neuron.apply_inhibition); whenever an
-  L1I fires it suppresses its paired L1E the same way. Subthreshold L2E
+  L1I fires it suppresses its paired L1E the same way. NOTE: L1I no longer uses
+  the trainable-integrator regime by default -- with l1i_immediate_relay (default
+  ON, see step() 2e) L1I is an immediate deterministic relay that fires on any
+  nonzero L2E feedback, since the learned integrator was not useful and its
+  accumulation introduced a feedback phase shift. The two-regime accumulator
+  below still applies to L2I, and to L1I only when the relay flag is turned off. Subthreshold L2E
   neurons are left untouched, so charge accumulated across volleys is
   preserved and every unit can eventually win. Each L2I->L2E gate's strength
   is learned per neuron by the inhibitory-plasticity rule and saturates below
@@ -89,7 +94,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
 from neuron_flexible import UNIT, LEAK_SCALE         # noqa: E402  fixed-point convention
-from weight_init import init_feedforward             # noqa: E402  pluggable ff init schemes
 
 
 PATTERNS = {
@@ -283,7 +287,6 @@ class SimulationEngine:
                  volley_period: int = 4,
                  input_period: int | None = None,
                  cycle_period: int | None = None,
-                 membrane_noise: float = 0.0,
                  homeostasis: bool = False,
                  ca_rate: float = 0.01,
                  ca_target: float = 0.012,   # between a specialist's rate (~0.01) and a
@@ -332,12 +335,86 @@ class SimulationEngine:
                  # before _apply_budget_and_cap); it is kept as a knob so the older
                  # budget/charge regime can still be reconstructed for comparison.
                  l2e_budget: bool = False,
-                 # Event-driven firing: resolve L2 competition EVERY step (fire the
-                 # moment a neuron crosses threshold) instead of only at the cycle
-                 # boundary. Bounds the membrane near threshold (no charge pile-up)
-                 # but re-couples winner timing to input rate. Off = current
-                 # charge/rank-coded, cycle-quantized argmax competition.
-                 event_driven: bool = False,
+                 # Event-driven firing: resolve L2 competition EVERY step -- pick the
+                 # single argmax winner among the threshold-crossers and inhibit the
+                 # rest, once per timestep. DEFAULT ON: this per-step single-winner
+                 # flow is the canonical L2 procedure. Turn OFF to fall back to the
+                 # cycle-quantized regime (resolve the same argmax competition only on
+                 # the intrinsic cycle boundary, once per cycle_period steps), which
+                 # decouples winner timing from the input rate -- kept as a knob so
+                 # that rate-decoupling regime can still be reconstructed for A/B.
+                 event_driven: bool = True,
+                 # L2 feedforward charge granularity: deliver this step's L1->L2E
+                 # drive in K equal chunks (weight_ji/K per active synapse) WITHIN a
+                 # frozen outer timestep, re-running the argmax WTA after each chunk
+                 # and stopping at the first chunk that produces a threshold-crosser
+                 # (consolidation-first: the earliest strong responder wins before
+                 # rivals pile up charge). The clock does not advance and no
+                 # leak/update runs between chunks. K=1 (default) delivers the full
+                 # drive in one chunk and reproduces the un-chunked behavior exactly.
+                 l2_charge_chunks: int = 1,
+                 # L1I feedback firing mode. DEFAULT ON: L1I acts as an IMMEDIATE
+                 # DETERMINISTIC RELAY -- any L1I that receives a nonzero L2E
+                 # feedback signal fires in that same step, with NO membrane
+                 # accumulation, NO learned-threshold crossing, and NO dependence on
+                 # L1I feedback-weight training (the learned integrator introduced a
+                 # phase shift and was not useful). Turn OFF to restore the trainable
+                 # threshold-integrating L1I (fire only when accumulated feedback
+                 # crosses L1I's own threshold). Either way L1I output stays binary
+                 # and the L1I->L1E inhibition delivery path is unchanged.
+                 l1i_immediate_relay: bool = True,
+                 # Sparse excitatory FLOW-RATE accumulation (opt-in; see Neuron and
+                 # step(), and the flow-rate section of the methodology doc). DEFAULT
+                 # OFF -> instantaneous V += dot(weights, spikes). When ON, an input
+                 # spike opens a decaying excitatory current trace that integrates
+                 # into V over time (weight = current amplitude, not a charge packet)
+                 # for the positive-charge integrators L2E / L2I / L1I (NOT L1E, the
+                 # abstract sensory source; NOT L1I in immediate-relay mode). Flow
+                 # mode is the finer temporal model, so it FORCES effective
+                 # l2_charge_chunks = 1 (chunking is ignored while it is on).
+                 excitatory_flow_rate: bool = True,
+                 exc_trace_decay: float = 0.8,        # per-timestep current decay d
+                 exc_trace_normalized: bool = True,   # inject drive*(1-d) so total ~= drive
+                 # Inhibitory FLOW (opt-in; symmetric to the excitatory flow). When on,
+                 # a real L2I->L2E discharge injects the gate into a decaying inhibitory
+                 # CURRENT that drains the target's charge out over ~1/(1-decay) steps
+                 # (sustained suppression) instead of a one-shot subtraction. Applies
+                 # to the same neurons as the excitatory flow (L2E/L2I/L1I, not L1E).
+                 inhibitory_flow_rate: bool = False,
+                 inh_trace_decay: float = 0.8,
+                 inh_trace_normalized: bool = True,
+                 # Inhibitory-gate plasticity rule (see Neuron.apply_inhibition).
+                 # inhibitory_delta_rule False = legacy saturating rule (every L2I->L2E
+                 # gate converges to the same ceiling sqrt(w_max) -> uniform). True
+                 # (DEFAULT) = a differentiating local rule selected by
+                 # inhibitory_rule_mode:
+                 #   "turnover" (DEFAULT): on each discharge the NORMALIZED gate
+                 #     u = w/G updates as du = eta_up*p_t*(1-u) - eta_down*u, with
+                 #     p_t = clamp(v_pre/theta, 0, p_max). Purely event-local (no target
+                 #     voltage, no averages): high-charge rivals accumulate stronger
+                 #     gates while weak/dead targets drift down via size-proportional
+                 #     turnover.
+                 #   "margin": diagnostic; relax toward s = clamp(v_pre-margin*theta,0,G).
+                 inhibitory_delta_rule: bool = True,
+                 inhibitory_rule_mode: str = "turnover",
+                 inhibitory_eta_up: float = 0.02,       # turnover strengthening rate
+                 inhibitory_eta_down: float = 0.005,    # turnover size-proportional decay
+                 inhibitory_p_max: float = 1.0,         # turnover cap on p_t = v_pre/theta
+                 inhibitory_margin_frac: float = 0.5,   # margin mode: target_post = frac*theta
+                 inhibitory_delta_eta: float = 0.05,    # margin mode: EMA rate
+                 # Distance attenuation of DELIVERED excitatory drive (opt-in; see
+                 # Neuron.receive_input and the methodology doc). When on, each
+                 # afferent's delivered amplitude is multiplied by
+                 # (distance_ref/max(d_i, distance_min))^distance_power -- weight =
+                 # learned gate, distance = delivery attenuation, trace = temporal
+                 # flow. It does NOT change stored weights or the trace math, and is
+                 # not entangled with chunking. OFF by default (per-synapse distances
+                 # default to 1.0 = no attenuation until real functional distances
+                 # are provided). Applies in both flow-rate and instantaneous modes.
+                 distance_weighting: bool = False,
+                 distance_power: float = 2.0,
+                 distance_ref: float = 1.0,
+                 distance_min: float = 1.0,
                  # Lasting inhibition: replace the one-shot lateral discharge with a
                  # LEAKY decaying inhibitory field. L2I (a leaky integrator) pumps a
                  # shared field when it fires; the field hyperpolarizes the whole L2E
@@ -397,16 +474,7 @@ class SimulationEngine:
                  # L2E_MIN_WEIGHT_FLOOR, E->I unfloored); the minimal experiment
                  # sets 1. Negative inhibitory gates are never floored here -- they
                  # are bounded by magnitude in apply_inhibition.
-                 pos_weight_floor: int | None = None,
-                 # L2E feedforward weight initialization scheme (see weight_init.py
-                 # and Input_Vector_Initialization_And_Distance_Weighting.md). Default
-                 # 'uniform' reproduces the legacy rng.uniform(50,200) init exactly.
-                 # Other schemes (uniform_normalized, sparse, sparse_normalized,
-                 # diversity, orthogonal, low_discrepancy) reduce duplicate initial
-                 # receptive fields / seed dependence WITHOUT assigning labels.
-                 # ff_init_kw passes scheme params (e.g. max_similarity, k).
-                 ff_init: str = 'uniform',
-                 ff_init_kw: dict | None = None):
+                 pos_weight_floor: int | None = None):
         # Decouple the SENSORY input rate from the INTRINSIC competition clock.
         # input_period: steps between external input bursts (how fast the world
         #   throws spikes at the network -- "nature" is slow, a "rave" is fast).
@@ -434,7 +502,6 @@ class SimulationEngine:
                            learning_rate=learning_rate, weight_cap=weight_cap,
                            refractory=refractory, volley_period=volley_period,
                            input_period=input_period, cycle_period=cycle_period,
-                           membrane_noise=membrane_noise,
                            homeostasis=homeostasis, ca_rate=ca_rate, ca_target=ca_target,
                            homeo_up=homeo_up, homeo_down=homeo_down,
                            l2e_lr_frac=l2e_lr_frac, l2i_lr_frac=l2i_lr_frac,
@@ -451,6 +518,24 @@ class SimulationEngine:
                            conf_ca_dead=conf_ca_dead, conf_grace=conf_grace,
                            signed_depression=signed_depression, eta_off=eta_off,
                            l2e_budget=l2e_budget, event_driven=event_driven,
+                           l2_charge_chunks=l2_charge_chunks,
+                           l1i_immediate_relay=l1i_immediate_relay,
+                           excitatory_flow_rate=excitatory_flow_rate,
+                           exc_trace_decay=exc_trace_decay,
+                           exc_trace_normalized=exc_trace_normalized,
+                           inhibitory_flow_rate=inhibitory_flow_rate,
+                           inh_trace_decay=inh_trace_decay,
+                           inh_trace_normalized=inh_trace_normalized,
+                           inhibitory_delta_rule=inhibitory_delta_rule,
+                           inhibitory_rule_mode=inhibitory_rule_mode,
+                           inhibitory_eta_up=inhibitory_eta_up,
+                           inhibitory_eta_down=inhibitory_eta_down,
+                           inhibitory_p_max=inhibitory_p_max,
+                           inhibitory_margin_frac=inhibitory_margin_frac,
+                           inhibitory_delta_eta=inhibitory_delta_eta,
+                           distance_weighting=distance_weighting,
+                           distance_power=distance_power,
+                           distance_ref=distance_ref, distance_min=distance_min,
                            lasting_inhibition=lasting_inhibition, inh_decay=inh_decay,
                            inh_boost_frac=inh_boost_frac,
                            subtractive_reset=subtractive_reset,
@@ -458,17 +543,13 @@ class SimulationEngine:
                            l2_gate_eq_frac=l2_gate_eq_frac,
                            signed_spike_learning=signed_spike_learning,
                            l2e_weight_cap_frac=l2e_weight_cap_frac,
-                           pos_weight_floor=pos_weight_floor,
-                           ff_init=ff_init, ff_init_kw=dict(ff_init_kw or {}))
+                           pos_weight_floor=pos_weight_floor)
         self._build()
 
     # ------------------------------------------------------------------ build
     def _build(self):
         p = self.params
         rng = np.random.default_rng(p['seed'])
-        # Separate RNG for symmetry-breaking L2E membrane noise (see step()), so
-        # enabling noise does not perturb the weight-init RNG stream above.
-        self._noise_rng = np.random.default_rng(p['seed'] + 12345)
         thr_l1 = p['threshold']      # L1 neurons fire on a single pixel hit
         thr_l2 = p['threshold_l2']   # L2 neurons must accumulate many volleys
         # Inhibitory-neuron thresholds (Phase 2): each defaults to its excitatory
@@ -540,11 +621,9 @@ class SimulationEngine:
                         L2_EI_WEIGHT_INIT_HIGH_FRAC * thr_l2i, size=N_OUT))
         # Small positive feedforward weights: neurons must accumulate across many
         # volleys initially (LIF phase), then specialise toward single-volley
-        # firing (pattern integrator phase). The initialization SCHEME is pluggable
-        # (weight_init.py); 'uniform' reproduces the legacy rng.uniform(50,200)
-        # exactly, other schemes reduce duplicate initial RFs / seed dependence.
-        ff_weights = init_feedforward(rng, N_OUT, N_PIX,
-                                      scheme=p['ff_init'], **p['ff_init_kw'])
+        # firing (pattern integrator phase). Plain uniform random init (linear /
+        # fixed-point scale, 50..200 == 0.05..0.20 * UNIT).
+        ff_weights = rng.uniform(50, 200, size=(N_OUT, N_PIX))
         self.l2.set_feedforward_weights(ff_weights)
         self.l2.inhibitory_neuron.refractory_period = 0
         self.l2.inhibitory_neuron.threshold = thr_l2i   # Phase 2: L2I's own threshold
@@ -695,6 +774,49 @@ class SimulationEngine:
                     if p['pos_weight_floor'] is not None:
                         n.min_positive_weight = p['pos_weight_floor']
 
+        # Sparse excitatory flow-rate accumulation (opt-in): configure the current-
+        # trace on the POSITIVE-charge integrators. Applies to L2E, L2I and L1I --
+        # but NOT L1E (an abstract pretrained sensory source), and NOT L1I while it
+        # is an immediate relay (the relay bypasses trace integration entirely).
+        # Read from params: the engine-level self.excitatory_flow_rate attribute is
+        # assigned later in _build.
+        flow = p['excitatory_flow_rate']
+        for nid, n in self.neurons.items():
+            if nid.startswith('L1E'):
+                n.excitatory_flow_rate = False
+            elif nid.startswith('L1I'):
+                n.excitatory_flow_rate = flow and not p['l1i_immediate_relay']
+            else:                                    # L2E, L2I
+                n.excitatory_flow_rate = flow
+            n.exc_trace_decay = p['exc_trace_decay']
+            n.exc_trace_normalized = p['exc_trace_normalized']
+            n.exc_trace = 0.0
+            n.exc_trace_last_t = 0
+            # Inhibitory flow (independent of the excitatory flag): applies wherever a
+            # neuron RECEIVES inhibition -- L2E (the L2I->L2E discharge). L1E is exempt;
+            # L1I/L2I never receive apply_inhibition so the flag is moot for them.
+            n.inhibitory_flow_rate = p['inhibitory_flow_rate'] and not nid.startswith('L1E')
+            n.inh_trace_decay = p['inh_trace_decay']
+            n.inh_trace_normalized = p['inh_trace_normalized']
+            n.inh_trace = 0.0
+            # Inhibitory-gate rule applies to any neuron carrying a learned negative
+            # gate (L2E's L2I->L2E gate); frozen gates (eta=0, e.g. L1E) are inert
+            # under either rule, so setting it uniformly is safe.
+            n.inhibitory_delta_rule = p['inhibitory_delta_rule']
+            n.inhibitory_rule_mode = p['inhibitory_rule_mode']
+            n.inhibitory_eta_up = p['inhibitory_eta_up']
+            n.inhibitory_eta_down = p['inhibitory_eta_down']
+            n.inhibitory_p_max = p['inhibitory_p_max']
+            n.inhibitory_margin_frac = p['inhibitory_margin_frac']
+            n.inhibitory_delta_eta = p['inhibitory_delta_eta']
+            # Distance attenuation of delivered drive (per-synapse d_i stays at its
+            # default 1.0 -> factor 1 -> no attenuation until functional distances
+            # are assigned; the toggle + params are wired and ready).
+            n.distance_weighting = p['distance_weighting']
+            n.distance_power = p['distance_power']
+            n.distance_ref = p['distance_ref']
+            n.distance_min = p['distance_min']
+
         self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)
         self.timestep = 0
@@ -709,7 +831,9 @@ class SimulationEngine:
         self.changed_synapses: list[dict] = []
         self._confidence_snapshot = self._all_confidence()
         self.changed_confidence: list[dict] = []
-        self.l2_drive: dict[str, float] = {}
+        self.l2_drive: dict[str, float] = {}          # PRE-WTA snapshot (peak/margin)
+        self.l2_charge: dict[str, float] = {}         # POST-inhibition charge (graph/export)
+        self.l2_inh_phase_debug: list[dict] = []      # per-inhibited-L2E phase record (see step())
         self.winner: str | None = None
         self._inh_events: list[tuple] = []   # (neuron_id, event) from this step's discharges
 
@@ -730,6 +854,19 @@ class SimulationEngine:
         # After each visit the cycle advances to the next pattern; when every
         # pattern is trained, auto-cycle disables itself (curriculum complete).
         self.event_driven = self.params['event_driven']   # fire on threshold crossing every step
+        # L2 chunked-charge granularity (see step()): deliver this step's L1->L2E
+        # drive in K equal chunks, resolving the argmax WTA after each. K=1
+        # reproduces un-chunked delivery. l2_winner_chunk records which chunk
+        # resolved the last competition (diagnostic; None if no winner fired).
+        self.l2_charge_chunks = max(1, int(self.params['l2_charge_chunks']))
+        self.l2_winner_chunk = None
+        # L1I feedback firing mode (see step() 2e): immediate deterministic relay
+        # (default) vs. trainable threshold integrator.
+        self.l1i_immediate_relay = self.params['l1i_immediate_relay']
+        # Sparse excitatory flow-rate accumulation (see step() and Neuron). When on
+        # it forces effective l2_charge_chunks = 1 (see step()); per-neuron flow
+        # flags are configured on the target integrators after neuron registration.
+        self.excitatory_flow_rate = self.params['excitatory_flow_rate']
         # Lasting-inhibition state (see step()): a decaying shared inhibitory field.
         self.lasting_inhibition = self.params['lasting_inhibition']
         self.inh_decay = self.params['inh_decay']
@@ -797,7 +934,13 @@ class SimulationEngine:
                'confidence_consolidation', 'loser_depression', 'eta_loss',
                'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven',
                'subtractive_reset', 'refractory', 'v_sat_frac',
-               'signed_spike_learning', 'seed')
+               'signed_spike_learning', 'seed', 'l2_charge_chunks',
+               'l1i_immediate_relay', 'excitatory_flow_rate', 'exc_trace_decay',
+               'exc_trace_normalized', 'inhibitory_flow_rate', 'inh_trace_decay',
+               'inh_trace_normalized', 'inhibitory_delta_rule', 'inhibitory_rule_mode',
+               'inhibitory_eta_up', 'inhibitory_eta_down', 'inhibitory_p_max',
+               'inhibitory_margin_frac', 'inhibitory_delta_eta',
+               'distance_weighting', 'distance_power', 'distance_ref', 'distance_min')
 
     def apply_config(self, overrides: dict):
         """Merge tunable overrides into self.params and rebuild the network in
@@ -811,10 +954,15 @@ class SimulationEngine:
                 continue
             if k in ('signed_depression', 'confidence_consolidation', 'loser_depression',
                      'l2e_budget', 'event_driven', 'subtractive_reset',
-                     'signed_spike_learning'):
+                     'signed_spike_learning', 'l1i_immediate_relay',
+                     'excitatory_flow_rate', 'exc_trace_normalized',
+                     'inhibitory_flow_rate', 'inh_trace_normalized',
+                     'inhibitory_delta_rule', 'distance_weighting'):
                 v = bool(v)
-            elif k in ('seed', 'refractory'):
+            elif k in ('seed', 'refractory', 'l2_charge_chunks'):
                 v = int(v)
+            elif k == 'inhibitory_rule_mode':
+                v = str(v)
             else:
                 v = float(v)
             self.params[k] = v
@@ -920,18 +1068,94 @@ class SimulationEngine:
             self._pulses[neuron_id] = self._pulses.get(neuron_id, 0.0) + magnitude
         self._log('control', f'stimulate {neuron_id} (+{magnitude:g}{", hold" if continuous else ""})')
 
+    def _check_l2_inhibition_phases(self, l2, v_start):
+        """Build per-L2E charge-phase records for this step's real L2I->L2E
+        discharges and warn (never crash) if the flow-rate ordering invariant is
+        violated. The invariant: a real inhibition must not RAISE the target's
+        charge (V_after_inhibition <= V_before_inhibition), and no same-timestep
+        excitatory trace advance may push an inhibited L2E back above its
+        post-inhibition charge (V_end is measured after leak, so it must be
+        <= V_after_inhibition). Also flags any discharge not routed through the
+        expected negative L2I->L2E gate at synapse index 0. Read-only: it inspects
+        this step's inhibitory events and the current membrane; it never advances a
+        trace or mutates a neuron."""
+        self.l2_inh_phase_debug = []
+        for nid, ev in self._inh_events:
+            if not nid.startswith('L2E'):
+                continue
+            j = int(nid[3:])
+            neuron = l2.excitatory_neurons[j]
+            v_end = float(neuron.potential)
+            self.l2_inh_phase_debug.append(dict(
+                id=nid,
+                v_start=round(v_start.get(j, 0.0), 3),
+                v_after_trace_advance=round(float(getattr(neuron, '_dbg_v_after_advance', ev['v_pre'])), 3),
+                v_before_inhibition=round(ev['v_pre'], 3),   # == V after trace + injection
+                inhibition_w=round(ev['w_before'], 3),
+                v_after_inhibition=round(ev['v_post'], 3),
+                v_end=round(v_end, 3),
+                gate_index=int(ev['index'])))
+            if ev['v_post'] > ev['v_pre'] + 1e-6:
+                self._log('warn', f"{nid}: inhibition RAISED charge "
+                                  f"(v_pre={ev['v_pre']:.1f} -> v_post={ev['v_post']:.1f})")
+            if v_end > ev['v_post'] + 1e-6:
+                self._log('warn', f"{nid}: charge rose above post-inhibition within the "
+                                  f"same timestep (v_post={ev['v_post']:.1f} -> v_end={v_end:.1f}) "
+                                  f"-- unexpected second excitatory trace advance")
+            if int(ev['index']) != 0:
+                self._log('warn', f"{nid}: L2I discharge hit synapse {ev['index']}, "
+                                  f"not the expected L2I->L2E gate at index 0")
+
+    def _resolve_l2_competition(self, l2, l2e, t):
+        """Attempt one standard argmax WTA resolution on the CURRENT L2E membrane
+        state. If any L2E crossed threshold, the max-charge crosser fires, drives
+        L2I, and (if L2I fires) the whole rest of the pool -- every non-winner, not
+        just co-crossers -- is inhibited through the learned L2I->L2E gate. Mutates
+        `l2e` in place (sets the winner's one-hot bit). Returns
+        (l2i, inhibited, winner); winner is None and L2I is left UNTOUCHED when
+        nobody crossed, so a caller running this per charge-chunk can drive L2I's
+        no-winner integration exactly once after the chunk loop instead of K times.
+        `t` is the current outer timestep (passed through to L2I flow-rate charge).
+        """
+        eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
+        if not eligible:
+            return 0.0, [], None
+        winner = max(eligible, key=lambda j: l2.excitatory_neurons[j].potential)
+        l2.excitatory_neurons[winner].fire()
+        l2e[winner] = 1.0
+        # The winner drives L2I, which fires (E->I weight = thr_l2) and laterally
+        # inhibits the whole rest of the pool.
+        l2.inhibitory_neuron.receive_input(l2e, t=t)
+        l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
+        inhibited = []
+        if l2i:
+            l2.inhibitory_neuron.fire()
+            inh_spk = np.zeros(L2E_FANIN)
+            inh_spk[0] = 1.0                       # index 0 = the L2I->L2E gate
+            for j in range(N_OUT):
+                if j == winner:
+                    continue                        # winner already fired / refractory
+                # apply_inhibition no-ops on refractory neurons; sub-threshold
+                # rivals (the real cause of the rotation) are now discharged too.
+                events = l2.excitatory_neurons[j].apply_inhibition(inh_spk)
+                for ev in events:
+                    self._inh_events.append((f'L2E{j}', ev))
+                if events:
+                    inhibited.append(j)
+        return l2i, inhibited, winner
+
     # ------------------------------------------------------------------- step
     def step(self) -> dict:
         l1, l2 = self.l1, self.l2
         t = self.timestep
 
         # 1. L1E: [paired I1's previous spike (local inhibition), external pixel].
-        #    Pixels fire in bursts every input_period steps (the SENSORY rate);
-        #    L2 competition resolves every cycle_period steps (the INTRINSIC
-        #    clock). The two are decoupled so which pattern wins does not depend
-        #    on how fast input arrives -- see the input_period/cycle_period note
-        #    in __init__. When they are equal (default) this reproduces the old
-        #    input-locked "volley" behavior exactly.
+        #    Pixels fire in bursts every input_period steps (the SENSORY rate).
+        #    L2 competition resolves EVERY step by default (event_driven, the
+        #    canonical per-step single-winner flow). With event_driven OFF it
+        #    instead resolves once per cycle_period steps (the INTRINSIC clock),
+        #    decoupling winner identity from how fast input arrives -- see the
+        #    input_period/cycle_period note in __init__.
         #    Excitatory pixel drive goes through receive_input; the inhibitory
         #    discharge is delivered as its own event via apply_inhibition, which
         #    also runs the inhibitory-gate plasticity rule. The net membrane before
@@ -959,68 +1183,57 @@ class SimulationEngine:
             if l1e[k]:
                 e.fire()
 
-        # 2b. Deliver L1E spikes immediately to all L2E neurons.
+        # 2b/2c. Deliver L1E->L2E feedforward charge and resolve L2 competition.
+        #     When the winner fires, the shared inhibitory neuron L2I discharges the
+        #     ENTIRE rest of the pool through its learned L2I->L2E gate -- not just
+        #     the co-threshold-crossers. The sub-threshold rivals sitting JUST below
+        #     threshold are the real cause of winner rotation; discharging the whole
+        #     pool subtracts each rival's own learned gate magnitude so the race
+        #     restarts closer to even and the best-matched integrator can win
+        #     repeatedly (the precondition for consolidation). The gate stays below
+        #     threshold_l2 (L2_GATE_WMAX < thr_l2), a PARTIAL discharge that
+        #     preserves cross-volley evidence, not a hard reset. See
+        #     _resolve_l2_competition for the argmax WTA body.
+        #
+        #     Chunked charge (l2_charge_chunks = K): this step's feedforward drive
+        #     can arrive in K equal chunks (weight_ji/K per active synapse) WITHIN
+        #     this frozen outer timestep. After each chunk the argmax WTA is
+        #     re-attempted; the FIRST chunk that produces a threshold-crosser
+        #     resolves the competition and the remaining chunks are skipped
+        #     (consolidation-first: the earliest strong responder wins before rivals
+        #     pile up charge). The clock does not advance and no leak/update runs
+        #     between chunks. K=1 (default) delivers the full drive in a single chunk
+        #     and reproduces the un-chunked behavior exactly.
         ff_vec = np.zeros(L2E_FANIN)
         for i in range(N_PIX):
             if l1e[i]:
                 ff_vec[1 + i] = 1.0
-        for j, e in enumerate(l2.excitatory_neurons):
-            e.receive_input(ff_vec)
 
-        # Capture pre-WTA potential for the charge visualisation.
-        self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
-
-        # Symmetry-breaking membrane noise: a small zero-mean perturbation of each
-        # non-refractory L2E potential every step, so near-ties resolve and the
-        # Hebbian rule can amplify a consistent first-mover per pattern. 0.0
-        # (default) disables it and leaves dynamics deterministic.
-        # membrane_noise is DIMENSIONFUL (a potential magnitude), so it must scale
-        # with the fixed-point UNIT like every other charge-like quantity -- it is
-        # specified in small-float units (fraction of a unit threshold) and scaled
-        # here, so a given value keeps the same effect relative to threshold at any
-        # UNIT. (Pre-fixed-point it was added raw at the old scale of ~1-8.)
-        sigma = self.params['membrane_noise'] * UNIT
-        if sigma > 0.0:
-            for e in l2.excitatory_neurons:
-                if e.refractory_timer <= 0:
-                    e.potential += float(self._noise_rng.normal(0.0, sigma))
-
-        # 2c. L2 competition via adaptive lateral inhibition (NOT a hard reset).
-        #     One L2E fires; the shared inhibitory neuron L2I then discharges the
-        #     ENTIRE rest of the pool through its L2I->L2E gate -- not just the
-        #     neurons that also crossed threshold this step. This is the key
-        #     difference from a selective winner-take-all: the neurons that drive
-        #     the "flickering winner" are the ones sitting JUST BELOW threshold
-        #     (e.g. 3.9 vs a 4.0 threshold). If only co-threshold-crossers were
-        #     inhibited, those sub-threshold rivals coasted through untouched and
-        #     won the next volley, so the winner rotated every burst. Discharging
-        #     the whole pool subtracts each rival's own learned gate magnitude, so
-        #     the race restarts closer to even and the best-matched integrator can
-        #     win repeatedly (the precondition for consolidation). The gate stays
-        #     below threshold (L2_GATE_WMAX < thr_l2), so this is still a partial
-        #     discharge that preserves cross-volley evidence, NOT the old hard reset
-        #     that collapsed the network to one universal winner. Each gate is
-        #     learned per target by Neuron.apply_inhibition (grows most when it
-        #     suppresses a neuron that was close to firing), so the gates onto the
-        #     habitual runners-up strengthen and the suppression self-organizes.
-        #     Resolution is gated to the intrinsic cycle clock (cycle_boundary),
-        #     NOT to input arrival: between cycle boundaries L2E keeps integrating
-        #     the continuous input (2b), and exactly one competition is resolved
-        #     per cycle. This is what makes the winner identity independent of the
-        #     input rate -- L2I integrates one winner per cycle regardless of how
-        #     many input bursts landed within the cycle.
         l2e = np.zeros(N_OUT)
         l2i = 0.0
         inhibited = []
+        self.l2_winner_chunk = None
+        # EXPLICIT PHASE ORDER (flow-rate; see the flow-rate section of the
+        # methodology doc): per outer timestep each L2E goes
+        #   V_start -> (receive_input: advance trace to t-1, inject new drive,
+        #   one same-timestep integrate = V_before_inhibition) -> threshold/WTA ->
+        #   L2I inhibition on non-winners (V_after_inhibition) -> leak (V_end).
+        # No excitatory trace is advanced again for an inhibited L2E in the same
+        # timestep (receive_input already set exc_trace_last_t = t, so any later
+        # advance_trace(t) is a no-op). l2_drive is the PRE-WTA snapshot (peak/margin
+        # consumers); l2_charge (captured after inhibition, below) is what the
+        # dashboard/export shows so the inhibition dip is visible.
+        l2_v_start = {j: float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
+
         if self.lasting_inhibition:
-            # Lasting inhibition: a decaying shared field raises the effective
-            # firing threshold for the WHOLE pool, and decays each step (finite
-            # window). Every step the strongest neuron clearing (threshold+field)
-            # fires; it drives the leaky L2I integrator, and when L2I fires it
-            # PUMPS the field -- so while a pattern persists its specialist keeps
-            # the field up and rivals stay locked out (sustained ownership), and
-            # when the pattern changes the field decays until the new specialist
-            # breaks through. Replaces the one-shot per-target discharge.
+            # Alternate mechanism (opt-in): deliver the full drive un-chunked and
+            # resolve through a decaying shared inhibitory field. L2I pumps the
+            # field when it fires; the field hyperpolarizes the whole L2E pool every
+            # step and decays with inh_decay, so a pattern's specialist keeps the
+            # field up and rivals stay locked out for a finite window.
+            for e in l2.excitatory_neurons:
+                e.receive_input(ff_vec, t=t)
+            self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
             self.l2_inh_field *= (1.0 - self.inh_decay)
             field = self.l2_inh_field
             eligible = [j for j, e in enumerate(l2.excitatory_neurons)
@@ -1030,52 +1243,74 @@ class SimulationEngine:
                 l2.excitatory_neurons[winner].fire()
                 l2e[winner] = 1.0
                 inhibited = [j for j in eligible if j != winner]
-                l2.inhibitory_neuron.receive_input(l2e)
+                l2.inhibitory_neuron.receive_input(l2e, t=t)
                 if l2.inhibitory_neuron.check_threshold():
                     l2.inhibitory_neuron.fire()
                     l2i = 1.0
                     self.l2_inh_field += self.inh_boost
-        # Competition resolves once per cycle (charge/rank-coded, default) OR every
-        # step (event_driven: fire the instant a neuron crosses threshold, so the
-        # membrane can't ratchet far past threshold between boundaries).
         elif cycle_boundary or self.event_driven:
-            eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
-            if eligible:
-                winner = max(eligible, key=lambda j: l2.excitatory_neurons[j].potential)
-                l2.excitatory_neurons[winner].fire()
-                l2e[winner] = 1.0
-                # The winner drives L2I, which fires (E->I weight = thr_l2) and
-                # laterally inhibits the whole rest of the pool.
-                l2.inhibitory_neuron.receive_input(l2e)
+            # Standard per-step argmax competition, delivered in K charge chunks.
+            # Competition resolves EVERY step (event_driven, default) OR once per
+            # cycle (event_driven OFF: only on the intrinsic cycle boundary).
+            # Flow-rate mode is the finer temporal model, so it FORCES effective
+            # K = 1 (chunking is ignored while flow-rate is on) -- the trace itself
+            # spreads a volley's charge over time.
+            K = 1 if self.excitatory_flow_rate else self.l2_charge_chunks
+            resolved = False
+            for chunk in range(K):
+                for e in l2.excitatory_neurons:
+                    e.receive_input(ff_vec, charge_scale=1.0 / K, t=t)
+                # Pre-WTA membrane snapshot at the current evaluation point (charge
+                # viz / winner-margin diagnostics read this).
+                self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
+                l2i, inhibited, winner = self._resolve_l2_competition(l2, l2e, t)
+                if winner is not None:
+                    self.l2_winner_chunk = chunk
+                    resolved = True
+                    break
+            if not resolved:
+                # Full drive arrived and nobody crossed: L2I still integrates the
+                # (empty) winner vector and may fire from residual charge.
+                l2.inhibitory_neuron.receive_input(l2e, t=t)
                 l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
                 if l2i:
                     l2.inhibitory_neuron.fire()
-                    inh_spk = np.zeros(L2E_FANIN)
-                    inh_spk[0] = 1.0                       # index 0 = the L2I->L2E gate
-                    for j in range(N_OUT):
-                        if j == winner:
-                            continue                        # winner already fired / refractory
-                        # apply_inhibition no-ops on refractory neurons; sub-threshold
-                        # rivals (the real cause of the rotation) are now discharged too.
-                        events = l2.excitatory_neurons[j].apply_inhibition(inh_spk)
-                        for ev in events:
-                            self._inh_events.append((f'L2E{j}', ev))
-                        if events:
-                            inhibited.append(j)
-            else:
-                l2.inhibitory_neuron.receive_input(l2e)
-                l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
-                if l2i:
-                    l2.inhibitory_neuron.fire()
+        else:
+            # Non-resolving step (event_driven OFF, between cycle boundaries): the
+            # drive is delivered in full and accumulates on the membrane; the
+            # competition waits for the next cycle boundary.
+            for e in l2.excitatory_neurons:
+                e.receive_input(ff_vec, t=t)
+            self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
+
+        # PHASE 7: record the graph/export charge AFTER inhibition (before leak), so
+        # the dashboard "charge over time" shows the L2I->L2E discharge dip instead
+        # of the pre-WTA value. This is a read-only snapshot -- it does NOT advance
+        # traces or mutate any neuron.
+        self.l2_charge = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
 
         # 2d. Deliver L2E winner spike immediately to all L1I neurons (feedback).
         #     l2e is length N_OUT with a 1 at the winner index, matching each
-        #     L1I neuron's N_OUT-dimensional afferent weight vector.
+        #     L1I neuron's N_OUT-dimensional afferent weight vector. (t carries the
+        #     flow-rate current trace when L1I is a trainable integrator; ignored in
+        #     immediate-relay mode, where L1I's flow flag is off.)
         for inh in l1.inhibitory_neurons:
-            inh.receive_input(l2e)
+            inh.receive_input(l2e, t=t)
 
         # 2e. L1I fires after receiving L2E feedback.
-        l1i = np.array([1.0 if n.check_threshold() else 0.0 for n in l1.inhibitory_neurons])
+        if self.l1i_immediate_relay:
+            # Immediate deterministic relay (default): any L1I that received a
+            # nonzero L2E feedback signal fires THIS step -- no membrane
+            # accumulation, no learned-threshold crossing, no dependence on L1I
+            # feedback-weight training. l2e is delivered identically to every L1I
+            # (2d), so a winner (l2e nonzero) makes every L1I relay. Output stays
+            # binary and the downstream L1I->L1E inhibition path is unchanged.
+            fb_present = 1.0 if np.any(l2e > 0) else 0.0
+            l1i = np.full(len(l1.inhibitory_neurons), fb_present)
+        else:
+            # Trainable threshold integrator: fire only when accumulated feedback
+            # crossed L1I's own (learned/leaky) threshold.
+            l1i = np.array([1.0 if n.check_threshold() else 0.0 for n in l1.inhibitory_neurons])
         for k, n in enumerate(l1.inhibitory_neurons):
             if l1i[k]:
                 n.fire()
@@ -1105,6 +1340,10 @@ class SimulationEngine:
         for e in l2.excitatory_neurons:
             e.update()
         l2.inhibitory_neuron.update()
+
+        # Phase-order guard + per-L2E charge-phase diagnostics for this step's real
+        # L2I->L2E discharges (V_end is post-leak here).
+        self._check_l2_inhibition_phases(l2, l2_v_start)
 
         # 5. Bookkeeping.
         self._record_spikes(l1e, l1i, l2e, l2i)
@@ -1311,7 +1550,11 @@ class SimulationEngine:
     def dynamic_state(self) -> dict:
         neurons = []
         for nid, n in self.neurons.items():
-            pot = self.l2_drive.get(nid, float(n.potential))
+            # Charge shown to the dashboard is the POST-inhibition snapshot
+            # (l2_charge) so the L2I->L2E discharge dip is visible; fall back to the
+            # pre-WTA drive, then the live potential. Read-only -- never advances a
+            # flow-rate trace.
+            pot = self.l2_charge.get(nid, self.l2_drive.get(nid, float(n.potential)))
             thr = self.meta[nid]['threshold'] or 1.0
             budget, budget_used = self._budget_usage(nid)
             neurons.append(dict(id=nid, potential=round(pot, 4),
@@ -1320,7 +1563,10 @@ class SimulationEngine:
                                 refractory=int(n.refractory_timer),
                                 budget=round(budget, 4) if budget is not None else None,
                                 budget_used=round(budget_used, 4) if budget_used is not None else None,
-                                assembly=(self.winner if nid == self.winner else None)))
+                                assembly=(self.winner if nid == self.winner else None),
+                                # Optional flow-rate diagnostic: current-trace amplitude.
+                                **({'exc_trace': round(float(n.exc_trace), 4)}
+                                   if self.excitatory_flow_rate and n.excitatory_flow_rate else {})))
         return dict(timestep=self.timestep, running=False, neurons=neurons,
                     changed_synapses=self.changed_synapses,
                     changed_confidence=self.changed_confidence,
@@ -1336,6 +1582,9 @@ class SimulationEngine:
                                    trained=sum(1 for v in self._pattern_trained.values() if v),
                                    total=len(self._pattern_trained),
                                    trained_map={n: self._pattern_trained[n] for n in self._cycle_order}),
+                    l2_charge_chunks=self.l2_charge_chunks,
+                    l2_winner_chunk=self.l2_winner_chunk,
+                    l2_inh_phases=self.l2_inh_phase_debug,
                     stats=self.stats(), log=list(self.event_log)[-12:])
 
     def stats(self) -> dict:

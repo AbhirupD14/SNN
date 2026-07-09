@@ -25,7 +25,13 @@ from backend.simulation import SimulationEngine, PATTERNS, N_OUT, L2_GATE_INIT
 
 
 def train_and_measure(seed=1, epochs=30):
-    e = SimulationEngine(seed=seed)
+    # This test isolates the L2I-mediated lateral-inhibition competition (see the
+    # module docstring); its distinct-winner bars were calibrated against the L1I
+    # threshold-integrator regime. L1I is now an immediate relay by default, which
+    # is an orthogonal change that shifts these emergent counts per-seed, so pin
+    # the integrator regime here to keep this a clean L2-competition regression.
+    # The relay default is covered by test_l1i_immediate_relay.py.
+    e = SimulationEngine(seed=seed, l1i_immediate_relay=False)
     fired = Counter()
     l2i_spikes = 0
     gate_discharges = 0

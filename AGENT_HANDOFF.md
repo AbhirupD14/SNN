@@ -75,17 +75,25 @@ Defaults in `SimulationEngine.__init__` (backend/simulation.py):
 | `loser_depression` | True | bypassed under signed-spike (was: decorrelation) |
 | `signed_depression` (4a) | True | bypassed under signed-spike (was: OFF-pixel gate depression) |
 | `eta_off` | 0.20 | depression rate; only relevant in the old budget regime |
-| `event_driven` | **False** | experimental; broke tiling — leave off |
+| `event_driven` | **True** | canonical per-step competition: resolve one argmax winner every timestep (was False = once-per-cycle; still reachable by turning off) |
+| `l2_charge_chunks` | **1** | K: deliver this step's L1→L2E drive in K chunks (w/K per synapse) inside a frozen timestep, resolving the argmax WTA after each and stopping at the first crosser (consolidation-first). K=1 = un-chunked baseline |
+| `l1i_immediate_relay` | **True** | L1I fires on ANY nonzero L2E feedback — deterministic relay, no learned-threshold crossing or feedback-weight training (fixes the integrator phase shift). Off = legacy trainable threshold integrator |
+| `excitatory_flow_rate` | **False** | weight = current amplitude: a spike opens a decaying excitatory current trace integrated into V over time (closed-form lazy advance) for L2E/L2I/L1I (not L1E, not relay L1I). Off = instantaneous `V += dot(w,spikes)`. Forces effective `l2_charge_chunks`=1. `exc_trace_decay`=0.8 (d), `exc_trace_normalized`=True (inject `g(1-d)` so total≈g) |
+| `inhibitory_delta_rule` | **True** | differentiating L2I→L2E gate rule instead of legacy saturating (all gates → sqrt(w_max), uniform). `inhibitory_rule_mode`="turnover" (default): `du=eta_up·p_t·(1−u) − eta_down·u`, `u=w/G`, `G=sqrt(w_max)`, `p_t=clamp(v_pre/θ,0,p_max)` — event-local, no target voltage/averages; high-charge rivals accumulate stronger gates, weak ones decay (spread ~260 vs 4, distinct winners preserved). "margin" mode = diagnostic (`s=clamp(v_pre−margin·θ,0,G)`). Params `inhibitory_eta_up`=0.02, `inhibitory_eta_down`=0.005, `inhibitory_p_max`=1.0 |
 | `lasting_inhibition` | **False** | experimental scalar field; FAILED — leave off |
 | `homeostasis` | False | Turrigiano scaling; off by default |
-| `membrane_noise` | **0.0** | keep off for distance experiments; no random charge injection |
 | `refractory` | 2 | irrelevant to the round-robin (see §5) |
 
 Key mechanisms & locations:
-- **Competition**: `SimulationEngine.step()`, section "2c" — at `cycle_boundary`,
-  `winner = argmax(potential among eligible)`, fires; `L2I` fires and one-shot
-  partial-discharges the rest via `apply_inhibition`. `event_driven` and
-  `lasting_inhibition` branches are alternates in the same block (both off).
+- **Competition**: `SimulationEngine.step()`, section "2b/2c" + helper
+  `_resolve_l2_competition` — EVERY step (default, `event_driven`),
+  `winner = argmax(potential among eligible threshold-crossers)`, fires; `L2I` fires
+  and one-shot partial-discharges the rest via `apply_inhibition` (all L2E except the
+  winner, not just co-crossers). This step's feedforward drive arrives in
+  `l2_charge_chunks`=K chunks inside the frozen timestep, resolving after each and
+  stopping at the first crosser (K=1 = un-chunked). Turning `event_driven` off
+  resolves the same argmax competition only at `cycle_boundary`; `lasting_inhibition`
+  is a separate alternate mechanism in the same block (off).
 - **Excitatory learning** (`neuron_flexible.py::_update_weights`): participation-
   gated charge rule `dw = eta·p·(1 − w²/w_max)`, p = clamp(theta/v_pre,0,1); plus
   the signed-depression OFF-gate branch; then `_apply_budget_and_cap` (renorm sum

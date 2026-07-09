@@ -294,6 +294,10 @@ canvas.chart, #histogram { width: 100%; display: block; }
 .viz-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
 .viz-hint { font-size: 11px; color: var(--txt-2); }
 .viz-bar .danger { margin-left: auto; }
+/* Playback transport mirrored inside the full-screen chart overlays (the overlay
+   covers the top bar, so these give play/pause/stop without closing the chart). */
+.viz-transport { display: flex; align-items: center; gap: 6px; }
+.viz-transport .btn { flex: 0 0 auto; margin: 0; min-width: 34px; }
 .viz-scroll { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; background: var(--bg-2); }
 .viz-spacer { position: absolute; top: 0; left: 0; height: 1px; pointer-events: none; }
 /* Raster & charge canvases are viewport-sized and pinned; only the visible time

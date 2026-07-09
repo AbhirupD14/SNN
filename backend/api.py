@@ -50,7 +50,7 @@ engine = SimulationEngine(
     # threshold (3-pixel lines); positive floor = 1; each I threshold = its E's / 3.
     l2e_weight_cap_frac=1 / 3,
     pos_weight_floor=1,
-    l2i_threshold_frac=1 / 3,     # L2I threshold = threshold_l2 / 3
+    l2i_threshold_frac=1 / 7,     # L2I threshold = threshold_l2 / 3
     l1i_threshold_frac=1 / 3,     # L1I threshold = threshold / 3
     l2e_lr_frac=0.02,             # L2E feedforward learning rate (fraction of the cap)
     ei_sat_mult=4.0,              # push E->I saturation above the clip so L2E->L2I reaches
@@ -200,9 +200,93 @@ CONFIG_SPEC = [
              "old-pattern retention at little cost; higher over-specializes and can "
              "destabilize the tiling."},
     {"key": "event_driven", "label": "Event-driven firing", "kind": "toggle",
-     "desc": "Fire an L2E the instant it crosses threshold (every step) instead of "
-             "one argmax winner per cycle. Bounds the membrane near threshold (no "
-             "charge pile-up) but re-couples winner timing to input rate."},
+     "desc": "Resolve L2 competition every step -- one argmax winner per timestep, "
+             "inhibiting the rest (DEFAULT ON, the canonical flow). Turn OFF to "
+             "resolve the same argmax competition only once per cycle, which "
+             "decouples winner timing from the input rate."},
+    {"key": "l2_charge_chunks", "label": "L2 charge chunks (K)", "kind": "range",
+     "min": 1, "max": 16, "step": 1,
+     "desc": "Deliver each step's L1->L2E feedforward drive in K equal chunks "
+             "within one frozen timestep, re-running the argmax WTA after each "
+             "chunk and stopping at the first threshold-crosser. K=1 (default) is "
+             "the un-chunked baseline; larger K lets the earliest strong responder "
+             "win before rivals pile up charge. IGNORED (forced to 1) when "
+             "excitatory flow-rate mode is on."},
+    {"key": "excitatory_flow_rate", "label": "Excitatory flow-rate", "kind": "toggle",
+     "desc": "Treat each weight as a current amplitude, not an instant charge "
+             "packet: an input spike opens a decaying excitatory current trace that "
+             "integrates into V over several timesteps (L2E/L2I/L1I; not L1E, not a "
+             "relay L1I). OFF (default) = instantaneous V += dot(w, spikes). Forces "
+             "L2 charge chunks to 1 while on."},
+    {"key": "exc_trace_decay", "label": "Exc. trace decay (d)", "kind": "range",
+     "min": 0.0, "max": 0.99, "step": 0.01,
+     "desc": "Per-timestep decay of the excitatory current trace in flow-rate mode. "
+             "Higher = current lingers and charge spreads over more timesteps; 0 = "
+             "delivers in a single step (≈ instantaneous). Only used when flow-rate "
+             "mode is on."},
+    {"key": "inhibitory_flow_rate", "label": "Inhibitory flow-rate", "kind": "toggle",
+     "desc": "Model the L2I->L2E discharge as a decaying current that drains charge "
+             "over several steps (sustained suppression), symmetric to the excitatory "
+             "flow, instead of a one-shot subtraction. OFF (default) = instant hit. "
+             "NOTE: it suppresses more but does NOT break the round-robin on a held "
+             "pattern (that needs loser depression) -- see the state doc."},
+    {"key": "inh_trace_decay", "label": "Inh. trace decay (d)", "kind": "range",
+     "min": 0.0, "max": 0.99, "step": 0.01,
+     "desc": "Per-step decay of the inhibitory current in flow mode. Higher = the "
+             "discharge lingers over more steps. Only used when inhibitory flow is on."},
+    {"key": "inh_trace_normalized", "label": "Inh. trace normalized", "kind": "toggle",
+     "desc": "Inject w*(1-d) so the total charge drained over time ~= the one-shot "
+             "gate w. OFF injects w (total w/(1-d), a stronger sustained bite). Only "
+             "used when inhibitory flow is on."},
+    {"key": "exc_trace_normalized", "label": "Exc. trace normalized", "kind": "toggle",
+     "desc": "Inject drive*(1-d) so the current trace's total delivered charge "
+             "approximates the instantaneous dot(w, spikes) over time (comparable "
+             "magnitudes). OFF injects the full drive (larger total). Only used when "
+             "flow-rate mode is on."},
+    {"key": "inhibitory_delta_rule", "label": "Inhibitory differentiating gate", "kind": "toggle",
+     "desc": "ON (default) = event-local TURNOVER rule on each L2I->L2E gate: "
+             "du = eta_up*p_t*(1-u) - eta_down*u (u=w/G, p_t=clamp(v_pre/theta,0,p_max)). "
+             "High-charge rivals accumulate stronger gates; weak/dead targets drift "
+             "down -- gates DIFFERENTIATE, no target voltage or averages. OFF = legacy "
+             "saturating rule (every gate converges to the same sqrt(w_max), uniform)."},
+    {"key": "inhibitory_eta_up", "label": "Inhibitory eta_up (strengthen)", "kind": "range",
+     "min": 0.0, "max": 0.2, "step": 0.005,
+     "desc": "Turnover strengthening rate: how fast a discharged high-charge target's "
+             "incoming gate grows (scaled by p_t and remaining headroom 1-u). Only used "
+             "when the differentiating gate is on."},
+    {"key": "inhibitory_eta_down", "label": "Inhibitory eta_down (turnover)", "kind": "range",
+     "min": 0.0, "max": 0.1, "step": 0.001,
+     "desc": "Turnover decay rate: every gate shrinks proportional to its size each "
+             "discharge, so gates that stop being reinforced drift toward zero. Only "
+             "used when the differentiating gate is on."},
+    {"key": "inhibitory_p_max", "label": "Inhibitory p_max", "kind": "range",
+     "min": 0.5, "max": 3.0, "step": 0.1,
+     "desc": "Cap on the charge signal p_t = clamp(v_pre/theta, 0, p_max) in the "
+             "turnover rule. >1 lets an over-threshold target push its gate harder. "
+             "Only used when the differentiating gate is on."},
+    {"key": "distance_weighting", "label": "Distance attenuation", "kind": "toggle",
+     "desc": "Attenuate DELIVERED excitatory drive by synapse distance: each "
+             "afferent's amplitude is scaled by (d_ref/max(d,d_min))^power. Weight = "
+             "learned gate, distance = delivery attenuation, trace = temporal flow. "
+             "Does NOT change stored weights or trace math. OFF by default; per-synapse "
+             "distances are 1.0 (no effect) until functional positions are assigned."},
+    {"key": "distance_power", "label": "Distance power", "kind": "range",
+     "min": 0.0, "max": 4.0, "step": 0.5,
+     "desc": "Exponent in the distance factor (2 = inverse-square). Only used when "
+             "distance attenuation is on."},
+    {"key": "distance_ref", "label": "Distance ref (d_ref)", "kind": "range",
+     "min": 0.5, "max": 8.0, "step": 0.5,
+     "desc": "Reference distance: factor = (d_ref/max(d,d_min))^power, so d = d_ref "
+             "delivers the full weight. Only used when distance attenuation is on."},
+    {"key": "distance_min", "label": "Distance min (d_min)", "kind": "range",
+     "min": 0.1, "max": 4.0, "step": 0.1,
+     "desc": "Floor on distance to avoid a divide-by-zero / over-boost for very close "
+             "synapses. Only used when distance attenuation is on."},
+    {"key": "l1i_immediate_relay", "label": "L1I immediate relay", "kind": "toggle",
+     "desc": "L1I fires immediately on ANY nonzero L2E feedback -- a deterministic "
+             "relay, no learned-threshold crossing or feedback-weight training "
+             "(DEFAULT ON). Turn OFF to restore the trainable threshold-integrating "
+             "L1I that fires only when accumulated feedback crosses its threshold."},
     {"key": "subtractive_reset", "label": "Reset by subtraction", "kind": "toggle",
      "desc": "On L2E fire, subtract threshold from the membrane (floored at rest) "
              "instead of a full reset to rest. Leaves the winner its residual "
@@ -235,8 +319,12 @@ CONFIG_SPEC = [
      "desc": "Depress the active gates of neurons that were suppressed by lateral "
              "inhibition — pushes losers away from the winner's pattern."},
     {"key": "eta_loss", "label": "Loser-depression rate (eta_loss)", "kind": "range",
-     "min": 0.0, "max": 0.05, "step": 0.005,
-     "desc": "Strength of loser depression. 0 disables it even if the toggle is on."},
+     "min": 0.0, "max": 20.0, "step": 0.01,
+     "desc": "Strength of loser depression -- the symmetry-breaker that turns a held "
+             "pattern's round-robin into a single owner. 0 disables it. The default "
+             "0.01 is far too weak to consolidate; ~10 collapses a held pattern to one "
+             "winner (but over-depresses across multiple patterns -- see "
+             "Inhibition_And_Consolidation_State.md)."},
     {"key": "leak_l2", "label": "L2 leak", "kind": "range",
      "min": 0.001, "max": 0.05, "step": 0.001,
      "desc": "Fraction of L2 potential that decays per step. The main lever on winner "

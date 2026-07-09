@@ -1,15 +1,14 @@
 {
   "name": "finite_time_row_consolidation_sweep",
-  "description": "Tests whether row patterns consolidate to a stable single owner within a fixed presentation budget under the minimal signed-spike model (no budget, refractory=0, cap=thr/3). Sweeps seeds x dwell x schedule, plus a membrane-noise ablation, to quantify seed sensitivity and time-to-stable-owner.",
-  "hypothesis": "Consolidation is seed-symmetry-limited: baseline (noise=0) leaves many patterns split ~0.5; a small local membrane noise breaks the symmetric ties so inhibition + signed learning amplify a consistent owner within ~200 presentations per pattern.",
+  "description": "Tests whether row patterns consolidate to a stable single owner within a fixed presentation budget under the minimal signed-spike model (no budget, refractory=0, cap=thr/3). Sweeps seeds x dwell x schedule to quantify seed sensitivity and time-to-stable-owner.",
+  "hypothesis": "Consolidation is seed-symmetry-limited: baseline leaves many patterns split ~0.5 because symmetric ties are never broken, so inhibition + signed learning cannot reliably amplify a single owner within ~200 presentations per pattern.",
   "patterns": ["row 0", "row 1", "row 2"],
   "seeds": [1, 2, 3, 4],
   "dwell_steps": [8, 16],
   "schedules": ["interleaved", "blocked"],
   "max_presentations_per_pattern": 200,
   "ablations": {
-    "baseline_noise0": {"membrane_noise": 0.0},
-    "membrane_noise_0p2": {"membrane_noise": 0.2}
+    "baseline": {}
   },
   "metrics": [
     "ownership_consistency", "time_to_stable_owner", "collisions",

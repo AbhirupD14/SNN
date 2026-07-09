@@ -107,10 +107,20 @@ export class Controls {
   // ------------------------------------------------------------- execution
   _wireExecution() {
     const bind = (ids, fn) => ids.forEach(id => document.getElementById(id)?.addEventListener('click', fn));
-    bind(['g-start', 'x-start', 'x-resume'], () => this.api.post('/api/start'));
-    bind(['g-pause', 'x-pause'], () => this.api.post('/api/pause'));
+    // Sidebar controls plus the transport mirrored inside the full-screen chart
+    // overlays (raster/charge/weights), which cover the top bar's run indicator.
+    bind(['g-start', 'x-start', 'x-resume', 'raster-play', 'charge-play', 'weights-play'],
+         () => this.api.post('/api/start'));
+    bind(['g-pause', 'x-pause', 'raster-pause', 'charge-pause', 'weights-pause'],
+         () => this.api.post('/api/pause'));
     bind(['g-step', 'x-step'], () => this.api.post('/api/step'));
     bind(['g-reset', 'x-reset'], () => this.api.post('/api/reset'));
+    // Overlay Stop = reset: halts AND rebuilds the network from fresh weights, so
+    // it wipes all learned state -- confirm before firing.
+    bind(['raster-stop', 'charge-stop', 'weights-stop'], () => {
+      if (window.confirm('Stop resets the simulation and wipes all learned weights. Continue?'))
+        this.api.post('/api/reset');
+    });
 
     const speed = document.getElementById('speed'), val = document.getElementById('speed-val');
     speed.addEventListener('input', () => { val.textContent = speed.value; });
@@ -218,6 +228,15 @@ export class Controls {
   }
 
   onDynamic(dyn) {
+    // Reflect run state on the overlay transport (the full-screen chart covers the
+    // top bar, so this is the only run/pause indicator visible while it is open):
+    // highlight Play while running, Pause while halted.
+    const running = !!dyn.running;
+    for (const id of ['raster-play', 'charge-play', 'weights-play'])
+      document.getElementById(id)?.classList.toggle('active-toggle', running);
+    for (const id of ['raster-pause', 'charge-pause', 'weights-pause'])
+      document.getElementById(id)?.classList.toggle('active-toggle', !running);
+
     const input = dyn.input || [];
     this.pixels.forEach((cell, i) => {
       const on = input[i] > 0;

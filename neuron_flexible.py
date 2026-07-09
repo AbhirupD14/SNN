@@ -194,6 +194,66 @@ class Neuron:
         # discharge is meaningful; against a 3*theta pile-up it is not. Local and
         # per-neuron; see receive_input. Off by default so the baseline is intact.
         self.v_sat = None
+        # Sparse excitatory FLOW-RATE accumulation (opt-in; see receive_input,
+        # advance_trace, and Current_Implementation_Methodology_Equations.md).
+        # Default OFF -> instantaneous V += dot(weights, spikes) baseline. When on,
+        # an input spike opens a decaying excitatory CURRENT trace (exc_trace) that
+        # is integrated into the membrane over time using closed-form skipped-time
+        # math, so weight behaves as a current/gate amplitude rather than a charge
+        # packet deposited instantly.
+        self.excitatory_flow_rate = False   # enable current-trace accumulation
+        self.exc_trace_decay = 0.8          # per-timestep current decay d in [0, 1)
+        self.exc_trace_normalized = True    # inject drive*(1-d) so total delivered ~= drive
+        self.exc_trace = 0.0                # I: current trace amplitude
+        self.exc_trace_last_t = 0           # last outer timestep the trace was advanced to
+        # Inhibitory FLOW (opt-in; symmetric to the excitatory flow). When on, a real
+        # inhibitory discharge injects the gate magnitude into a decaying inhibitory
+        # CURRENT (inh_trace) that drains charge out of the membrane over several
+        # steps (in update(), floored at rest), instead of subtracting it all at once
+        # -- sustained suppression to counteract the continuous excitatory inflow.
+        # Normalized injection w*(1-d) makes the TOTAL drained ~= w (same as the
+        # one-shot hit, just spread over time); un-normalized injects w (total w/(1-d),
+        # a stronger sustained bite). Does not change the stored gate weight.
+        self.inhibitory_flow_rate = False
+        self.inh_trace_decay = 0.8
+        self.inh_trace_normalized = True
+        self.inh_trace = 0.0                # pending inhibitory current (drains in update)
+        # Inhibitory-gate plasticity rule (see apply_inhibition). inhibitory_delta_rule
+        # False = legacy SATURATING rule (dw = eta*p*(1 - w^2/w_max); every gate
+        # converges to the same ceiling sqrt(w_max), so gates end up uniform). True =
+        # a differentiating local rule, selected by inhibitory_rule_mode. All rules
+        # normalize the gate against a sub-threshold ceiling G = sqrt(w_max) (the
+        # scale the saturating rule converges to) and share the same linear
+        # floored-at-rest delivery. Neuron default stays legacy so bare-neuron tests
+        # are unchanged; SimulationEngine defaults delta_rule True, mode "turnover".
+        self.inhibitory_delta_rule = False
+        # "turnover" (default): event-local strengthen/turnover on the NORMALIZED gate
+        #   u = w/G:  du = eta_up*p_t*(1 - u) - eta_down*u,  p_t = clamp(v_pre/theta,
+        #   0, p_max). High-charge targets strengthen more (eta_up term); every gate
+        #   turns over proportional to size (eta_down term). No target voltage, no
+        #   averages -- purely this event's v_pre, theta, w and spike.
+        # "margin": relax the gate toward s = clamp(v_pre - margin_frac*theta, 0, G)
+        #   (a hand-set post-inhibition target level); kept as a diagnostic.
+        self.inhibitory_rule_mode = "turnover"
+        self.inhibitory_eta_up = 0.02       # turnover: charge-driven strengthening
+        self.inhibitory_eta_down = 0.005    # turnover: size-proportional decay
+        self.inhibitory_p_max = 1.0         # turnover: cap on p_t = v_pre/theta
+        self.inhibitory_margin_frac = 0.5   # margin mode: target_post = frac * theta
+        self.inhibitory_delta_eta = 0.05    # margin mode: EMA rate toward s
+        # Distance attenuation of DELIVERED excitatory drive (opt-in; see
+        # receive_input). The weight is the learned gate strength; distance is a
+        # fixed per-synapse DELIVERY attenuation that multiplies the injected drive
+        # amplitude -- it does NOT change the stored weight, and does NOT enter the
+        # trace decay/integration math. Per afferent:
+        #   factor_i = (distance_ref / max(d_i, distance_min)) ** distance_power
+        # so the effective drive is sum_i spike_i * w_i * factor_i. _distance holds
+        # the per-afferent d_i (allocated to ones at finalize = no attenuation until
+        # real functional distances are provided). Default OFF preserves behavior.
+        self.distance_weighting = False
+        self.distance_power = 2.0
+        self.distance_ref = 1.0
+        self.distance_min = 1.0
+        self._distance = None               # per-afferent d_i (set at finalize)
         self._connections_finalized = False  # Flag to prevent changes after finalization
         self.last_inhibitory_events = []    # debug records from the most recent apply_inhibition()
         
@@ -249,6 +309,11 @@ class Neuron:
         self._trace = np.zeros(n)
         if self._confidence is None or len(self._confidence) != n:
             self._confidence = np.full(n, self.confidence_init)
+        # Per-afferent delivery distance; default 1.0 (no attenuation). Preserved
+        # across weight re-assignments of the same fan-in so setting distances then
+        # weights (or vice versa) does not wipe them.
+        if self._distance is None or len(self._distance) != n:
+            self._distance = np.ones(n)
         self._last_input_spikes = np.zeros(n)
         if finalized is not None:
             self._connections_finalized = finalized
@@ -259,33 +324,111 @@ class Neuron:
             raise RuntimeError("Connections not finalized. "
                              "Call finalize_connections() before simulation.")
         
-    def receive_input(self, input_spikes):
+    def advance_trace(self, t):
+        """Lazily integrate the excitatory current trace forward to outer timestep
+        `t` (closed-form skipped-time), adding the integrated current to the
+        membrane and decaying the trace. This is the sparse equivalent of running
+        `V += I; I *= d` once per timestep from exc_trace_last_t up to t, but in
+        O(1). No-op outside flow-rate mode or when already at/past t. See the
+        methodology doc's flow-rate section for the derivation."""
+        if not self.excitatory_flow_rate:
+            return
+        dt = t - self.exc_trace_last_t
+        if dt <= 0:
+            return
+        d = self.exc_trace_decay
+        if self.exc_trace != 0.0:
+            # Geometric sum of dt discrete `V += I; I *= d` steps. As d -> 1 the
+            # closed form (1 - d^dt)/(1 - d) -> dt (its limit), which also avoids
+            # the 1/(1-d) blow-up; d == 0 gives geom == 1 (contributes once).
+            geom = float(dt) if abs(1.0 - d) < 1e-9 else (1.0 - d ** dt) / (1.0 - d)
+            self.potential += self.exc_trace * geom
+            self.exc_trace *= d ** dt
+            if self.v_sat is not None and self.potential > self.v_sat:
+                self.potential = self.v_sat
+        self.exc_trace_last_t = t
+
+    def receive_input(self, input_spikes, charge_scale=1.0, t=None):
         """
         Accumulate charge based on weighted inputs.
-        
+
         Args:
             input_spikes (array-like): Binary array indicating which inputs spiked (1) or not (0)
+            charge_scale (float): scales ONLY the delivered charge (potential
+                increment and eligibility trace), not the participation signal --
+                _last_input_spikes still records the binary input vector so the
+                signed-spike learning rule sees the true participating synapses.
+                Used by the chunked-charge L2 competition (l2_charge_chunks) to
+                deliver weight_ji/K per inner sub-step; the default 1.0 leaves
+                every existing caller unchanged.
+            t (int|None): current outer timestep. Required for flow-rate mode
+                (excitatory_flow_rate); ignored in the instantaneous baseline.
         """
         self._ensure_finalized()
-        
-        # Only accumulate charge if not in refractory period
-        if self.refractory_timer <= 0:
-            # Charge accumulation: sum of weight * input for all connections
-            if len(self._weights_array) > 0:
-                input_spikes = np.asarray(input_spikes, dtype=float)
-                input_current = np.dot(self._weights_array, input_spikes)
-                self.potential += input_current
-                # Saturating membrane: bound accumulated charge at a finite
-                # ceiling so it can't ratchet far past threshold (keeps the
-                # membrane in a range where the inhibitory gate can regulate it).
-                if self.v_sat is not None and self.potential > self.v_sat:
-                    self.potential = self.v_sat
-                # ARCHIVED: no longer read by _update_weights. Kept only so
-                # anything still inspecting ._trace keeps working.
-                self._trace += input_spikes
-                # Instantaneous participation signal for the charge-based
-                # excitatory rule -- see _update_weights.
+
+        # Only accumulate charge if not in refractory period (flow mode too: a
+        # refractory neuron neither advances its trace nor injects, so no hidden
+        # current builds up while it is clamped -- consistent with instantaneous).
+        if self.refractory_timer > 0 or len(self._weights_array) == 0:
+            return
+        input_spikes = np.asarray(input_spikes, dtype=float)
+
+        # Distance attenuation of DELIVERED drive (opt-in): scale each afferent
+        # weight by its fixed per-synapse delivery factor before it drives the
+        # membrane. factor_i = (distance_ref / max(d_i, distance_min))^distance_power.
+        # This changes ONLY the delivered amplitude (both flow-rate and
+        # instantaneous paths), never the stored weight, and it is NOT part of the
+        # trace decay/integration math. OFF leaves w_eff pointing at the stored
+        # weights (no copy) so the baseline is byte-identical.
+        if self.distance_weighting and self._distance is not None:
+            factor = (self.distance_ref / np.maximum(self._distance, self.distance_min)) ** self.distance_power
+            w_eff = self._weights_array * factor
+        else:
+            w_eff = self._weights_array
+
+        if self.excitatory_flow_rate and t is not None:
+            # Flow-rate: the spike opens a decaying excitatory current trace that is
+            # integrated into V over time, instead of depositing all charge at once.
+            d = self.exc_trace_decay
+            # 1. Advance residual current through the gap timesteps up to t-1.
+            self.advance_trace(t - 1)
+            self._dbg_v_after_advance = self.potential   # phase diagnostic (see step())
+            # 2. Inject new EXCITATORY (positive-weight) drive as current, using the
+            #    distance-attenuated effective weights (delivery, not stored weight).
+            drive = float(np.dot(np.maximum(w_eff, 0.0), input_spikes)) * charge_scale
+            self.exc_trace += drive * (1.0 - d) if self.exc_trace_normalized else drive
+            # 3. Same-timestep contribution: one integration step at t (inject then
+            #    integrate, so a fresh spike still moves V this timestep).
+            self.potential += self.exc_trace
+            self.exc_trace *= d
+            self.exc_trace_last_t = t
+            if self.v_sat is not None and self.potential > self.v_sat:
+                self.potential = self.v_sat
+            # Only a REAL input volley refreshes the participation mask; residual-
+            # flow steps (no spike) leave it, so a neuron that crosses threshold on
+            # a later no-input timestep still learns the volley that drove it.
+            if input_spikes.any():
+                self._trace += input_spikes * charge_scale
                 self._last_input_spikes = input_spikes
+            return
+
+        # Instantaneous baseline: V += dot(weights, spikes) (distance-attenuated
+        # effective weights when distance weighting is on; not entangled with
+        # chunking -- charge_scale = 1/K still just scales the resulting drive).
+        input_current = np.dot(w_eff, input_spikes) * charge_scale
+        self.potential += input_current
+        # Saturating membrane: bound accumulated charge at a finite ceiling so it
+        # can't ratchet far past threshold (keeps the membrane in a range where the
+        # inhibitory gate can regulate it).
+        if self.v_sat is not None and self.potential > self.v_sat:
+            self.potential = self.v_sat
+        # ARCHIVED: no longer read by _update_weights. Kept only so anything still
+        # inspecting ._trace keeps working.
+        self._trace += input_spikes * charge_scale
+        # Instantaneous participation signal for the charge-based excitatory rule
+        # -- see _update_weights. Stays BINARY (unscaled) so chunked delivery does
+        # not corrupt the participation mask.
+        self._last_input_spikes = input_spikes
 
     def apply_inhibition(self, inhibitory_spikes):
         """
@@ -328,17 +471,51 @@ class Neuron:
         for idx in active:
             w = -float(self._weights_array[idx])   # magnitude of the inhibitory gate
             v_pre = float(self.potential)
-            # Linear discharge FLOORED at rest:
-            # inhibition cannot push the membrane below resting potential.
-            self.potential = max(self.potential - w, self.resting_potential)
-            v_post = float(self.potential)
-            # Normalized closeness to firing, clamped to [0, 1].
+            if self.inhibitory_flow_rate:
+                # Inhibitory FLOW: inject the gate into a decaying inhibitory current
+                # that drains the membrane over subsequent steps (see update()),
+                # rather than subtracting it all now. No instantaneous change here;
+                # the learning rule below still uses v_pre.
+                self.inh_trace += w * (1.0 - self.inh_trace_decay) if self.inh_trace_normalized else w
+                v_post = v_pre
+            else:
+                # Linear one-shot discharge FLOORED at rest:
+                # inhibition cannot push the membrane below resting potential.
+                self.potential = max(self.potential - w, self.resting_potential)
+                v_post = float(self.potential)
+            # Normalized closeness to firing, clamped to [0, 1] (saturating rule).
             p = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
-            if w_max > 0:
+            if self.inhibitory_delta_rule:
+                # Differentiating rules operate on the NORMALIZED gate u = w/G, where
+                # the ceiling G = sqrt(w_max) is the same sub-threshold scale the
+                # saturating rule converges to (so switching rules doesn't jump the
+                # gate scale, and l2_gate_eq_frac still sets it). All variables are
+                # LOCAL to this event: this synapse's w, this target's v_pre/theta,
+                # the arriving spike. No averages, no global rank/winner identity.
+                G = w_max ** 0.5 if w_max > 0 else 0.0
+                if self.inhibitory_rule_mode == "margin":
+                    # Diagnostic: relax toward the magnitude that brings the target to
+                    # a fixed post-inhibition level target_post = margin_frac*theta.
+                    target_post = self.inhibitory_margin_frac * theta
+                    s = min(max(v_pre - target_post, 0.0), G)
+                    dw = self.inhibitory_delta_eta * (s - w)
+                else:
+                    # Default TURNOVER: event-local strengthen (charge-driven, larger
+                    # for high v_pre and small u) minus size-proportional turnover.
+                    # Frequently high-charge rivals accumulate a stronger gate; weak/
+                    # dead targets drift down -- with NO desired post-inhibition
+                    # voltage and NO stored average.
+                    u = w / G if G > 0 else 0.0
+                    p_t = min(max(v_pre / theta, 0.0), self.inhibitory_p_max) if theta > 0 else 0.0
+                    du = self.inhibitory_eta_up * p_t * (1.0 - u) - self.inhibitory_eta_down * u
+                    dw = du * G
+                w_new = min(max(w + dw, 0.0), G)
+            elif w_max > 0:
                 dw = self.inhibitory_learning_rate * p * (1.0 - (w * w) / w_max)
+                w_new = min(max(w + dw, 0.0), w_max)   # clip to the finite ceiling
             else:
                 dw = 0.0
-            w_new = min(max(w + dw, 0.0), w_max)   # saturate at the finite ceiling
+                w_new = w
             self._weights_array[idx] = -w_new      # keep the inhibitory sign
             events.append(dict(index=int(idx), v_pre=v_pre, v_post=v_post,
                                theta=theta, p=p, w_before=w,
@@ -403,6 +580,14 @@ class Neuron:
             self.potential += self._leak_num * (self.resting_potential - self.potential) / LEAK_SCALE
             # Decay the eligibility trace with the same leak fraction.
             self._trace *= (1.0 - self._leak_num / LEAK_SCALE)
+            # Inhibitory FLOW: drain the pending inhibitory current out of the
+            # membrane this step (floored at rest), then decay it. Runs every step,
+            # so a single discharge keeps suppressing the target for ~1/(1-decay)
+            # steps instead of only on the step L2I fired. Not reset on fire -- the
+            # pending inhibition drains fully regardless.
+            if self.inhibitory_flow_rate and self.inh_trace > 0.0:
+                self.potential = max(self.potential - self.inh_trace, self.resting_potential)
+                self.inh_trace *= self.inh_trace_decay
 
         # Homeostatic synaptic scaling (slow, activity-driven, non-Hebbian).
         if self.homeostasis:
@@ -454,6 +639,13 @@ class Neuron:
 
         # Mark that we spiked this time step
         self.spiked = True
+
+        # Flow-rate: discharge the excitatory current trace along with the membrane,
+        # so no residual current keeps re-charging a just-fired neuron (and none
+        # back-integrates when it leaves the refractory window). Consistent with the
+        # full membrane reset above.
+        if self.excitatory_flow_rate:
+            self.exc_trace = 0.0
 
         # Update weights from the charge captured before discharge.
         self._update_weights(v_pre)
@@ -668,6 +860,20 @@ class Neuron:
         if self._weights_array is not None and len(arr) != len(self._weights_array):
             raise ValueError("trace length must match weights length")
         self._trace = arr.copy()
+
+    @property
+    def distance(self):
+        """Per-afferent delivery distance d_i (aligned to weights). Used only for
+        distance attenuation of the delivered drive; never changes stored weights."""
+        self._ensure_finalized()
+        return self._distance.copy() if self._distance is not None else None
+
+    @distance.setter
+    def distance(self, value):
+        arr = np.asarray(value, dtype=float)
+        if self._weights_array is not None and len(arr) != len(self._weights_array):
+            raise ValueError("distance length must match weights length")
+        self._distance = arr.copy()
 
     @property
     def confidence(self):

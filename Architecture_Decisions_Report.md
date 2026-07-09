@@ -452,9 +452,8 @@ itself plastic.
 - **Several numeric constants are task-fit, not derived from data**
   (e.g. `L2_GATE_WMAX=1.5`, `ca_target=0.012`, `EPISODE_QUIET_K=5`) — chosen
   by parameter sweeps on this specific 8-pattern task, not from biological
-  measurement. Flagged in-repo (`Biological_Architecture_Review_Protocol.md`)
-  as exactly the kind of assumption that should be interrogated per-parameter
-  before any claim of biological fidelity.
+  measurement — exactly the kind of assumption that should be interrogated
+  per-parameter before any claim of biological fidelity.
 
 ---
 

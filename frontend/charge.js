@@ -42,6 +42,7 @@ export class ChargeChart {
       this.follow = s.scrollLeft + s.clientWidth >= s.scrollWidth - 6;
       this._schedule();
     });
+    this.scroll?.addEventListener('wheel', (e) => this._wheelZoom(e), { passive: false });
     window.addEventListener('resize', () => this._schedule());
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this._open()) this.close(); });
   }
@@ -83,6 +84,22 @@ export class ChargeChart {
     this._draw();
   }
 
+  // Cursor-anchored zoom on a vertical wheel; shift+wheel or a horizontal wheel
+  // (trackpad) falls through to normal timeline panning.
+  _wheelZoom(e) {
+    if (!this._open()) return;
+    if (e.shiftKey || Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    const mx = e.clientX - this.scroll.getBoundingClientRect().left;   // cursor x in viewport
+    const col = (this.scroll.scrollLeft + Math.max(mx, MARGIN) - MARGIN) / this.colW;
+    const next = Math.max(3, Math.min(48, this.colW * (e.deltaY < 0 ? 1.15 : 1 / 1.15)));
+    if (next === this.colW) return;
+    this.colW = next;
+    this.follow = false;                    // anchored to the cursor, not the live edge
+    this._anchor = col; this._anchorPx = mx;
+    this._draw();
+  }
+
   _lanes() { return this.showL1 ? this.order : this.order.filter(n => !n.group.startsWith('L1')); }
 
   _draw() {
@@ -96,9 +113,10 @@ export class ChargeChart {
     this.spacer.style.width = (MARGIN + cols * this.colW) + 'px';
 
     if (this._anchor != null) {
-      const S = this._anchor * this.colW + MARGIN - this.scroll.clientWidth / 2;
+      const px = this._anchorPx != null ? this._anchorPx : this.scroll.clientWidth / 2;
+      const S = this._anchor * this.colW + MARGIN - px;
       this.scroll.scrollLeft = Math.max(0, Math.min(S, this.scroll.scrollWidth - vw));
-      this._anchor = null;
+      this._anchor = this._anchorPx = null;
     } else if (this.follow) {
       this.scroll.scrollLeft = this.scroll.scrollWidth;
     }

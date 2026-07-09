@@ -30,7 +30,9 @@ patterns:
 - `N_OUT = 8`: one L2E candidate output neuron per primitive.
 - `L1E_i`: fixed pixel encoder for pixel `i`.
 - `L1I_i`: paired inhibitory neuron for `L1E_i`; receives feedback from all L2E
-  neurons and can suppress its paired input.
+  neurons and can suppress its paired input. By default (`l1i_immediate_relay`) it
+  is a deterministic relay -- it fires on any nonzero L2E feedback rather than on a
+  learned threshold crossing (see step 9).
 - `L2E_j`: trainable output neuron with one feedforward synapse from each L1E
   pixel plus one local inhibitory gate from L2I.
 - `L2I`: one shared inhibitory neuron receiving from all L2E neurons and
@@ -59,7 +61,6 @@ refractory          = 2
 volley_period       = 4
 input_period        = volley_period
 cycle_period        = volley_period
-membrane_noise      = 0.0
 homeostasis         = False
 ca_rate             = 0.01
 ca_target           = 0.012
@@ -81,7 +82,12 @@ eta_loss                = 0.01
 signed_depression       = True
 eta_off                 = 0.20
 l2e_budget              = True
-event_driven            = False
+event_driven            = True
+l2_charge_chunks        = 1
+l1i_immediate_relay     = True
+excitatory_flow_rate    = False
+exc_trace_decay         = 0.8
+exc_trace_normalized    = True
 lasting_inhibition      = False
 ```
 
@@ -132,6 +138,15 @@ encoded by the sign of the weight landing on the target.
 
 ## Charge Integration
 
+There are two charge-accumulation models, selected by `excitatory_flow_rate`.
+The default is the **instantaneous** model (a weight is a charge packet deposited
+in full on the spike). The opt-in **flow-rate** model (a weight is a current
+amplitude integrated over time) is derived in its own section below. Both feed the
+SAME unchanged event-based threshold / winner / inhibition procedure — flow-rate
+only changes how positive charge accumulates *before* the threshold check.
+
+### Instantaneous model (default, `excitatory_flow_rate = False`)
+
 If the target neuron is not refractory:
 
 $$
@@ -143,6 +158,120 @@ V_n(t^+) &= V_n(t) + I_n(t) \\
 $$
 
 If the neuron is refractory, `receive_input()` is a no-op.
+
+## Excitatory Flow-Rate Accumulation (`excitatory_flow_rate = True`)
+
+An optional, sparser interpretation of a synapse: the **weight is a current /
+gate amplitude**, a spike opens an excitatory **current trace**, the membrane
+integrates that current over time, and the current decays. This replaces the
+instantaneous charge packet above only for the positive-charge integrators —
+**L2E** (from L1E spikes), **L2I** (from L2E spikes), and **L1I** (from L2E
+feedback, only when it is a trainable integrator, i.e. NOT in
+`l1i_immediate_relay` mode). **L1E is exempt**: it is an abstract pretrained
+sensory source and keeps instantaneous dynamics; while a pattern is held it
+re-fires every `input_period` steps, so it is a sustained periodic current source
+for the traces downstream.
+
+### State
+
+Per neuron: the current trace amplitude $I$ (`exc_trace`) and the last outer
+timestep it was advanced to, $t_\ell$ (`exc_trace_last_t`). Constant decay
+$d = $ `exc_trace_decay` $\in [0, 1)$.
+
+### Dense recursion (reference)
+
+Conceptually, every timestep the membrane absorbs the current and the current
+decays:
+
+$$
+V \mathrel{+}= I, \qquad I \mathrel{\leftarrow} d\,I .
+$$
+
+### Closed-form lazy (skipped-time) advance
+
+Running that recursion densely for every neuron every step does not scale. Since
+$I$ only decays between events, the effect of $\Delta t = t - t_\ell$ idle steps
+is a geometric sum, applied lazily in $O(1)$ when the neuron is next touched:
+
+$$
+V \mathrel{+}= I \cdot \frac{1 - d^{\,\Delta t}}{1 - d},
+\qquad
+I \mathrel{\leftarrow} I\,d^{\,\Delta t},
+\qquad
+t_\ell \mathrel{\leftarrow} t .
+$$
+
+Edge cases: $d = 0$ makes the factor $1$ (the current contributes exactly once);
+as $d \to 1$ the factor's limit is $\Delta t$, used directly to avoid the
+$1/(1-d)$ blow-up. `advance_trace(t)` implements this; `receive_input(..., t)`
+calls it, then injects, then integrates one step (below). Only touched neurons
+(or, for future scale, scheduled trace-bearers) pay the cost — an idle neuron is
+never swept. Because residual current keeps flowing, a neuron can cross threshold
+on a timestep with **no new input**.
+
+### Normalized injection
+
+On a spike at time $t$ with drive $g = \sum_i \max(w_{ni}, 0)\,s_i(t)$, the
+current is injected as (default, `exc_trace_normalized = True`):
+
+$$
+I \mathrel{+}= g\,(1 - d) .
+$$
+
+The infinite geometric total then delivered to $V$ is
+$g(1-d)\sum_{k\ge 0} d^{k} = g$, so the flow-rate total charge matches the
+instantaneous $g$ — the two models are magnitude-comparable. With
+`exc_trace_normalized = False`, $I \mathrel{+}= g$ and the total is $g/(1-d)$.
+
+### Ordering (deterministic, same-timestep contribution)
+
+On each outer timestep, a touched neuron: (1) lazily advances residual current up
+to $t-1$; (2) injects new drive into $I$; (3) applies one integration step at $t$
+($V \mathrel{+}= I;\ I \leftarrow dI$) so a fresh spike still moves $V$ this same
+timestep; (4) clamps $V$ to the membrane saturation ceiling exactly as the
+instantaneous path does. **Threshold checks happen after** this contribution, so
+they may fire on no-new-input timesteps. Refractory neurons neither advance nor
+inject (no hidden current builds while clamped); `fire()` discharges $I$ to $0$
+along with the membrane.
+
+### Interaction with chunking
+
+Flow-rate mode is the finer temporal representation, so it is **not** combined
+with the artificial `l2_charge_chunks` weight splitting:
+
+$$
+\text{effective } l2\_charge\_chunks =
+\begin{cases}
+1 & \text{if } excitatory\_flow\_rate \\
+l2\_charge\_chunks & \text{otherwise.}
+\end{cases}
+$$
+
+### Distance attenuation (`distance_weighting`, opt-in)
+
+Three separable roles for a synapse: **weight = learned gate strength**,
+**distance = delivery attenuation**, **trace = temporal flow**. Distance weighting
+scales only the *delivered drive amplitude* — it does not change the stored weight
+and is **not** part of the trace decay/integration math. For each afferent $i$
+into target $j$ with distance $d_{ji}$:
+
+$$
+\mathrm{factor}_{ji}
+= \left(\frac{\mathrm{distance\_ref}}{\max(d_{ji},\,\mathrm{distance\_min})}\right)^{\mathrm{distance\_power}},
+\qquad
+g_j = \sum_i \mathrm{spike}_i \; w_{ji}\,\mathrm{factor}_{ji}.
+$$
+
+This effective drive $g_j$ replaces the raw $\sum_i \mathrm{spike}_i\,w_{ji}$ in the
+same place in both accumulation modes. In flow-rate mode the normalized injection is
+then $I_j \mathrel{+}= g_j(1 - d)$, so the total future charge one spike delivers is
+$\approx w_{ji}\,\mathrm{factor}_{ji}$ (e.g. $w_{ji}/d_{ji}^2$ with
+`distance_power=2`, `distance_ref=1`, `distance_min=1`) rather than raw $w_{ji}$. In
+instantaneous mode the same $g_j$ is used and remains independent of chunking
+(`l2_charge_chunks` merely splits $g_j$ into $K$ equal pieces). Distances are stored
+per synapse and default to $1$ (no attenuation). `distance_weighting` is OFF by
+default, and the delivery ($V \leftarrow \max(V-w, R)$ for inhibition,
+etc.) is otherwise unchanged.
 
 ## Threshold and Firing
 
@@ -271,7 +400,12 @@ $$
 
 Inhibitory plasticity is an independent event-driven rule. It runs only when an
 inhibitory spike is delivered to a non-refractory target through a negative
-synapse.
+synapse. There are two rules, selected by `inhibitory_delta_rule`: the legacy
+**saturating** rule (below) and the default **delta/margin** rule (further down).
+Both use the SAME linear floored-at-rest delivery ($V \leftarrow \max(V-w, R)$)
+and only differ in how the gate magnitude is learned.
+
+### Saturating rule (`inhibitory_delta_rule = False`, legacy)
 
 For each active negative synapse:
 
@@ -315,6 +449,73 @@ $$
 
 when no hard clip intervenes. This is why some code decouples the hard clip from
 the quadratic saturation ceiling.
+
+**Why this saturates uniformly.** The equilibrium `sqrt(w_max)` is the *same for
+every target* — `p_inh` only scales the *rate* of approach, never the destination.
+So any gate discharged enough times converges to the identical ceiling (observed:
+all L2I→L2E gates at ≈1224.7 with spread <0.4%). The gate magnitude ends up
+encoding "has this been inhibited enough to saturate," not "how much inhibition
+does this target need."
+
+### Turnover rule (`inhibitory_delta_rule = True`, `inhibitory_rule_mode = "turnover"`, default)
+
+To make the equilibrium **target-specific without a hand-set target voltage and
+without any average**, the default rule updates the *normalized* gate
+$u = w / G$, where the ceiling $G = \sqrt{w_{\max}}$ is the same sub-threshold
+scale the saturating rule converges to. On each real discharge into a
+non-refractory target:
+
+$$
+\begin{aligned}
+p_t &= \mathrm{clip}\!\left(\frac{v_{\mathrm{pre}}}{\theta},\; 0,\; p_{\max}\right) \\
+\Delta u &= \eta_{\uparrow}\,p_t\,(1 - u)\;-\;\eta_{\downarrow}\,u \\
+u_{\mathrm{new}} &= \mathrm{clip}(u + \Delta u,\; 0,\; 1),
+\qquad w_{\mathrm{new}} = u_{\mathrm{new}}\,G,
+\qquad \mathrm{weight} \leftarrow -w_{\mathrm{new}}
+\end{aligned}
+$$
+
+with $\eta_{\uparrow} = \mathrm{inhibitory\_eta\_up}$,
+$\eta_{\downarrow} = \mathrm{inhibitory\_eta\_down}$,
+$p_{\max} = \mathrm{inhibitory\_p\_max}$. The first term **strengthens** the gate
+in proportion to the target's charge ($p_t$) and its remaining headroom ($1-u$);
+the second is a **size-proportional turnover** that decays every gate toward zero.
+A high-charge rival that repeatedly triggers large strengthening accumulates a big
+gate; a weak/dead target that rarely contributes charge is dominated by turnover
+and drifts down. Gates differentiate (observed spread ≈260 vs 4 for the saturating
+rule) while competition does not collapse.
+
+The algorithm stores and computes **no average** — the update is purely
+event-local. For *offline* intuition only, the per-event fixed point
+($\Delta u = 0$) at a fixed $p_t$ is
+$u^\ast = \eta_{\uparrow} p_t / (\eta_{\downarrow} + \eta_{\uparrow} p_t)$, which
+increases with $p_t$; this is descriptive, not part of the rule.
+
+**Locality.** The update uses only the inhibitory synapse's own weight $w$, the
+target neuron's $v_{\mathrm{pre}}$ and $\theta$, and the arriving inhibitory spike.
+No global rank, population average, or winner identity enters it.
+
+### Margin rule (`inhibitory_rule_mode = "margin"`, diagnostic)
+
+A non-default diagnostic that relaxes the gate toward the magnitude which would
+bring the target to a fixed post-inhibition level
+$\mathrm{target\_post} = \mathrm{inhibitory\_margin\_frac}\cdot\theta$:
+
+$$
+s = \mathrm{clip}(v_{\mathrm{pre}} - \mathrm{target\_post},\,0,\,G),
+\qquad
+\Delta w = \eta_{\delta}\,(s - w),
+\qquad w^\ast = s,
+$$
+
+$\eta_{\delta} = \mathrm{inhibitory\_delta\_eta}$. It also differentiates, but its
+equilibrium is a hand-tuned target voltage; the turnover rule is preferred because
+it needs none.
+
+**Default-run context.** This inhibitory change is orthogonal to the excitatory
+path: `signed_spike_learning` remains the canonical feedforward rule and is
+untouched by it. Instantaneous-vs-flow-rate accumulation is controlled separately
+(`excitatory_flow_rate`). The delivery (linear, floored at rest) is unchanged.
 
 ## Homeostatic Scaling
 
@@ -380,13 +581,22 @@ When this condition is true, `L1E_i.apply_inhibition([1, 0])` is called.
 
 4. L1E neurons that crossed threshold fire.
 
-5. L1E spikes are delivered immediately to every L2E feedforward receptive
-   field.
+5. L1E spikes are delivered to every L2E feedforward receptive field, charging
+   the membrane by the instantaneous or flow-rate model (see Charge Integration /
+   Excitatory Flow-Rate Accumulation).
 
-6. Optional membrane noise perturbs non-refractory L2E potentials. The default is
-   zero, so the default run is deterministic.
+6. L2E integration is deterministic: there is no membrane-potential noise.
 
-7. On an intrinsic cycle boundary, L2 competition resolves:
+7. L2 competition resolves every step (`event_driven`, the default per-step
+   single-winner flow); with `event_driven` off it resolves only on an intrinsic
+   cycle boundary. In the instantaneous model this step's L1->L2E feedforward
+   drive is delivered in effective `l2_charge_chunks` = $K$ equal chunks
+   ($w_{ji}/K$ per active synapse) inside the frozen outer timestep; after each
+   chunk the WTA below is re-attempted and the first chunk that yields a
+   threshold-crosser resolves the competition (the rest are skipped). $K=1$
+   (default) delivers the full drive at once. In flow-rate mode $K$ is forced to 1
+   (the current trace already spreads the drive over time). $K=1$ is the
+   un-chunked baseline. When the WTA is attempted:
 
 $$
 \mathcal{E}(t) =
@@ -412,7 +622,14 @@ neurons are suppressed through their actual L2I->L2E negative gate.
 
 8. The L2E winner spike is delivered immediately to all L1I neurons.
 
-9. L1I neurons that crossed threshold fire.
+9. L1I fires. With `l1i_immediate_relay` = True (default) L1I is an **immediate
+   deterministic relay**: any L1I that received a nonzero L2E feedback signal fires
+   this same step -- it does NOT integrate charge, does NOT require a learned
+   threshold crossing, and does NOT depend on L1I feedback-weight training (the
+   winner vector is delivered identically to every L1I, so a winner makes every L1I
+   fire). With the flag off, the legacy behavior returns: L1I fires only when its
+   accumulated feedback crosses its own threshold. Output is binary in both modes,
+   and the L1I->L1E inhibition path (steps 3, 12) is unchanged.
 
 10. Emitted synapses are recorded for visualization.
 
