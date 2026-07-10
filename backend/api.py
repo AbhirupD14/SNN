@@ -56,8 +56,52 @@ engine = SimulationEngine(
     # Runs off L2I's own discharge. See Flow_Credit_Dynamics_Explained.md and
     # Inhibition_And_Consolidation_State.md.
     assembly_flow_credit=True,    # flow-proportional E->I credit on L2I/L1I fire
+    # No down-weighting of the E->I "assembly evidence" synapses: keep the credit
+    # (contributors still climb to self-sufficiency) but zero the decay term so a
+    # non-contributing L2E->L2I synapse is NOT pushed toward the floor (1). With the
+    # old 0.5 decay, training one pattern sank every OTHER pattern's L2E->L2I to the
+    # floor, so on a pattern switch the new winner's L2E->L2I was too weak to fire
+    # L2I -> no lateral inhibition and competition stalled. (Applies to L1I too.)
+    assembly_decay_frac=0.0,
     signed_depression=False,      # superseded by the unified signed rule
     homeostasis=False,
+    # Hard-reset inhibition (Hard_Reset_Inhibition_Plan.md): once L2I declares a
+    # winner, each losing L2E's charge is consumed by the inhibitory-gate learning
+    # rule (which reads its pre-reset charge) and then clamped back to rest -- so
+    # losers no longer start the next race ahead. hard_reset_clear_traces also
+    # zeroes the current traces so no residual flow refills the membrane. Togglable
+    # live in the config panel. (Measured: eliminates loser carryover and modestly
+    # cuts winner rotation with no dead-neuron/distinctness cost; it does not on its
+    # own deliver 1-to-1 ownership -- see hard_reset_experiment.py.)
+    l2i_hard_reset_losers=True,
+    hard_reset_clear_traces=True,
+    # Excitatory flow-rate stays ON: it rate-limits charge ARRIVAL (a decaying
+    # current trace integrated over time) so the membrane crosses threshold gently
+    # instead of a whole volley landing at once and overshooting to 2-3x theta.
+    # That overshoot control is exactly flow's job -- and it is orthogonal to the
+    # inhibitory DECREASE, which is already instant (inhibitory_flow_rate=False):
+    # an L2I discharge subtracts the gate in one shot, and hard reset clamps losers
+    # to rest AND clears exc_trace (hard_reset_clear_traces) so flow can't refill
+    # them. So charge comes down fast via the theta gate + hard reset, while flow
+    # keeps it from ever piling up in the first place (no v_sat band-aid needed).
+    excitatory_flow_rate=True,
+    # L2I delivers charge INSTANTLY (flow off for L2I only): a trained L2E->L2I
+    # synapse (weight == L2I threshold) then fires L2I from a SINGLE spike -- the
+    # single-source relay. Under flow, one spike's charge spreads over decaying
+    # steps while L2I leaks, peaking at only ~0.6x the weight, so no single spike
+    # could ever cross (the weight is capped at threshold). L2E keeps flow for its
+    # own overshoot control; this override is L2I-only.
+    l2i_excitatory_flow_rate=False,
+    # Inhibitory gate saturates at THETA: the learned L2I->L2E gate equilibrium is
+    # sqrt(w_max), and l2_gate_eq_frac=1.0 sets w_max = thr_l2**2 so the gate grows
+    # to a full threshold. A fully-learned gate then subtracts ~theta and returns a
+    # near-threshold rival to the start of the race -- so whoever wins first slams
+    # the pool back to even rather than a partial (sub-threshold) nudge. The idea:
+    # if a genuinely best-matched neuron wins QUICKLY each cycle, a fair full reset
+    # doesn't create a tyrant (the historical collapse came from resetting BEFORE
+    # weights differentiated; here the reset is a learned gate, and hard reset keeps
+    # early cycles fair while the gate is still climbing from its 500 init).
+    l2_gate_eq_frac=1.0,
     refractory=0,                 # inhibition regulates frequency, not a hard lockout
     # Capacity rule: per-afferent cap = thr/3 so three strong active afferents reach
     # threshold (3-pixel lines); positive floor = 1; each I threshold = its E's / 3.

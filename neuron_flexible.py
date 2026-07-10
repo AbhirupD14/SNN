@@ -196,6 +196,20 @@ class Neuron(NeuralEntity):
         # the discharge asymmetry vs partially-inhibited losers (a fully-reset
         # winner would otherwise be overtaken by losers that ratcheted charge up).
         self.subtractive_reset = False
+        # Hard-reset inhibition (opt-in; see apply_inhibition and
+        # Hard_Reset_Inhibition_Plan.md). Default OFF reproduces the small
+        # subtractive/flow gate. When ON, a real inhibitory discharge (events
+        # non-empty) clamps the loser's membrane back to rest AFTER the inhibitory
+        # plasticity rule has read its pre-reset charge -- so the loser's
+        # accumulated charge is consumed by local learning, then cleared. This
+        # attacks loser charge carryover directly: unlike the winner (which resets
+        # on fire), partially-inhibited losers keep charge and start the next race
+        # ahead; a hard reset returns every non-winner to the same baseline so the
+        # best-matched integrator rebuilds charge fastest and wins repeatedly.
+        # hard_reset_clear_traces also zeroes the excitatory/inhibitory current
+        # traces so no residual flow refills the membrane after the reset.
+        self.l2i_hard_reset_losers = False
+        self.hard_reset_clear_traces = True
         # Homeostatic synaptic scaling (third local system).
         self.homeostasis = homeostasis
         self.ca_rate = ca_rate
@@ -541,6 +555,17 @@ class Neuron(NeuralEntity):
         # feedforward gates that made it one. Opt-in; see _depress_losers.
         if self.loser_depression and events:
             self._depress_losers(v_entry)
+        # Hard reset: AFTER the inhibitory plasticity rule (and loser depression)
+        # have consumed the loser's pre-reset charge, clamp the membrane back to
+        # rest so no charge carries into the next race. Ordering matters -- the
+        # learning above already read v_pre; only the transient charge is cleared,
+        # never the weights. Optionally zero the current traces so residual
+        # excitatory/inhibitory flow can't refill the membrane after the reset.
+        if self.l2i_hard_reset_losers and events:
+            self.potential = self.resting_potential
+            if self.hard_reset_clear_traces:
+                self.exc_trace = 0.0
+                self.inh_trace = 0.0
         return events
 
     def _depress_losers(self, v_pre_loss):

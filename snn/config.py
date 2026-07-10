@@ -21,7 +21,8 @@ from dataclasses import dataclass, fields
 
 # Param keys this config mirrors 1:1 from the engine (the source of truth).
 _ENGINE_KEYS = (
-    "excitatory_flow_rate", "exc_trace_decay", "exc_trace_normalized",
+    "excitatory_flow_rate", "l2i_excitatory_flow_rate",
+    "exc_trace_decay", "exc_trace_normalized",
     "inhibitory_flow_rate", "inh_trace_decay", "inh_trace_normalized",
     "inhibitory_delta_rule", "inhibitory_rule_mode", "inhibitory_eta_up",
     "inhibitory_eta_down", "inhibitory_p_max", "inhibitory_margin_frac",
@@ -33,6 +34,7 @@ _ENGINE_KEYS = (
 @dataclass(frozen=True)
 class NeuronConfig:
     excitatory_flow_rate: bool
+    l2i_excitatory_flow_rate: bool | None
     exc_trace_decay: float
     exc_trace_normalized: bool
     inhibitory_flow_rate: bool
@@ -57,7 +59,7 @@ class NeuronConfig:
         source of truth; this only reads, it defines no defaults of its own."""
         return cls(**{k: params[k] for k in _ENGINE_KEYS})
 
-    def apply_to(self, neuron, *, is_l1e, is_l1i):
+    def apply_to(self, neuron, *, is_l1e, is_l1i, is_l2i=False):
         """Apply the uniform per-neuron config, population-aware, exactly as the old
         inline `_build` block did.
 
@@ -72,7 +74,12 @@ class NeuronConfig:
             neuron.excitatory_flow_rate = False
         elif is_l1i:
             neuron.excitatory_flow_rate = self.excitatory_flow_rate and not self.l1i_immediate_relay
-        else:                                    # L2E, L2I
+        elif is_l2i and self.l2i_excitatory_flow_rate is not None:
+            # Per-L2I override: instant charge delivery (False) lets a trained
+            # L2E->L2I synapse fire L2I from a single spike (single-source relay),
+            # which flow makes impossible (see the engine's l2i_excitatory_flow_rate).
+            neuron.excitatory_flow_rate = self.l2i_excitatory_flow_rate
+        else:                                    # L2E (and L2I when no override)
             neuron.excitatory_flow_rate = self.excitatory_flow_rate
         neuron.exc_trace_decay = self.exc_trace_decay
         neuron.exc_trace_normalized = self.exc_trace_normalized

@@ -376,6 +376,16 @@ class SimulationEngine:
                  excitatory_flow_rate: bool = True,
                  exc_trace_decay: float = 0.8,        # per-timestep current decay d
                  exc_trace_normalized: bool = True,   # inject drive*(1-d) so total ~= drive
+                 # Per-L2I override of excitatory flow. None (default) = L2I follows
+                 # excitatory_flow_rate like L2E. Set False to give the shared L2I
+                 # INSTANT charge delivery (V += weight in one step) while L2E keeps
+                 # flow: under flow, a single L2E->L2I spike is spread over decaying
+                 # steps while L2I leaks, so its peak reaches only ~0.6x the weight --
+                 # and since the weight is capped AT L2I's threshold, NO single spike
+                 # can ever fire L2I (no one-shot single-source relay is possible).
+                 # Instant delivery makes a trained (weight==theta) synapse fire L2I
+                 # from one spike, the "now-trusted source relays L2I" mechanism.
+                 l2i_excitatory_flow_rate: bool | None = None,
                  # Flow-proportional assembly credit for the E->I integrators (L2I/L1I).
                  # On the inhibitory neuron's OWN fire, credit every incoming positive
                  # synapse in proportion to the flow it delivered over the retention
@@ -444,6 +454,16 @@ class SimulationEngine:
                  # that drives the round-robin (see AGENT_HANDOFF.md sec 5-6). L2E
                  # only; default off so the baseline is untouched.
                  subtractive_reset: bool = False,
+                 # Hard-reset inhibition on losing L2E (see neuron_flexible.Neuron
+                 # and Hard_Reset_Inhibition_Plan.md). When on, a real L2I->L2E
+                 # discharge clamps the non-winner's membrane back to rest AFTER the
+                 # inhibitory plasticity rule has read its pre-reset charge, so loser
+                 # charge carryover (the round-robin's engine) drops to zero. L2E
+                 # only; default off keeps the small subtractive/flow gate.
+                 l2i_hard_reset_losers: bool = False,
+                 # Clear the excitatory/inhibitory current traces on a hard reset so
+                 # no residual flow refills the membrane after it is clamped to rest.
+                 hard_reset_clear_traces: bool = True,
                  # Membrane saturation ceiling for L2E, as a multiple of thr_l2
                  # (None = unbounded, the baseline). Bounds accumulated charge so
                  # the membrane can't ratchet to ~2-3x threshold between cycles;
@@ -542,6 +562,7 @@ class SimulationEngine:
                            l2_charge_chunks=l2_charge_chunks,
                            l1i_immediate_relay=l1i_immediate_relay,
                            excitatory_flow_rate=excitatory_flow_rate,
+                           l2i_excitatory_flow_rate=l2i_excitatory_flow_rate,
                            exc_trace_decay=exc_trace_decay,
                            exc_trace_normalized=exc_trace_normalized,
                            assembly_flow_credit=assembly_flow_credit,
@@ -562,6 +583,8 @@ class SimulationEngine:
                            lasting_inhibition=lasting_inhibition, inh_decay=inh_decay,
                            inh_boost_frac=inh_boost_frac,
                            subtractive_reset=subtractive_reset,
+                           l2i_hard_reset_losers=l2i_hard_reset_losers,
+                           hard_reset_clear_traces=hard_reset_clear_traces,
                            v_sat_frac=v_sat_frac,
                            l2_gate_eq_frac=l2_gate_eq_frac,
                            signed_spike_learning=signed_spike_learning,
@@ -761,6 +784,11 @@ class SimulationEngine:
                 # Reset-by-subtraction on fire (L2E only; default off). Leaves the
                 # winner its residual overshoot instead of a full reset to rest.
                 n.subtractive_reset = p['subtractive_reset']
+                # Hard-reset inhibition (L2E only; default off). A real L2I->L2E
+                # discharge clamps the loser to rest after inhibitory learning has
+                # read its pre-reset charge, eliminating loser charge carryover.
+                n.l2i_hard_reset_losers = p['l2i_hard_reset_losers']
+                n.hard_reset_clear_traces = p['hard_reset_clear_traces']
                 # Membrane saturation ceiling (L2E only; None = unbounded). Bounds
                 # accumulated charge near threshold so inhibition can regulate it.
                 n.v_sat = p['v_sat_frac'] * thr_l2 if p['v_sat_frac'] else None
@@ -815,7 +843,8 @@ class SimulationEngine:
         # snn/config.py and REFACTOR_PLAN.md Phase 3d.
         cfg = NeuronConfig.from_engine_params(p)
         for nid, n in self.neurons.items():
-            cfg.apply_to(n, is_l1e=nid.startswith('L1E'), is_l1i=nid.startswith('L1I'))
+            cfg.apply_to(n, is_l1e=nid.startswith('L1E'), is_l1i=nid.startswith('L1I'),
+                         is_l2i=(nid == 'L2I'))
 
         self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)
@@ -933,10 +962,12 @@ class SimulationEngine:
     TUNABLE = ('signed_depression', 'eta_off', 'l2e_budget', 'l2e_lr_frac',
                'confidence_consolidation', 'loser_depression', 'eta_loss',
                'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven',
-               'subtractive_reset', 'refractory', 'v_sat_frac',
+               'subtractive_reset', 'l2i_hard_reset_losers',
+               'hard_reset_clear_traces', 'refractory', 'v_sat_frac',
                'signed_spike_learning', 'structural_free_energy',
                'structural_fe_eta_floor', 'seed', 'l2_charge_chunks',
-               'l1i_immediate_relay', 'excitatory_flow_rate', 'exc_trace_decay',
+               'l1i_immediate_relay', 'excitatory_flow_rate',
+               'l2i_excitatory_flow_rate', 'exc_trace_decay',
                'exc_trace_normalized', 'inhibitory_flow_rate', 'inh_trace_decay',
                'inh_trace_normalized', 'inhibitory_delta_rule', 'inhibitory_rule_mode',
                'inhibitory_eta_up', 'inhibitory_eta_down', 'inhibitory_p_max',
@@ -956,9 +987,11 @@ class SimulationEngine:
                 continue
             if k in ('signed_depression', 'confidence_consolidation', 'loser_depression',
                      'l2e_budget', 'event_driven', 'subtractive_reset',
+                     'l2i_hard_reset_losers', 'hard_reset_clear_traces',
                      'signed_spike_learning', 'structural_free_energy',
                      'l1i_immediate_relay',
-                     'excitatory_flow_rate', 'exc_trace_normalized',
+                     'excitatory_flow_rate', 'l2i_excitatory_flow_rate',
+                     'exc_trace_normalized',
                      'inhibitory_flow_rate', 'inh_trace_normalized',
                      'inhibitory_delta_rule', 'distance_weighting',
                      'assembly_flow_credit'):
