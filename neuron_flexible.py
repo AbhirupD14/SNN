@@ -73,7 +73,8 @@ def _concentration(x):
 from snn.entity import NeuralEntity      # noqa: E402
 from snn.synapses import SynapseBank    # noqa: E402
 from snn.membrane import Membrane        # noqa: E402
-from snn.rules import select_excitatory_rule, select_inhibitory_rule  # noqa: E402
+from snn.rules import (select_excitatory_rule, select_inhibitory_rule,  # noqa: E402
+                       select_delivery, effective_weights)
 
 
 class Neuron(NeuralEntity):
@@ -464,58 +465,12 @@ class Neuron(NeuralEntity):
             return
         input_spikes = np.asarray(input_spikes, dtype=float)
 
-        # Distance attenuation of DELIVERED drive (opt-in): scale each afferent
-        # weight by its fixed per-synapse delivery factor before it drives the
-        # membrane. factor_i = (distance_ref / max(d_i, distance_min))^distance_power.
-        # This changes ONLY the delivered amplitude (both flow-rate and
-        # instantaneous paths), never the stored weight, and it is NOT part of the
-        # trace decay/integration math. OFF leaves w_eff pointing at the stored
-        # weights (no copy) so the baseline is byte-identical.
-        if self.distance_weighting and self._distance is not None:
-            factor = (self.distance_ref / np.maximum(self._distance, self.distance_min)) ** self.distance_power
-            w_eff = self._weights_array * factor
-        else:
-            w_eff = self._weights_array
-
-        if self.excitatory_flow_rate and t is not None:
-            # Flow-rate: the spike opens a decaying excitatory current trace that is
-            # integrated into V over time, instead of depositing all charge at once.
-            d = self.exc_trace_decay
-            # 1. Advance residual current through the gap timesteps up to t-1.
-            self.advance_trace(t - 1)
-            self._dbg_v_after_advance = self.potential   # phase diagnostic (see step())
-            # 2. Inject new EXCITATORY (positive-weight) drive as current, using the
-            #    distance-attenuated effective weights (delivery, not stored weight).
-            drive = float(np.dot(np.maximum(w_eff, 0.0), input_spikes)) * charge_scale
-            self.exc_trace += drive * (1.0 - d) if self.exc_trace_normalized else drive
-            # 3. Same-timestep contribution: one integration step at t (inject then
-            #    integrate, so a fresh spike still moves V this timestep).
-            self._membrane.deposit(self.exc_trace)
-            self.exc_trace *= d
-            self.exc_trace_last_t = t
-            # Only a REAL input volley refreshes the participation mask; residual-
-            # flow steps (no spike) leave it, so a neuron that crosses threshold on
-            # a later no-input timestep still learns the volley that drove it.
-            if input_spikes.any():
-                self._trace += input_spikes * charge_scale
-                self._last_input_spikes = input_spikes
-            return
-
-        # Instantaneous baseline: V += dot(weights, spikes) (distance-attenuated
-        # effective weights when distance weighting is on; not entangled with
-        # chunking -- charge_scale = 1/K still just scales the resulting drive).
-        input_current = np.dot(w_eff, input_spikes) * charge_scale
-        # Saturating membrane: bound accumulated charge at a finite ceiling so it
-        # can't ratchet far past threshold (keeps the membrane in a range where the
-        # inhibitory gate can regulate it).
-        self._membrane.deposit(input_current)
-        # ARCHIVED: no longer read by _update_weights. Kept only so anything still
-        # inspecting ._trace keeps working.
-        self._trace += input_spikes * charge_scale
-        # Instantaneous participation signal for the charge-based excitatory rule
-        # -- see _update_weights. Stays BINARY (unscaled) so chunked delivery does
-        # not corrupt the participation mask.
-        self._last_input_spikes = input_spikes
+        # Delivery is a strategy (Phase 3c): distance attenuates the delivered
+        # amplitude (never the stored weight), then flow-rate vs instantaneous
+        # integrates it into the membrane. select_delivery matches the original
+        # `excitatory_flow_rate and t is not None` guard.
+        w_eff = effective_weights(self)
+        select_delivery(self, t).deliver(self, input_spikes, charge_scale, t, w_eff)
 
     def apply_inhibition(self, inhibitory_spikes):
         """
