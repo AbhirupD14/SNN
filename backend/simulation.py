@@ -473,6 +473,16 @@ class SimulationEngine:
                  # confidence_consolidation, loser_depression and signed_depression
                  # are all bypassed for L2E regardless of their own defaults.
                  signed_spike_learning: bool = True,
+                 # Structural free-energy plasticity gate (see Neuron and the
+                 # methodology doc). EXCITATORY postsynaptic neurons only (L2E
+                 # feedforward). When on, the signed-spike learning rate is scaled by
+                 # gate = max(eta_floor, 1 - clamp(sum_positive_afferents/theta, 0, 1))
+                 # -- a structural, input/voltage-independent consolidation brake
+                 # that REPLACES the voltage term p in the signed rule. Under-built
+                 # L2E stay plastic; mature specialists slow down and resist being
+                 # reshaped on a later pattern. Default OFF -> signed rule uses p.
+                 structural_free_energy: bool = False,
+                 structural_fe_eta_floor: float = 0.02,
                  # Capacity rule for the minimal experiment (see the prompt's
                  # "Threshold, Cap, Floor" section). l2e_weight_cap_frac sets each
                  # L2E positive feedforward weight cap to frac*thr_l2, so three
@@ -554,6 +564,8 @@ class SimulationEngine:
                            v_sat_frac=v_sat_frac,
                            l2_gate_eq_frac=l2_gate_eq_frac,
                            signed_spike_learning=signed_spike_learning,
+                           structural_free_energy=structural_free_energy,
+                           structural_fe_eta_floor=structural_fe_eta_floor,
                            l2e_weight_cap_frac=l2e_weight_cap_frac,
                            pos_weight_floor=pos_weight_floor)
         self._build()
@@ -754,6 +766,11 @@ class SimulationEngine:
                 # Minimal signed-spike feedforward learning (L2E only; default off).
                 # When on it takes over _update_weights entirely (see the neuron).
                 n.signed_spike_learning = p['signed_spike_learning']
+                # Structural free-energy plasticity gate (L2E / excitatory only).
+                # Scales the signed-spike eta by this neuron's own positive-afferent
+                # maturity vs its threshold; default off leaves the p-scaled rule.
+                n.structural_free_energy = p['structural_free_energy']
+                n.structural_fe_eta_floor = p['structural_fe_eta_floor']
             else:
                 n.weight_budget = None
                 if self.meta[nid]['type'] == 'I':
@@ -950,7 +967,8 @@ class SimulationEngine:
                'confidence_consolidation', 'loser_depression', 'eta_loss',
                'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven',
                'subtractive_reset', 'refractory', 'v_sat_frac',
-               'signed_spike_learning', 'seed', 'l2_charge_chunks',
+               'signed_spike_learning', 'structural_free_energy',
+               'structural_fe_eta_floor', 'seed', 'l2_charge_chunks',
                'l1i_immediate_relay', 'excitatory_flow_rate', 'exc_trace_decay',
                'exc_trace_normalized', 'inhibitory_flow_rate', 'inh_trace_decay',
                'inh_trace_normalized', 'inhibitory_delta_rule', 'inhibitory_rule_mode',
@@ -971,7 +989,8 @@ class SimulationEngine:
                 continue
             if k in ('signed_depression', 'confidence_consolidation', 'loser_depression',
                      'l2e_budget', 'event_driven', 'subtractive_reset',
-                     'signed_spike_learning', 'l1i_immediate_relay',
+                     'signed_spike_learning', 'structural_free_energy',
+                     'l1i_immediate_relay',
                      'excitatory_flow_rate', 'exc_trace_normalized',
                      'inhibitory_flow_rate', 'inh_trace_normalized',
                      'inhibitory_delta_rule', 'distance_weighting',

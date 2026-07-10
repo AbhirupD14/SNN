@@ -42,18 +42,19 @@ engine = SimulationEngine(
     signed_spike_learning=True,   # signed +1/-1 feedforward learning (the algorithm)
     l2e_budget=False,             # no positive-weight budget; -1 signal supplies down-pressure
     confidence_consolidation=False,
-    # Consolidation stack: loser depression breaks the feed-forward symmetry so one
-    # L2E owns a held pattern; assembly-flow credit then lets that habitual winner's
-    # L2E->L2I synapse climb to self-sufficiency so L2I fires in rhythm (it removes
-    # the last-volley-only credit that stalled the E->I synapse below threshold --
-    # the L2I firing deadlock). Both run off the SAME event (L2I's discharge), so
-    # they share one clock: no boolean gate. Validated on held 'row 0' -- one L2E
-    # specialist + L2I firing on a ~16-step rhythm with the winner's E->I synapse
-    # matured to threshold; legacy last-volley credit stalls it at ~0.55*thr and L2I
-    # stays silent. Keep the default l2i_lr_frac (0.01): a faster E->I rate makes L2I
-    # over-inhibit early and destabilizes it. See Inhibition_And_Consolidation_State.md.
-    loser_depression=True,
-    eta_loss=10.0,                # symmetry-breaker strength (0.01 default is far too weak)
+    # Loser depression is ARCHIVED (default OFF). It broke the feed-forward symmetry
+    # on a held pattern by depressing a suppressed near-winner's active gates, but it
+    # is an externally-imposed "punish the loser" signal that doesn't fit the local
+    # free-energy ideology, and the minimal substrate (signed-spike + leak + flow)
+    # gives more distinct owners without it. Still fully togglable in the Advanced
+    # config panel; eta_loss is kept but inert while it is off.
+    loser_depression=False,
+    eta_loss=10.0,                # inert while loser_depression is off (kept for A/B)
+    # Assembly-flow credit lets a habitual winner's L2E->L2I synapse climb to
+    # self-sufficiency so L2I fires in rhythm -- it removes the last-volley-only
+    # credit that stalled the E->I synapse below threshold (the L2I firing deadlock).
+    # Runs off L2I's own discharge. See Flow_Credit_Dynamics_Explained.md and
+    # Inhibition_And_Consolidation_State.md.
     assembly_flow_credit=True,    # flow-proportional E->I credit on L2I/L1I fire
     signed_depression=False,      # superseded by the unified signed rule
     homeostasis=False,
@@ -202,6 +203,19 @@ CONFIG_SPEC = [
              "no weight budget. Replaces the confidence/OFF-depression/budget stack. "
              "Run with those OFF, l2e_budget OFF, and refractory=0 for the minimal "
              "experiment."},
+    {"key": "structural_free_energy", "label": "Structural free-energy gate", "kind": "toggle",
+     "desc": "L2E only. Scale the signed-spike learning rate by a STRUCTURAL maturity "
+             "brake instead of the voltage term p: gate = max(eta_floor, 1 - "
+             "clamp(sum_positive_afferents/theta, 0, 1)). Under-built neurons stay "
+             "plastic; a specialist whose excitatory support already covers a "
+             "threshold crossing slows down and resists being reshaped on later "
+             "patterns. Input/voltage/rival-independent. OFF = signed rule uses p."},
+    {"key": "structural_fe_eta_floor", "label": "Structural FE eta_floor", "kind": "range",
+     "min": 0.0, "max": 0.2, "step": 0.01,
+     "desc": "Plasticity floor for a fully mature L2E neuron (sum>=theta): its eta is "
+             "never scaled below this fraction of the base rate, so no gate freezes "
+             "hard. 0 = full freeze at maturity. Only used when the structural "
+             "free-energy gate is on."},
     {"key": "signed_depression", "label": "Signed depression (4a)", "kind": "toggle",
      "desc": "On fire, OFF pixels (absent inputs) push their positive gates DOWN. "
              "Sharpens receptive fields; needs eta_off > 0 to have any effect. "
@@ -340,9 +354,12 @@ CONFIG_SPEC = [
     {"key": "confidence_consolidation", "label": "Confidence consolidation", "kind": "toggle",
      "desc": "Mature gates learn slower and resist depression (protects specialists). "
              "Also gates signed depression via (1 - C)."},
-    {"key": "loser_depression", "label": "Loser depression", "kind": "toggle",
-     "desc": "Depress the active gates of neurons that were suppressed by lateral "
-             "inhibition — pushes losers away from the winner's pattern."},
+    {"key": "loser_depression", "label": "Loser depression (archived)", "kind": "toggle",
+     "desc": "ARCHIVED, default OFF. Depress the active gates of neurons that were "
+             "suppressed by lateral inhibition — pushes losers away from the winner's "
+             "pattern. An imposed 'punish the loser' signal that doesn't fit the local "
+             "free-energy model; the minimal substrate gives more distinct owners "
+             "without it. Kept togglable for A/B."},
     {"key": "eta_loss", "label": "Loser-depression rate (eta_loss)", "kind": "range",
      "min": 0.0, "max": 20.0, "step": 0.01,
      "desc": "Strength of loser depression -- the symmetry-breaker that turns a held "
@@ -355,6 +372,25 @@ CONFIG_SPEC = [
      "desc": "Fraction of L2 potential that decays per step. The main lever on winner "
              "rotation/stability — lower holds charge longer."},
 ]
+
+# Dashboard clutter control: the panel exposes every tunable, but most are inert
+# under the current default path (signed-spike + flow-rate) or belong to parked
+# experiments. Keep the ACTIVE experiment controls on the main panel; everything
+# else renders under a collapsed "Advanced" disclosure in the frontend. All keys
+# stay fully settable (apply/reset send every control), so reproducibility is
+# preserved -- this only reorganizes visibility. See the structural-FE prompt's
+# "Dashboard Config Cleanup" section for the rationale behind the split.
+_MAIN_CONFIG_KEYS = {
+    "signed_spike_learning", "structural_free_energy", "structural_fe_eta_floor",
+    "assembly_flow_credit", "excitatory_flow_rate", "exc_trace_decay",
+    "event_driven", "refractory", "l2e_lr_frac", "leak_l2",
+}
+# loser_depression / eta_loss were archived to the Advanced panel (default OFF) --
+# an imposed "punish the loser" rule that doesn't fit the local free-energy model.
+for _spec in CONFIG_SPEC:
+    # advanced := not a primary control (archived/inert/diagnostic). Main entries
+    # are explicitly advanced=False so the frontend can rely on the key existing.
+    _spec["advanced"] = _spec["key"] not in _MAIN_CONFIG_KEYS
 
 
 class ConfigBody(BaseModel):

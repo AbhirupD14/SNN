@@ -164,6 +164,21 @@ class Neuron:
         # global weight budget. Replaces the whole potentiation / OFF-depression /
         # confidence / budget stack with a single equation. Default OFF.
         self.signed_spike_learning = False
+        # Structural free-energy plasticity gate (opt-in; EXCITATORY postsynaptic
+        # neurons only; see _structural_free_energy_gate and _update_weights). When
+        # on, the signed-spike learning rate is scaled by a STRUCTURAL maturity
+        # signal derived only from this neuron's own accumulated positive afferent
+        # weight vs its threshold -- NOT from membrane voltage, rivals, or labels.
+        # maturity = clamp(sum_positive_afferent_weights / threshold, 0, 1);
+        # gate = max(eta_floor, 1 - maturity). An under-built neuron stays fully
+        # plastic; one whose excitatory support already explains a threshold
+        # crossing slows down (it is "minimizing free energy"), so a consolidated
+        # specialist resists being reshaped when it fires during a later pattern.
+        # This REPLACES the voltage closeness term p in the signed rule (the point
+        # is to make the consolidation brake structural, not input/voltage-state
+        # dependent). Default OFF -> signed rule uses p exactly as before.
+        self.structural_free_energy = False
+        self.structural_fe_eta_floor = 0.02    # plasticity floor for a mature neuron
         # Reset-by-subtraction on fire (opt-in; see fire()). Default OFF reproduces
         # the full reset-to-rest. When ON, a fired neuron keeps its residual
         # overshoot above threshold (standard LIF), floored at rest -- this attacks
@@ -703,7 +718,14 @@ class Neuron:
             if pos.any() and self.weight_cap > 0:
                 w = self._weights_array[pos]
                 signal = np.where(participating[pos], 1.0, -1.0)
-                dw = self.learning_rate * p * (1.0 - (w / self.weight_cap) ** 2) * signal
+                # Structural free-energy gate (opt-in) REPLACES the voltage closeness
+                # term p with an input/voltage-independent maturity brake computed
+                # from this neuron's own positive afferent mass (see the helpers).
+                # Off -> byte-identical p-scaled behavior.
+                gain = (self.learning_rate * self._structural_free_energy_gate()
+                        if self.structural_free_energy
+                        else self.learning_rate * p)
+                dw = gain * (1.0 - (w / self.weight_cap) ** 2) * signal
                 w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
                 self._weights_array[pos] = np.clip(w + dw, w_min, self.weight_cap)
             return
@@ -770,6 +792,30 @@ class Neuron:
                 self._weights_array[inactive] = w_off - self.eta_off * p * gate * (w_off - w_min)
                 self.signed_depression_events += 1
         self._apply_budget_and_cap()
+
+    def _positive_afferent_weight_sum(self):
+        """Total learned excitatory support: the sum of this neuron's POSITIVE
+        afferent weights (negative inhibitory gates such as L2I->L2E contribute 0).
+        Input/label independent -- it is the whole positive weight vector, not only
+        the currently-active afferents, so the structural brake below is a property
+        of what the neuron HAS learned, not of the current input event."""
+        if self._weights_array is None or len(self._weights_array) == 0:
+            return 0.0
+        return float(np.maximum(self._weights_array, 0.0).sum())
+
+    def _structural_free_energy_gate(self):
+        """Structural free-energy plasticity gate in [eta_floor, 1] (see __init__).
+        maturity = clamp(sum_positive_afferent_weights / threshold, 0, 1);
+        gate = max(eta_floor, 1 - maturity). Uses ONLY this neuron's own positive
+        weights and its own threshold -- no membrane voltage, no rivals, no labels.
+        An under-built neuron (sum << theta) gates ~1 (fully plastic); a neuron whose
+        excitatory support already covers a threshold crossing (sum >= theta) gates
+        at the floor (consolidated/stable)."""
+        theta = self.threshold
+        if theta <= 0:
+            return 1.0
+        maturity = min(max(self._positive_afferent_weight_sum() / theta, 0.0), 1.0)
+        return max(self.structural_fe_eta_floor, 1.0 - maturity)
 
     def _maturity(self, w):
         """Local instantaneous maturity m in [0,1] of positive gate weights w:
