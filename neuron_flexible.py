@@ -434,10 +434,8 @@ class Neuron(NeuralEntity):
             # closed form (1 - d^dt)/(1 - d) -> dt (its limit), which also avoids
             # the 1/(1-d) blow-up; d == 0 gives geom == 1 (contributes once).
             geom = float(dt) if abs(1.0 - d) < 1e-9 else (1.0 - d ** dt) / (1.0 - d)
-            self.potential += self.exc_trace * geom
+            self._membrane.deposit(self.exc_trace * geom)
             self.exc_trace *= d ** dt
-            if self.v_sat is not None and self.potential > self.v_sat:
-                self.potential = self.v_sat
         self.exc_trace_last_t = t
 
     def receive_input(self, input_spikes, charge_scale=1.0, t=None):
@@ -491,11 +489,9 @@ class Neuron(NeuralEntity):
             self.exc_trace += drive * (1.0 - d) if self.exc_trace_normalized else drive
             # 3. Same-timestep contribution: one integration step at t (inject then
             #    integrate, so a fresh spike still moves V this timestep).
-            self.potential += self.exc_trace
+            self._membrane.deposit(self.exc_trace)
             self.exc_trace *= d
             self.exc_trace_last_t = t
-            if self.v_sat is not None and self.potential > self.v_sat:
-                self.potential = self.v_sat
             # Only a REAL input volley refreshes the participation mask; residual-
             # flow steps (no spike) leave it, so a neuron that crosses threshold on
             # a later no-input timestep still learns the volley that drove it.
@@ -508,12 +504,10 @@ class Neuron(NeuralEntity):
         # effective weights when distance weighting is on; not entangled with
         # chunking -- charge_scale = 1/K still just scales the resulting drive).
         input_current = np.dot(w_eff, input_spikes) * charge_scale
-        self.potential += input_current
         # Saturating membrane: bound accumulated charge at a finite ceiling so it
         # can't ratchet far past threshold (keeps the membrane in a range where the
         # inhibitory gate can regulate it).
-        if self.v_sat is not None and self.potential > self.v_sat:
-            self.potential = self.v_sat
+        self._membrane.deposit(input_current)
         # ARCHIVED: no longer read by _update_weights. Kept only so anything still
         # inspecting ._trace keeps working.
         self._trace += input_spikes * charge_scale
@@ -662,18 +656,11 @@ class Neuron(NeuralEntity):
         if self.confidence_consolidation:
             self._decay_confidence()
 
-        # Handle refractory period
-        if self.refractory_timer > 0:
-            self.refractory_timer -= 1
-            # Clamp potential to resting during refractory period
-            self.potential = self.resting_potential
-        else:
-            # Apply leak: potential decays toward resting potential. Fixed-point
-            # leak control -- the leak amount is the integer numerator
-            # self._leak_num over the integer LEAK_SCALE, so no float leak
-            # constant enters here.
-            # (Potential itself is still float on this scope's deferred path.)
-            self.potential += self._leak_num * (self.resting_potential - self.potential) / LEAK_SCALE
+        # Membrane leak + refractory countdown (fixed-point leak on the Membrane).
+        # Returns True on a non-refractory (leak) step, where the eligibility-trace
+        # decay and inhibitory-current drain -- which touch bank/neuron state, not
+        # just the membrane -- also run.
+        if self._membrane.leak_and_countdown():
             # Decay the eligibility trace with the same leak fraction.
             self._trace *= (1.0 - self._leak_num / LEAK_SCALE)
             # Inhibitory FLOW: drain the pending inhibitory current out of the
@@ -700,11 +687,7 @@ class Neuron(NeuralEntity):
             bool: True if neuron fires, False otherwise
         """
         self._ensure_finalized()
-
-        # Only check threshold if not in refractory period
-        if self.refractory_timer <= 0 and self.potential >= self.threshold:
-            return True
-        return False
+        return self._membrane.check_threshold()
     
     def fire(self):
         """
@@ -713,28 +696,14 @@ class Neuron(NeuralEntity):
         """
         self._ensure_finalized()
 
-        # Record spike time
-        self.last_spike_time = 0  # Current time step
-
         # Capture charge BEFORE discharging (mirrors apply_inhibition's V_pre).
         # Weight learning below uses this v_pre unchanged, so reset semantics do
         # not alter what the fire teaches -- only the post-fire membrane state.
         v_pre = float(self.potential)
 
-        # Discharge: reset potential after firing. Default is a full reset to
-        # rest; with subtractive_reset (opt-in) reset by SUBTRACTION instead --
-        # leave the residual overshoot above threshold (standard LIF), floored at
-        # rest so inhibition/leak conventions still hold.
-        if self.subtractive_reset:
-            self.potential = max(self.potential - self.threshold, self.resting_potential)
-        else:
-            self.potential = self.resting_potential
-
-        # Start refractory period
-        self.refractory_timer = self.refractory_period
-
-        # Mark that we spiked this time step
-        self.spiked = True
+        # Membrane discharge on spike: reset (full or subtractive), arm refractory,
+        # record spike time, mark spiked. See Membrane.fire_reset.
+        self._membrane.fire_reset(self.subtractive_reset)
 
         # Flow-rate: discharge the excitatory current trace along with the membrane,
         # so no residual current keeps re-charging a just-fired neuron (and none
