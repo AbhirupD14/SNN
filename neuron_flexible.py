@@ -73,6 +73,7 @@ def _concentration(x):
 from snn.entity import NeuralEntity      # noqa: E402
 from snn.synapses import SynapseBank    # noqa: E402
 from snn.membrane import Membrane        # noqa: E402
+from snn.rules import select_excitatory_rule, select_inhibitory_rule  # noqa: E402
 
 
 class Neuron(NeuralEntity):
@@ -569,39 +570,13 @@ class Neuron(NeuralEntity):
                 # inhibition cannot push the membrane below resting potential.
                 self.potential = max(self.potential - w, self.resting_potential)
                 v_post = float(self.potential)
-            # Normalized closeness to firing, clamped to [0, 1] (saturating rule).
+            # Normalized closeness to firing, clamped to [0, 1] (saturating rule;
+            # also recorded in the event below).
             p = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
-            if self.inhibitory_delta_rule:
-                # Differentiating rules operate on the NORMALIZED gate u = w/G, where
-                # the ceiling G = sqrt(w_max) is the same sub-threshold scale the
-                # saturating rule converges to (so switching rules doesn't jump the
-                # gate scale, and l2_gate_eq_frac still sets it). All variables are
-                # LOCAL to this event: this synapse's w, this target's v_pre/theta,
-                # the arriving spike. No averages, no global rank/winner identity.
-                G = w_max ** 0.5 if w_max > 0 else 0.0
-                if self.inhibitory_rule_mode == "margin":
-                    # Diagnostic: relax toward the magnitude that brings the target to
-                    # a fixed post-inhibition level target_post = margin_frac*theta.
-                    target_post = self.inhibitory_margin_frac * theta
-                    s = min(max(v_pre - target_post, 0.0), G)
-                    dw = self.inhibitory_delta_eta * (s - w)
-                else:
-                    # Default TURNOVER: event-local strengthen (charge-driven, larger
-                    # for high v_pre and small u) minus size-proportional turnover.
-                    # Frequently high-charge rivals accumulate a stronger gate; weak/
-                    # dead targets drift down -- with NO desired post-inhibition
-                    # voltage and NO stored average.
-                    u = w / G if G > 0 else 0.0
-                    p_t = min(max(v_pre / theta, 0.0), self.inhibitory_p_max) if theta > 0 else 0.0
-                    du = self.inhibitory_eta_up * p_t * (1.0 - u) - self.inhibitory_eta_down * u
-                    dw = du * G
-                w_new = min(max(w + dw, 0.0), G)
-            elif w_max > 0:
-                dw = self.inhibitory_learning_rate * p * (1.0 - (w * w) / w_max)
-                w_new = min(max(w + dw, 0.0), w_max)   # clip to the finite ceiling
-            else:
-                dw = 0.0
-                w_new = w
+            # Per-discharge gate learning is a strategy (Phase 3b): saturating vs
+            # differentiating turnover/margin, selected by the neuron's flags. All
+            # inputs are local to this event; it returns the new gate magnitude.
+            w_new = select_inhibitory_rule(self).new_magnitude(self, w, v_pre, w_max, theta, p)
             self._weights_array[idx] = -w_new      # keep the inhibitory sign
             events.append(dict(index=int(idx), v_pre=v_pre, v_post=v_post,
                                theta=theta, p=p, w_before=w,
@@ -735,99 +710,11 @@ class Neuron(NeuralEntity):
         """
         if self._weights_array is None or len(self._weights_array) == 0:
             return
-        theta = self.threshold
-        p = min(max(theta / v_pre, 0.0), 1.0) if v_pre > 0 else 0.0
-        participating = self._last_input_spikes > 0.5
-
-        # Minimal signed-spike feedforward rule (opt-in). Every POSITIVE synapse
-        # updates with a signed local signal -- +1 if its input participated in
-        # this firing volley, -1 if not -- through the same saturating term
-        # written with a LINEAR cap: dw = eta * p * (1 - (w/w_cap)^2) * signal.
-        # Active inputs potentiate toward the cap; inactive inputs depress toward
-        # the floor. No weight budget: the -1 signal on inactive inputs supplies
-        # the downward pressure the budget used to impose. Bounded locally to
-        # [min_positive_weight, weight_cap]. Negative inhibitory gates are NOT
-        # touched here (they learn only via apply_inhibition). This fully replaces
-        # the confidence / OFF-depression / budget path below, so return early.
-        if self.signed_spike_learning:
-            pos = self._weights_array > 0
-            if pos.any() and self.weight_cap > 0:
-                w = self._weights_array[pos]
-                signal = np.where(participating[pos], 1.0, -1.0)
-                # Structural free-energy gate (opt-in) REPLACES the voltage closeness
-                # term p with an input/voltage-independent maturity brake computed
-                # from this neuron's own positive afferent mass (see the helpers).
-                # Off -> byte-identical p-scaled behavior.
-                gain = (self.learning_rate * self._structural_free_energy_gate()
-                        if self.structural_free_energy
-                        else self.learning_rate * p)
-                dw = gain * (1.0 - (w / self.weight_cap) ** 2) * signal
-                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
-                self._weights_array[pos] = np.clip(w + dw, w_min, self.weight_cap)
-            return
-
-        # Flow-proportional assembly credit (opt-in; the E->I integrators L2I/L1I).
-        # On this neuron's OWN fire, split credit across the incoming positive
-        # synapses by the flow each delivered over the retention window -- the
-        # per-synapse leaky _trace, which decays at this neuron's own leak so it
-        # spans exactly the same window its membrane integrates. Normalizing by the
-        # MAX flow (not the sum) gives the dominant driver the full learning rate,
-        # so a habitual winner's synapse climbs to self-sufficiency instead of the
-        # last spike to cross threshold taking all the credit. Synapses that
-        # delivered no flow are depressed toward the floor. This is the whole fix
-        # for the L2I firing deadlock; it replaces the last-volley path below.
-        if self.assembly_flow_credit:
-            pos = self._weights_array > 0
-            w_max = self.excitatory_saturation_cap if self.excitatory_saturation_cap is not None else self.weight_cap
-            if pos.any() and w_max > 0 and self._trace is not None:
-                w = self._weights_array[pos]
-                flow = self._trace[pos]
-                fmax = float(flow.max())
-                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
-                if fmax > 0.0:
-                    fhat = flow / fmax                      # dominant driver -> 1.0
-                    contributed = flow > 0.0
-                    # Contributors potentiate toward the cap, scaled by flow share;
-                    # non-contributors decelerate into the floor (down-pressure).
-                    dw = np.where(
-                        contributed,
-                        self.learning_rate * p * fhat * (1.0 - (w * w) / w_max),
-                        -self.learning_rate * p * self.assembly_decay_frac * (w - w_min),
-                    )
-                    self._weights_array[pos] = np.clip(w + dw, w_min, self.weight_cap)
-            return
-
-        active = np.nonzero((self._weights_array > 0) & participating)[0]
-        w_max = self.excitatory_saturation_cap if self.excitatory_saturation_cap is not None else self.weight_cap
-        if w_max > 0 and active.size > 0:
-            w = self._weights_array[active]
-            if self.confidence_consolidation:
-                # Confidence-gated potentiation: mature (confident) gates learn
-                # less, with a floor eta_min so no gate freezes.
-                C = self._confidence[active]
-                eta = self.learning_rate * (self.eta_min + (1.0 - self.eta_min) * (1.0 - C))
-                self._weights_array[active] = w + eta * p * (1.0 - (w * w) / w_max)
-                # Mature confidence toward local instantaneous maturity of the
-                # (pre-update) gate; only active gates (x_i = 1) move.
-                self._confidence[active] = C + self.conf_beta * (self._maturity(w) - C)
-            else:
-                dw = self.learning_rate * p * (1.0 - (w * w) / w_max)
-                self._weights_array[active] = w + dw
-        # Signed-spike depression ("4a"): OFF pixels (positive gates whose input
-        # did NOT spike this fire) are pushed down. Confidence-gated when
-        # consolidation is on (mature gates resist via (1 - C_i)); shaped by
-        # (w_i - w_min) so a gate decelerates into the min_positive_weight floor
-        # applied by _apply_budget_and_cap() -- it never goes deaf or negative.
-        # Same event closeness p as potentiation.
-        if self.signed_depression and self.eta_off > 0.0:
-            inactive = np.nonzero((self._weights_array > 0) & ~participating)[0]
-            if inactive.size > 0:
-                w_off = self._weights_array[inactive]
-                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
-                gate = (1.0 - self._confidence[inactive]) if self.confidence_consolidation else 1.0
-                self._weights_array[inactive] = w_off - self.eta_off * p * gate * (w_off - w_min)
-                self.signed_depression_events += 1
-        self._apply_budget_and_cap()
+        # Polymorphic dispatch over the one active excitatory rule (Phase 3a). The
+        # signed-spike / assembly-flow / charge-based branches now live as strategy
+        # objects in snn/rules/excitatory.py; the selector encodes the old mutual
+        # exclusivity (signed and assembly took precedence; charge is the default).
+        select_excitatory_rule(self).on_fire(self, v_pre)
 
     def _positive_afferent_weight_sum(self):
         """Total learned excitatory support: the sum of this neuron's POSITIVE
