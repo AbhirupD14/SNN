@@ -1,8 +1,9 @@
 # Current Implementation Methodology and Equations
 
 This document describes the current implementation on branch
-`feature/inhibitory-plasticity` as of 2026-07-09. It is descriptive, not a new
-proposal.
+`feature/inhibitory-plasticity` as of 2026-07-10. It is descriptive, not a new
+proposal. Every equation below has been cross-checked against the source
+(`neuron_flexible.py`, `backend/simulation.py`, `backend/api.py`).
 
 ## Current Status
 
@@ -89,7 +90,7 @@ eta_min                 = 0.05
 eta_loss                = 0.01
 signed_depression       = True
 eta_off                 = 0.20
-l2e_budget              = True
+l2e_budget              = False
 event_driven            = True
 l2_charge_chunks        = 1
 l1i_immediate_relay     = True
@@ -98,8 +99,24 @@ exc_trace_decay         = 0.8
 exc_trace_normalized    = True
 assembly_flow_credit    = False
 assembly_decay_frac     = 0.5
+inhibitory_flow_rate    = False
+inh_trace_decay         = 0.8
+inh_trace_normalized    = True
+inhibitory_delta_rule   = True
+inhibitory_rule_mode    = "turnover"
+inhibitory_eta_up       = 0.02
+inhibitory_eta_down     = 0.005
+inhibitory_p_max        = 1.0
+distance_weighting      = False
+distance_power          = 2.0
 lasting_inhibition      = False
 ```
+
+Note that many of these engine defaults are *bypassed for L2E in the default run*
+because `signed_spike_learning` (the canonical feedforward rule, default on) returns
+before them: `l2e_budget`, `confidence_consolidation`, and `signed_depression` do
+not affect an L2E gate while the signed rule is active. They still govern the E→I
+integrators and the non-signed comparison regimes, and remain documented below.
 
 Module constants:
 
@@ -294,6 +311,46 @@ per synapse and default to $1$ (no attenuation). `distance_weighting` is OFF by
 default, and the delivery ($V \leftarrow \max(V-w, R)$ for inhibition,
 etc.) is otherwise unchanged.
 
+## Inhibitory Flow-Rate Accumulation (`inhibitory_flow_rate = True`)
+
+Symmetric to the excitatory flow-rate model, and OFF by default. Instead of a
+one-shot subtraction, a real inhibitory discharge injects the gate magnitude into
+a decaying **inhibitory current** $J$ (`inh_trace`) that drains charge out of the
+membrane over several steps — sustained suppression to counteract the continuous
+excitatory inflow. It changes only the *delivery* of an inhibitory event; the
+stored (negative) gate weight and the plasticity rule are untouched, and the
+learning rule still reads the pre-discharge $v_{\mathrm{pre}}$.
+
+### Injection on discharge
+
+In `apply_inhibition`, when the flag is on the membrane is **not** decremented this
+call. Instead, for each active negative gate of magnitude $w = |\mathrm{weight}|$,
+the current is charged (default, `inh_trace_normalized = True`):
+
+$$
+J \mathrel{+}= w\,(1 - d_{\mathrm{inh}}), \qquad v_{\mathrm{post}} = v_{\mathrm{pre}},
+$$
+
+with $d_{\mathrm{inh}} = $ `inh_trace_decay`. With `inh_trace_normalized = False`,
+$J \mathrel{+}= w$ instead.
+
+### Drain in `update()`
+
+Every non-refractory step, before nothing else touches it, the pending inhibitory
+current is drained out of the membrane (floored at rest) and then decays:
+
+$$
+V \leftarrow \max(V - J,\; R), \qquad J \leftarrow d_{\mathrm{inh}}\,J .
+$$
+
+The total charge removed by one discharge is $\sum_{k\ge 0} w(1-d_{\mathrm{inh}})
+d_{\mathrm{inh}}^{k} = w$ under normalized injection — the same bite as the one-shot
+subtraction, just spread over $\approx 1/(1-d_{\mathrm{inh}})$ steps; unnormalized
+injection totals $w/(1-d_{\mathrm{inh}})$, a stronger sustained bite. The current
+is **not** reset on fire — the pending inhibition drains fully regardless of the
+target's own spiking. This applies to the same positive-charge integrators as the
+excitatory flow (L2E / L2I / L1I, not the abstract L1E source).
+
 ## Threshold and Firing
 
 A neuron fires when:
@@ -409,6 +466,50 @@ $$
 where $\eta_{\mathrm{exc}} = \mathrm{learning\_rate}$.
 
 Then the shared budget/cap tail runs.
+
+#### Confidence-gated consolidation (`confidence_consolidation = True`)
+
+Layered on the legacy charge rule (not the signed-spike rule, which returns first).
+Each positive synapse carries a per-synapse confidence $C_i \in [0,1]$. Confident
+(mature) gates learn more slowly, with a floor $\eta_{\min}$ so no gate ever freezes:
+
+$$
+\eta_i = \eta_{\mathrm{exc}}\big(\eta_{\min} + (1 - \eta_{\min})(1 - C_i)\big),
+\qquad
+\Delta w_i = \eta_i\,p_{\mathrm{exc}}\left(1 - \frac{w_i^2}{w_{\max}}\right).
+$$
+
+Only active gates update, and their confidence then matures toward the gate's local
+instantaneous **maturity** $m_i$:
+
+$$
+m_i = \mathrm{clip}\!\left(\frac{w_i - w_{\min}}{w_{\mathrm{conf\_cap}} - w_{\min}},\,0,\,1\right),
+\qquad
+C_i \leftarrow C_i + \beta_{\mathrm{conf}}\,(m_i - C_i),
+$$
+
+with $w_{\mathrm{conf\_cap}} = \mathrm{conf\_cap}$ (the effective mature value,
+`conf_cap_frac`$\cdot\theta_{\mathrm{L2}}$; falls back to `weight_cap`) and
+$\beta_{\mathrm{conf}} = \mathrm{conf\_beta}$. Confidence also decays slowly when a
+neuron is inactive (activity-dependent forgetting): rate $\rho_{\mathrm{active}}$
+while recently active, $\rho_{\mathrm{dead}}$ once `ca` sits below `conf_ca_dead`
+for `conf_grace` consecutive steps, applied as $C_i \leftarrow C_i(1 - \rho)$.
+
+#### Signed OFF-gate depression (`signed_depression = True`, "4a")
+
+Also on the legacy path: positive gates whose input did **not** participate this
+fire (OFF pixels) are pushed down toward the floor, shaped so they decelerate into
+$w_{\min}$ and confidence-protected when consolidation is on:
+
+$$
+\Delta w_i = -\,\eta_{\mathrm{off}}\,p_{\mathrm{exc}}\,g_i\,(w_i - w_{\min}),
+\qquad
+g_i = \begin{cases} 1 - C_i, & \text{if } confidence\_consolidation \\ 1, & \text{otherwise,} \end{cases}
+$$
+
+for each inactive positive gate, with $\eta_{\mathrm{off}} = \mathrm{eta\_off}$.
+This is the legacy-path analogue of the $-1$ signal built into the signed-spike
+rule, and shares the same cold-start liability (see *Open Problems*).
 
 ### Flow-proportional assembly credit (`assembly_flow_credit = True`, E→I integrators L2I / L1I)
 
@@ -605,6 +706,31 @@ path: `signed_spike_learning` remains the canonical feedforward rule and is
 untouched by it. Instantaneous-vs-flow-rate accumulation is controlled separately
 (`excitatory_flow_rate`). The delivery (linear, floored at rest) is unchanged.
 
+### Loser depression (`loser_depression = True`, default on)
+
+Triggered from `apply_inhibition`, not from a postsynaptic spike: when a neuron
+takes a *real* inhibitory discharge (it was a suppressed near-winner), the active
+positive feedforward gates that made it a contender are depressed. This is the
+feed-forward symmetry-breaker — it is what lets one L2E come to own a held pattern.
+Let $v_{\mathrm{entry}}$ be the membrane just before any discharge this call, and
+$p_{\mathrm{loss}} = \mathrm{clip}(v_{\mathrm{entry}}/\theta, 0, 1)$. For each active
+positive gate ($w_i > 0$, input participated):
+
+$$
+\Delta w_i^- = \eta_{\mathrm{loss}}\,p_{\mathrm{loss}}\,(1 - C_i)\,m_i^{\gamma_{\mathrm{loss}}}\,(w_i - w_{\min}),
+\qquad
+w_i \leftarrow \max(w_i - \Delta w_i^-,\; w_{\min}),
+$$
+
+with $\eta_{\mathrm{loss}} = \mathrm{eta\_loss}$, $\gamma_{\mathrm{loss}} =
+\mathrm{loss\_gamma}$, and $m_i$ the maturity defined above. The
+$m_i^{\gamma_{\mathrm{loss}}}$ factor **protects small (immature) gates and punishes
+large ones**; $(1 - C_i)$ spares confident specialists. The result is floored at
+$w_{\min}$ (a large `eta_loss`, whose dashboard slider reaches 20, would otherwise
+overshoot negative), and the shared budget/cap tail runs afterward. Because it fires
+on the same event as the L2I→L2E discharge, it is independent of the excitatory rule
+in force and is active in the default run (the dashboard sets `eta_loss = 10`).
+
 ## Homeostatic Scaling
 
 Homeostasis is local and non-Hebbian. It regulates the neuron's positive-weight
@@ -708,6 +834,14 @@ $$
 The winner is not procedurally protected after firing. The non-winner L2E
 neurons are suppressed through their actual L2I->L2E negative gate.
 
+   With `lasting_inhibition` (opt-in, OFF by default) this per-step argmax is
+   replaced by a decaying shared inhibitory *field*: L2I pumps the field by
+   `inh_boost_frac`$\cdot\theta_{\mathrm{L2}}$ when it fires, the field
+   hyperpolarizes the whole L2E pool (eligibility requires
+   $V_{\mathrm{L2E}_j} \ge \theta_{\mathrm{L2}} + \mathrm{field}$), and it decays by
+   `inh_decay` each step. It is documented as a *failed* approach (pattern-blind
+   collapse) and is kept only as a comparison knob — see *Open Problems*.
+
 8. The L2E winner spike is delivered immediately to all L1I neurons.
 
 9. L1I fires. With `l1i_immediate_relay` = True (default) L1I is an **immediate
@@ -721,7 +855,9 @@ neurons are suppressed through their actual L2I->L2E negative gate.
 
 10. Emitted synapses are recorded for visualization.
 
-11. All neurons run `update()`.
+11. All neurons run `update()` (calcium sensor, refractory countdown, membrane
+    leak, and — under `inhibitory_flow_rate` — the per-step inhibitory-current
+    drain of *Inhibitory Flow-Rate Accumulation*; homeostatic scaling if enabled).
 
 12. On cycle boundaries, `l1i_hold` is replaced by the current L1I spikes.
 
