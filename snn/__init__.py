@@ -15,5 +15,6 @@ Phase 1 introduces:
 from snn.entity import NeuralEntity
 from snn.membrane import Membrane
 from snn.synapses import SynapseBank
+from snn.config import NeuronConfig
 
-__all__ = ["NeuralEntity", "Membrane", "SynapseBank"]
+__all__ = ["NeuralEntity", "Membrane", "SynapseBank", "NeuronConfig"]

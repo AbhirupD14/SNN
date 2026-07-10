@@ -94,6 +94,7 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
 from neuron_flexible import UNIT, LEAK_SCALE         # noqa: E402  fixed-point convention
+from snn import NeuronConfig                          # noqa: E402  engine-sourced neuron config
 
 
 PATTERNS = {
@@ -807,48 +808,14 @@ class SimulationEngine:
                     n.assembly_flow_credit = p['assembly_flow_credit']
                     n.assembly_decay_frac = p['assembly_decay_frac']
 
-        # Sparse excitatory flow-rate accumulation (opt-in): configure the current-
-        # trace on the POSITIVE-charge integrators. Applies to L2E, L2I and L1I --
-        # but NOT L1E (an abstract pretrained sensory source), and NOT L1I while it
-        # is an immediate relay (the relay bypasses trace integration entirely).
-        # Read from params: the engine-level self.excitatory_flow_rate attribute is
-        # assigned later in _build.
-        flow = p['excitatory_flow_rate']
+        # Uniform per-neuron delivery / flow-rate / inhibitory-gate-rule / distance
+        # config. The engine's params are the SOURCE OF TRUTH; NeuronConfig is a
+        # transport built from them (from_engine_params) and applied population-aware
+        # to each neuron -- replacing the scattered per-attribute assignments. See
+        # snn/config.py and REFACTOR_PLAN.md Phase 3d.
+        cfg = NeuronConfig.from_engine_params(p)
         for nid, n in self.neurons.items():
-            if nid.startswith('L1E'):
-                n.excitatory_flow_rate = False
-            elif nid.startswith('L1I'):
-                n.excitatory_flow_rate = flow and not p['l1i_immediate_relay']
-            else:                                    # L2E, L2I
-                n.excitatory_flow_rate = flow
-            n.exc_trace_decay = p['exc_trace_decay']
-            n.exc_trace_normalized = p['exc_trace_normalized']
-            n.exc_trace = 0.0
-            n.exc_trace_last_t = 0
-            # Inhibitory flow (independent of the excitatory flag): applies wherever a
-            # neuron RECEIVES inhibition -- L2E (the L2I->L2E discharge). L1E is exempt;
-            # L1I/L2I never receive apply_inhibition so the flag is moot for them.
-            n.inhibitory_flow_rate = p['inhibitory_flow_rate'] and not nid.startswith('L1E')
-            n.inh_trace_decay = p['inh_trace_decay']
-            n.inh_trace_normalized = p['inh_trace_normalized']
-            n.inh_trace = 0.0
-            # Inhibitory-gate rule applies to any neuron carrying a learned negative
-            # gate (L2E's L2I->L2E gate); frozen gates (eta=0, e.g. L1E) are inert
-            # under either rule, so setting it uniformly is safe.
-            n.inhibitory_delta_rule = p['inhibitory_delta_rule']
-            n.inhibitory_rule_mode = p['inhibitory_rule_mode']
-            n.inhibitory_eta_up = p['inhibitory_eta_up']
-            n.inhibitory_eta_down = p['inhibitory_eta_down']
-            n.inhibitory_p_max = p['inhibitory_p_max']
-            n.inhibitory_margin_frac = p['inhibitory_margin_frac']
-            n.inhibitory_delta_eta = p['inhibitory_delta_eta']
-            # Distance attenuation of delivered drive (per-synapse d_i stays at its
-            # default 1.0 -> factor 1 -> no attenuation until functional distances
-            # are assigned; the toggle + params are wired and ready).
-            n.distance_weighting = p['distance_weighting']
-            n.distance_power = p['distance_power']
-            n.distance_ref = p['distance_ref']
-            n.distance_min = p['distance_min']
+            cfg.apply_to(n, is_l1e=nid.startswith('L1E'), is_l1i=nid.startswith('L1I'))
 
         self.l1i_hold = np.zeros(N_PIX)   # L1I spike latch: held until next volley
         self.input_vec = np.array(PATTERNS['row 0'], dtype=float)
