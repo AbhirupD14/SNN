@@ -67,7 +67,15 @@ def _concentration(x):
     return float((p * p).sum())
 
 
-class Neuron:
+# Object decomposition (REFACTOR_PLAN.md). Imported AFTER the fixed-point constants
+# above so snn.membrane can read LEAK_SCALE / leak_num without a circular-import
+# failure. Neuron composes these and forwards to them via properties below.
+from snn.entity import NeuralEntity      # noqa: E402
+from snn.synapses import SynapseBank    # noqa: E402
+from snn.membrane import Membrane        # noqa: E402
+
+
+class Neuron(NeuralEntity):
     """
     A flexible spiking neuron model that allows dynamic specification of 
     input connections during layer construction, then locks connections 
@@ -108,22 +116,23 @@ class Neuron:
             homeostasis, ca_rate, ca_target, ca_band, homeo_up, homeo_down,
             homeo_budget_min, homeo_budget_max: homeostatic synaptic scaling.
         """
-        # Neuron properties
-        self.threshold = threshold          # Firing threshold (constant)
-        self.resting_potential = 0.0        # Resting potential at 0
-        self.refractory_period = refractory_period  # Refractory period
-        self.refractory_timer = 0           # Counts down refractory period
-        self.potential = self.resting_potential     # Current membrane potential
-        
-        # Weight properties - stored as list during construction, numpy array after
-        self._weights_list = []        # List of synaptic weights during construction
-        self._weights_array = None     # Numpy array after finalization
-        self._trace = None             # Per-synapse eligibility trace (set at finalize)
-        # Confidence state. Allocated at finalize once the
-        # fan-in is known; seeded at confidence_init and updated by the active
-        # confidence-consolidation system.
-        self._confidence = None
+        super().__init__()   # NeuralEntity contract (entity_id)
+        # Membrane scalars (potential, threshold, resting, refractory timer/period,
+        # fixed-point leak numerator, v_sat, spike bookkeeping) live on a Membrane
+        # sub-object; Neuron forwards to it via properties below so every existing
+        # `self.potential` / `self.threshold` / ... site is unchanged. leak_rate and
+        # v_sat are seeded here; the later `self.leak_rate = ...` / `self.v_sat = ...`
+        # lines were removed as redundant.
+        self._membrane = Membrane(threshold, 0.0, refractory_period, leak_rate,
+                                  v_sat=None)
+
+        # Vectorized afferent bank: owns the weight/trace/confidence/distance/
+        # last-input arrays and the staged construction path. Neuron forwards to it
+        # through the _weights_array/_trace/... properties below, so every existing
+        # read/write site (internal and external) is unchanged. confidence_init is
+        # set first because the bank reads it (via this owner) when allocating.
         self.confidence_init = float(confidence_init)
+        self._bank = SynapseBank(self)
         self.last_excitatory_event = {}
         # Confidence-gated consolidation (opt-in; see
         # Claude_Confidence_Consolidation_Plan.md). All flags off by default so
@@ -200,7 +209,6 @@ class Neuron:
         self.min_positive_weight = None  # optional floor for positive weights (see _apply_budget_and_cap)
         self.learning_rate = learning_rate  # Weight increase amount when neuron fires (excitatory)
         self.weight_cap = weight_cap        # Maximum absolute value for weights (also w_max for inhibition)
-        self.leak_rate = leak_rate          # stored as integer numerator self._leak_num (see property)
         self.inhibitory_learning_rate = inhibitory_learning_rate  # eta for inhibitory plasticity
         # Saturation ceiling (w_max) for inhibitory gates, kept separate from the
         # feedforward weight_cap (defaults to weight_cap when None). See apply_inhibition.
@@ -217,8 +225,8 @@ class Neuron:
         # what lets the (small, capped) inhibitory gate actually regulate firing
         # frequency -- against a membrane pinned near threshold a ~0.15*theta
         # discharge is meaningful; against a 3*theta pile-up it is not. Local and
-        # per-neuron; see receive_input. Off by default so the baseline is intact.
-        self.v_sat = None
+        # per-neuron; see receive_input. Off by default so the baseline is intact
+        # (seeded to None on the Membrane in __init__; forwards there).
         # Sparse excitatory FLOW-RATE accumulation (opt-in; see receive_input,
         # advance_trace, and Current_Implementation_Methodology_Equations.md).
         # Default OFF -> instantaneous V += dot(weights, spikes) baseline. When on,
@@ -279,70 +287,129 @@ class Neuron:
         self.distance_ref = 1.0
         self.distance_min = 1.0
         self._distance = None               # per-afferent d_i (set at finalize)
-        self._connections_finalized = False  # Flag to prevent changes after finalization
         self.last_inhibitory_events = []    # debug records from the most recent apply_inhibition()
-        
-        # Spike tracking
-        self.last_spike_time = -np.inf      # Time of last spike
-        self.spiked = False                 # Did neuron spike in current step?
+        # (last_spike_time / spiked live on the Membrane, seeded in its constructor;
+        # Neuron forwards to them via the properties below.)
 
         if n_inputs is not None:
             weights = np.random.uniform(weight_init_range[0], weight_init_range[1], int(n_inputs))
             self._set_weights(weights, finalized=True)
 
+    # --- Membrane forwarding (Phase 1) ----------------------------------------
+    # The membrane scalars live on self._membrane; these properties keep every
+    # existing `self.potential` / `self.threshold` / `self._leak_num` / ... site
+    # (internal and external) working unchanged. leak_rate stays the fixed-point
+    # accessor, now backed by the Membrane's integer numerator.
+    @property
+    def potential(self): return self._membrane.potential
+    @potential.setter
+    def potential(self, v): self._membrane.potential = v
+
+    @property
+    def threshold(self): return self._membrane.threshold
+    @threshold.setter
+    def threshold(self, v): self._membrane.threshold = v
+
+    @property
+    def resting_potential(self): return self._membrane.resting_potential
+    @resting_potential.setter
+    def resting_potential(self, v): self._membrane.resting_potential = v
+
+    @property
+    def refractory_period(self): return self._membrane.refractory_period
+    @refractory_period.setter
+    def refractory_period(self, v): self._membrane.refractory_period = v
+
+    @property
+    def refractory_timer(self): return self._membrane.refractory_timer
+    @refractory_timer.setter
+    def refractory_timer(self, v): self._membrane.refractory_timer = v
+
+    @property
+    def v_sat(self): return self._membrane.v_sat
+    @v_sat.setter
+    def v_sat(self, v): self._membrane.v_sat = v
+
+    @property
+    def spiked(self): return self._membrane.spiked
+    @spiked.setter
+    def spiked(self, v): self._membrane.spiked = v
+
+    @property
+    def last_spike_time(self): return self._membrane.last_spike_time
+    @last_spike_time.setter
+    def last_spike_time(self, v): self._membrane.last_spike_time = v
+
+    @property
+    def _leak_num(self): return self._membrane._leak_num
+    @_leak_num.setter
+    def _leak_num(self, v): self._membrane._leak_num = v
+
     @property
     def leak_rate(self):
-        """Leak fraction per step, backed by the integer numerator
-        self._leak_num over LEAK_SCALE (fixed-point leak control; see
-        the fixed-point module constants above)."""
-        return self._leak_num / LEAK_SCALE
+        """Leak fraction per step, backed by the Membrane's integer numerator
+        over LEAK_SCALE (fixed-point leak control)."""
+        return self._membrane.leak_rate
 
     @leak_rate.setter
     def leak_rate(self, value):
-        self._leak_num = leak_num(value)
+        self._membrane.leak_rate = value
+
+    # --- SynapseBank forwarding (Phase 1) -------------------------------------
+    # The afferent arrays and construction state live on self._bank; these
+    # properties keep every existing `self._weights_array` / `self._trace` / ...
+    # site (and external `n._weights_array = ...` callers) working unchanged. The
+    # getters return the bank's actual array objects, so in-place index mutation
+    # (`self._weights_array[active] = ...`) still writes through to the bank.
+    @property
+    def _weights_array(self): return self._bank.weights_array
+    @_weights_array.setter
+    def _weights_array(self, v): self._bank.weights_array = v
+
+    @property
+    def _trace(self): return self._bank.trace
+    @_trace.setter
+    def _trace(self, v): self._bank.trace = v
+
+    @property
+    def _confidence(self): return self._bank.confidence
+    @_confidence.setter
+    def _confidence(self, v): self._bank.confidence = v
+
+    @property
+    def _distance(self): return self._bank.distance
+    @_distance.setter
+    def _distance(self, v): self._bank.distance = v
+
+    @property
+    def _last_input_spikes(self): return self._bank.last_input_spikes
+    @_last_input_spikes.setter
+    def _last_input_spikes(self, v): self._bank.last_input_spikes = v
+
+    @property
+    def _connections_finalized(self): return self._bank.connections_finalized
+    @_connections_finalized.setter
+    def _connections_finalized(self, v): self._bank.connections_finalized = v
+
+    @property
+    def _weights_list(self): return self._bank.weights_list
+    @_weights_list.setter
+    def _weights_list(self, v): self._bank.weights_list = v
 
     def add_input_connection(self, weight):
-        """
-        Add an input connection with the specified weight.
-        Can only be called before connections are finalized.
-        
-        Args:
-            weight (float): Weight of the connection (positive for excitatory, 
-                          negative for inhibitory)
-        """
-        if self._connections_finalized:
-            raise RuntimeError("Cannot add connections after finalization. "
-                             "Call finalize_connections() to lock connections.")
-        
-        self._weights_list.append(float(weight))
-        
+        """Add an input connection (positive excitatory / negative inhibitory).
+        Only valid before finalization. Delegates to the SynapseBank."""
+        self._bank.add_input_connection(weight)
+
     def finalize_connections(self):
-        """
-        Lock the connections after all have been added.
-        Converts weights list to numpy array and prepares for simulation.
-        Must be called before running simulation.
-        """
-        if not self._connections_finalized:
-            weights = self._weights_list if self._weights_list else []
-            self._set_weights(weights, finalized=True)
+        """Lock connections and materialize the arrays. Delegates to the bank."""
+        self._bank.finalize()
 
     def _set_weights(self, weights, finalized=None):
-        """Replace the afferent weight vector and resize aligned local state."""
-        arr = np.asarray(weights, dtype=float)
-        self._weights_array = np.clip(arr, -self.weight_cap, self.weight_cap)
-        n = len(self._weights_array)
-        self._trace = np.zeros(n)
-        if self._confidence is None or len(self._confidence) != n:
-            self._confidence = np.full(n, self.confidence_init)
-        # Per-afferent delivery distance; default 1.0 (no attenuation). Preserved
-        # across weight re-assignments of the same fan-in so setting distances then
-        # weights (or vice versa) does not wipe them.
-        if self._distance is None or len(self._distance) != n:
-            self._distance = np.ones(n)
-        self._last_input_spikes = np.zeros(n)
-        if finalized is not None:
-            self._connections_finalized = finalized
-            
+        """Replace the afferent weight vector and resize aligned local state.
+        Delegates to the SynapseBank (clip uses this neuron's current weight_cap)."""
+        self._bank.set_weights(weights, finalized=finalized)
+
     def _ensure_finalized(self):
         """Internal method to check if connections are ready for simulation."""
         if not self._connections_finalized:
