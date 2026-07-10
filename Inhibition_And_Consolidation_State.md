@@ -3,6 +3,53 @@
 Status snapshot of the L2 competition / inhibition work (2026-07-09). Records the
 problem, what was built, what worked, what didn't, and the open question.
 
+## UPDATE 2026-07-09 — L2I firing deadlock diagnosed and fixed (assembly flow credit)
+
+After consolidating a held pattern to a single L2E, **L2I stopped firing** (freq 0),
+even though its winner's `L2E->L2I` weight "should" have grown to threshold. Root
+cause was a **bootstrap deadlock**, not weak inhibition:
+
+- `L2I` fires two ways — (A) several distinct L2E round-robin and *sum* past its
+  threshold, or (B) one habitual winner's `L2E->L2I` synapse grows to self-
+  sufficiency and fires it alone. Consolidating to one L2E removes regime A, and
+  regime B's growth **only happens on L2I's own fire** (postsynaptic-gated Hebbian,
+  `_update_weights` runs on fire) — so once L2I is silent it can never learn its way
+  back. Live symptom: single winner delivered ~582 vs L2I threshold 1142.86, and the
+  `L2E->L2I` weight was stuck near its init range (never grew).
+
+- The deeper flaw: the E->I credit rule only credited **the last input volley**
+  (`_last_input_spikes`), i.e. whichever L2E happened to tip L2I over threshold. In
+  the round-robin phase that spreads credit across all rotating members, so the
+  eventual winner's synapse never matured before consolidation removed the round
+  robin. (This had *replaced* an older trace-based credit-splitting rule.)
+
+**Fix — flow-proportional assembly credit** (`assembly_flow_credit`, opt-in, on
+L2I/L1I). On the inhibitory neuron's own fire, credit each incoming positive E->I
+synapse in proportion to the flow it delivered over the retention window (the
+per-synapse leaky `_trace`, which decays at the neuron's own leak so it spans the
+same window the membrane integrates), **normalized by the max flow** so the dominant
+driver gets the full learning rate; non-contributors decay toward the floor
+(`assembly_decay_frac`). It still fires only on L2I's own spike, so it shares one
+clock with loser depression (both are driven by the L2I discharge — no boolean gate,
+which was explicitly rejected as un-neuron-like). It **prevents** the deadlock rather
+than reviving an already-dead L2I: the winner's synapse matures during the early
+round-robin, before consolidation strips the multi-winner volleys.
+
+Result (held `row 0`, `eta_loss=10`, default `l2i_lr_frac=0.01`, seed 1): one L2E4
+specialist + **L2I firing on a ~16-step rhythm**, winner's `L2E->L2I` matured to
+threshold (1142.9). Legacy last-volley credit deadlocks in the same regime: L2I
+nearly silent (37 fires, 0 late), weight stalled at 631. NOTE: a *faster* E->I rate
+(`l2i_lr_frac=0.05`) destabilizes it (L2I over-inhibits early) — the default 0.01 is
+the stable choice. Dashboard now defaults ON; see `test_assembly_flow_credit.py`.
+
+Also fixed here: loser depression could push feedforward gates **negative** at high
+`eta_loss` (slider reaches 20) because the depression step overshot the
+`min_positive_weight` floor; `_depress_losers` now clamps at the floor.
+
+Still open below (unchanged): clean **8/8 one-to-one ownership** across the whole
+pattern set. `eta_loss=10` over-depresses across multiple patterns, so this L2I fix
+is validated on a *single held* pattern, not interleaved training.
+
 ## The goal
 
 Holding one input pattern (e.g. `row 0`), we want a **single** L2E to own it and
@@ -85,5 +132,7 @@ consolidation gap noted elsewhere in the repo.
 ## Tests / harnesses
 
 `test_flow_rate.py` (+ distance), `test_inhibitory_delta_rule.py`,
-`test_l1i_immediate_relay.py`, `test_l2_chunked_charge.py` — all green, plus the
-legacy suite. Ablation scripts used for the tables live in the session scratchpad.
+`test_l1i_immediate_relay.py`, `test_l2_chunked_charge.py`,
+`test_assembly_flow_credit.py` (the L2I deadlock fix: flow-proportional credit +
+the integration test showing L2I comes alive where legacy stalls) — all green, plus
+the legacy suite. Ablation scripts used for the tables live in the session scratchpad.

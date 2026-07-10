@@ -141,6 +141,16 @@ class Neuron:
         self.conf_grace = 5000                 # inactive steps before dead-decay engages
         self.inactive_steps = 0                # long grace counter (see update())
         self.loser_depression_events = 0       # diagnostic counter
+        # Flow-proportional assembly credit (opt-in; for the E->I "assembly
+        # evidence" neurons L2I / L1I -- see _update_weights). On this neuron's
+        # OWN fire, credit every incoming positive synapse in proportion to the
+        # flow it delivered over the retention window (the per-synapse leaky
+        # _trace), normalized so the DOMINANT driver gets the full learning rate;
+        # synapses that delivered no flow are depressed toward the floor. This
+        # fixes the last-volley-only credit that let a habitual winner's E->I
+        # synapse stall below threshold (the L2I firing deadlock). Default OFF.
+        self.assembly_flow_credit = False      # flow-proportional E->I credit on fire
+        self.assembly_decay_frac = 0.5         # down-pressure on non-contributing gates
         # Signed-spike depression ("4a"; opt-in; see _update_weights). OFF
         # pixels deliver no charge but their positive gates
         # are depressed on this neuron's own fire. Default OFF -> baseline intact.
@@ -547,7 +557,11 @@ class Neuron:
         ratio = self._maturity(w)
         dw_minus = (self.eta_loss * p_loss * (1.0 - C)
                     * (ratio ** self.loss_gamma) * (w - w_min))
-        self._weights_array[active] = w - dw_minus
+        # Clamp at the floor: the step is meant to decelerate INTO w_min, but a
+        # large eta_loss (slider reaches 20) makes the multiplier exceed 1 and
+        # overshoot below w_min into negatives. active is the positive-gate set,
+        # so flooring here leaves the legitimate negative gate untouched.
+        self._weights_array[active] = np.maximum(w - dw_minus, w_min)
         self.loser_depression_events += 1
         self._apply_budget_and_cap()
 
@@ -692,6 +706,37 @@ class Neuron:
                 dw = self.learning_rate * p * (1.0 - (w / self.weight_cap) ** 2) * signal
                 w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
                 self._weights_array[pos] = np.clip(w + dw, w_min, self.weight_cap)
+            return
+
+        # Flow-proportional assembly credit (opt-in; the E->I integrators L2I/L1I).
+        # On this neuron's OWN fire, split credit across the incoming positive
+        # synapses by the flow each delivered over the retention window -- the
+        # per-synapse leaky _trace, which decays at this neuron's own leak so it
+        # spans exactly the same window its membrane integrates. Normalizing by the
+        # MAX flow (not the sum) gives the dominant driver the full learning rate,
+        # so a habitual winner's synapse climbs to self-sufficiency instead of the
+        # last spike to cross threshold taking all the credit. Synapses that
+        # delivered no flow are depressed toward the floor. This is the whole fix
+        # for the L2I firing deadlock; it replaces the last-volley path below.
+        if self.assembly_flow_credit:
+            pos = self._weights_array > 0
+            w_max = self.excitatory_saturation_cap if self.excitatory_saturation_cap is not None else self.weight_cap
+            if pos.any() and w_max > 0 and self._trace is not None:
+                w = self._weights_array[pos]
+                flow = self._trace[pos]
+                fmax = float(flow.max())
+                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
+                if fmax > 0.0:
+                    fhat = flow / fmax                      # dominant driver -> 1.0
+                    contributed = flow > 0.0
+                    # Contributors potentiate toward the cap, scaled by flow share;
+                    # non-contributors decelerate into the floor (down-pressure).
+                    dw = np.where(
+                        contributed,
+                        self.learning_rate * p * fhat * (1.0 - (w * w) / w_max),
+                        -self.learning_rate * p * self.assembly_decay_frac * (w - w_min),
+                    )
+                    self._weights_array[pos] = np.clip(w + dw, w_min, self.weight_cap)
             return
 
         active = np.nonzero((self._weights_array > 0) & participating)[0]

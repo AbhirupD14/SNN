@@ -1,25 +1,33 @@
 # Current Implementation Methodology and Equations
 
 This document describes the current implementation on branch
-`feature/inhibitory-plasticity` as of 2026-07-07. It is descriptive, not a new
+`feature/inhibitory-plasticity` as of 2026-07-09. It is descriptive, not a new
 proposal.
 
 ## Current Status
 
-The network currently has good L2E participation and inhibition-mediated
-competition, but it does not reliably consolidate the eight 3x3 line primitives
-into a one-to-one pattern-to-neuron map.
+The network has good L2E participation and inhibition-mediated competition. On a
+**single held pattern** it now consolidates cleanly: loser depression breaks the
+feed-forward symmetry to a single L2E owner, and **flow-proportional assembly
+credit** (new, 2026-07-09) lets that owner's L2E→L2I synapse mature to
+self-sufficiency so **L2I fires in rhythm** with it (top E→I weight reaches
+threshold; L2I on a ~16-step cycle). This resolves the earlier L2I firing deadlock
+(see *Excitatory Plasticity → assembly credit* and
+`Inhibition_And_Consolidation_State.md`).
 
-Observed from the current tests:
+Two problems remain open (see *Open Problems*):
 
-- `test_l2_competition.py`: all 8 L2E neurons participate, L2I fires, L2I->L2E
-  gate discharges occur, and gates adapt. Pattern winners are differentiated but
-  still collide, typically around 4 to 6 distinct winners across 8 patterns.
-- `test_8line_consolidation.py`: the older interleaved characterization path
-  still shows failure to form full assignment; in that test every pattern maps
-  to one L2E winner.
+- **Interleaved assignment.** It still does not reliably consolidate the eight 3x3
+  line primitives into a one-to-one pattern→neuron map. `test_l2_competition.py`
+  differentiates winners but they collide, typically 4–6 distinct winners across 8
+  patterns; strong loser depression (`eta_loss = 10`) over-depresses across
+  patterns and leaves some ownerless.
+- **Cold start on pattern switch.** Signed-spike OFF-pixel depression drives every
+  non-participating gate to the floor $w_{\min}$ while one pattern is held, so
+  switching to a new pattern starts those pixels cold.
 
-So the active issue is assignment/consolidation, not dead competition.
+So the active issues are interleaved assignment and pattern-switch cold start, not
+dead competition or (for a held pattern) L2I firing.
 
 ## Network Topology
 
@@ -85,9 +93,11 @@ l2e_budget              = True
 event_driven            = True
 l2_charge_chunks        = 1
 l1i_immediate_relay     = True
-excitatory_flow_rate    = False
+excitatory_flow_rate    = True
 exc_trace_decay         = 0.8
 exc_trace_normalized    = True
+assembly_flow_credit    = False
+assembly_decay_frac     = 0.5
 lasting_inhibition      = False
 ```
 
@@ -107,13 +117,24 @@ ETA_FRAC                      = 0.01
 L2E_MIN_WEIGHT_FLOOR          = 0.01
 ```
 
-The dashboard API overrides the engine for visualization:
+The dashboard API overrides the engine for visualization (partial list; see
+`backend/api.py`):
 
 ```text
-homeostasis        = False
-l2e_lr_frac        = 0.02
-ei_sat_mult        = 4.0
-l1i_ei_init_frac   = None
+homeostasis          = False
+l2e_lr_frac          = 0.02
+ei_sat_mult          = 4.0
+l1i_ei_init_frac     = None
+signed_spike_learning = True
+refractory           = 0
+confidence_consolidation = False
+loser_depression     = True
+eta_loss             = 10.0
+assembly_flow_credit = True
+l2e_weight_cap_frac  = 1/3
+pos_weight_floor     = 1
+l2i_threshold_frac   = 1/7
+l1i_threshold_frac   = 1/3
 ```
 
 ## State Variables
@@ -329,8 +350,41 @@ learning.
 
 ## Excitatory Plasticity
 
-Excitatory plasticity runs only when the postsynaptic neuron fires. It updates
-only positive synapses that participated in the most recent input event:
+Excitatory plasticity runs only when the postsynaptic neuron fires, and only on
+positive synapses. Three mutually exclusive rules select by flag, in this
+precedence (each returns before the next is considered): the **signed-spike** rule
+(`signed_spike_learning`, the canonical L2E feedforward rule), the
+**flow-proportional assembly credit** rule (`assembly_flow_credit`, the E→I
+integrators L2I / L1I), and otherwise the legacy **charge** rule. All three share
+the excitatory closeness signal
+$p_{\mathrm{exc}} = \mathrm{clamp}(\theta / v_{\mathrm{pre}}, 0, 1)$.
+
+### Signed-spike rule (`signed_spike_learning = True`, canonical L2E feedforward)
+
+Every positive synapse updates on fire with a local $\pm 1$ signal: $+1$ if its
+input participated in this firing volley, $-1$ if not. Active inputs potentiate
+toward the cap; inactive inputs (OFF pixels) depress toward the floor, so the $-1$
+signal supplies the downward pressure a weight budget used to impose — no budget
+runs under this rule. The cap here is the **linear** `weight_cap`:
+
+$$
+\begin{aligned}
+\mathrm{signal}_i &=
+  \begin{cases} +1, & \mathrm{last\_input}_i > 0.5 \\ -1, & \text{otherwise} \end{cases} \\
+\Delta w_i &= \eta_{\mathrm{exc}}\,p_{\mathrm{exc}}
+  \left(1 - \frac{w_i^2}{\mathrm{weight\_cap}^2}\right)\mathrm{signal}_i \\
+w_i &\leftarrow \mathrm{clip}(w_i + \Delta w_i,\; w_{\min},\; \mathrm{weight\_cap})
+\end{aligned}
+$$
+
+This path returns before the budget/cap tail. Note the OFF-pixel depression is what
+drives the **cold-start problem on pattern switches** (see *Open Problems*): a held
+pattern pushes every non-participating gate to $w_{\min}$, so a later pattern that
+needs those pixels starts from the floor.
+
+### Legacy charge rule (default when no signed/assembly flag is set)
+
+It updates only positive synapses that participated in the most recent input event:
 
 $$
 \begin{aligned}
@@ -355,6 +409,40 @@ $$
 where $\eta_{\mathrm{exc}} = \mathrm{learning\_rate}$.
 
 Then the shared budget/cap tail runs.
+
+### Flow-proportional assembly credit (`assembly_flow_credit = True`, E→I integrators L2I / L1I)
+
+For the inhibitory neurons' incoming excitatory (E→I) synapses this replaces the
+last-input participation rule above. On the neuron's own fire, credit is split
+across the positive synapses by the flow each delivered over the retention window —
+the per-synapse leaky eligibility trace $\phi_i$ (accumulated on each input volley,
+decayed every step at the neuron's own leak, so it spans the same window the
+membrane integrates) — **normalized by the maximum flow** so the dominant driver
+receives the full rate:
+
+$$
+\begin{aligned}
+\phi_i &= \mathrm{trace}_i, \qquad \phi_{\max} = \max_{i:\,w_i>0}\phi_i \\
+\Delta w_i &=
+\begin{cases}
+\eta_{\mathrm{exc}}\,p_{\mathrm{exc}}\,\dfrac{\phi_i}{\phi_{\max}}
+   \left(1 - \dfrac{w_i^2}{w_{\max}}\right), & \phi_i > 0 \\[2ex]
+-\,\eta_{\mathrm{exc}}\,p_{\mathrm{exc}}\,\gamma_{\mathrm{dec}}\,(w_i - w_{\min}),
+   & \phi_i = 0
+\end{cases} \\
+w_i &\leftarrow \mathrm{clip}\!\left(w_i + \Delta w_i,\; w_{\min},\;
+   \mathrm{weight\_cap}\right)
+\end{aligned}
+$$
+
+with $\gamma_{\mathrm{dec}} = \mathrm{assembly\_decay\_frac}$, and $p_{\mathrm{exc}}$,
+$w_{\max}$ as above. Contributors ($\phi_i > 0$) potentiate toward the cap in
+proportion to their flow share; non-contributors decelerate into the floor. This
+path returns **before** the budget/cap tail. It is gated on the neuron's own spike —
+the same event as the L2I→L2E discharge that drives loser depression — which is what
+lets a habitual winner's E→I synapse reach self-sufficiency and fixes the L2I firing
+deadlock (see `Inhibition_And_Consolidation_State.md`). Default OFF restores the
+last-input charge rule above.
 
 For L2E feedforward weights, the fixed positive-weight budget is normally:
 
@@ -661,18 +749,46 @@ $$
 The reported winner is the latest L2E spiker. If there is a same-time tie, the
 winner is the neuron with the most spikes within the episode.
 
-## Current Consolidation Gap
+## Open Problems
 
-The implementation has several mechanisms that prevent collapse:
+The implementation has several mechanisms that prevent collapse: L2I-mediated
+adaptive lateral inhibition instead of hard reset; pool-wide suppression of
+non-winning L2E on L2I discharge; refractory-gated inhibitory learning; homeostasis
+or fixed weight budgets to regulate L2E resource use; and optional membrane noise
+and E/I timing controls. On a single held pattern these now give clean
+consolidation with L2I firing (see *Current Status*). Two problems remain.
 
-- L2I-mediated adaptive lateral inhibition instead of hard reset.
-- Pool-wide suppression of non-winning L2E neurons on L2I discharge.
-- Refractory-gated inhibitory learning.
-- Homeostasis or fixed weight budgets to regulate L2E resource use.
-- Optional membrane noise and E/I timing controls for experiments.
+### 1. Interleaved one-to-one assignment
 
-Those mechanisms produce participation and competition. They do not yet produce
-stable one-to-one assignment for all eight symbols. The missing piece is a
-symmetry-breaking or assignment-stabilization mechanism that makes a given
-pattern consistently owned by one neuron while also discouraging two patterns
-from sharing that same owner.
+The mechanisms produce participation and competition but not yet stable one-to-one
+assignment for all eight symbols. Winners are differentiated but collide (typically
+4–6 distinct across 8 patterns). Loser depression is the symmetry-breaker for a
+*held* pattern, but it does not stabilize per-pattern ownership under interleaved
+presentation: strong depression (`eta_loss = 10`) over-depresses across patterns and
+leaves some ownerless. The missing piece is an assignment-stabilization mechanism
+that makes a pattern consistently owned by one neuron while discouraging two patterns
+from sharing an owner (candidates: winner-protect term, novelty/allocation bias so a
+fresh unit claims an unowned pattern, floor that protects one winner). See
+`Inhibition_And_Consolidation_State.md`.
+
+### 2. Cold start on pattern switch
+
+**Unresolved.** Under the signed-spike rule, an OFF pixel (one not in the current
+pattern) is depressed by its $-1$ signal on every fire, decelerating toward the
+floor $w_{\min}$ (dashboard `pos_weight_floor = 1`). Holding one pattern therefore
+drives *every* non-participating gate on the winner — and, via loser depression, on
+the rivals — down to $w_{\min}$. When the input then switches to a **new** pattern,
+the pixels that pattern needs are already at the floor, so no neuron carries enough
+weight on them to accumulate charge quickly: the network must re-learn those gates
+from cold, and during that window the new pattern has no responsive owner (weak or
+absent L2E firing, so L2I and the consolidation loop do not engage either).
+
+This is the flip side of the depression that sharpens a held pattern: sharpening one
+pattern erases readiness for the others. It needs resolution — the OFF-pixel
+depression has no memory of previously-useful gates, so it cannot distinguish "this
+pixel was never mine" from "this pixel belonged to a pattern I haven't seen lately."
+Candidate directions (not yet implemented): a higher or gate-specific floor that
+preserves baseline responsiveness, confidence/consolidation protection of
+previously-matured gates against OFF depression, a slower OFF-depression rate than
+ON-potentiation (asymmetric $\eta$), or reactivating budget renormalization so total
+weight is conserved (redistributed) rather than bled to the floor.

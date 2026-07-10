@@ -375,6 +375,16 @@ class SimulationEngine:
                  excitatory_flow_rate: bool = True,
                  exc_trace_decay: float = 0.8,        # per-timestep current decay d
                  exc_trace_normalized: bool = True,   # inject drive*(1-d) so total ~= drive
+                 # Flow-proportional assembly credit for the E->I integrators (L2I/L1I).
+                 # On the inhibitory neuron's OWN fire, credit every incoming positive
+                 # synapse in proportion to the flow it delivered over the retention
+                 # window (per-synapse leaky trace), normalized so the dominant driver
+                 # gets the full learning rate; non-contributors decay toward the floor.
+                 # Breaks the L2I firing deadlock (a habitual winner's E->I synapse
+                 # climbs to self-sufficiency instead of only the threshold-crossing
+                 # spike taking credit). Default OFF -> legacy last-volley E->I credit.
+                 assembly_flow_credit: bool = False,
+                 assembly_decay_frac: float = 0.5,    # down-pressure on non-contributing gates
                  # Inhibitory FLOW (opt-in; symmetric to the excitatory flow). When on,
                  # a real L2I->L2E discharge injects the gate into a decaying inhibitory
                  # CURRENT that drains the target's charge out over ~1/(1-decay) steps
@@ -523,6 +533,8 @@ class SimulationEngine:
                            excitatory_flow_rate=excitatory_flow_rate,
                            exc_trace_decay=exc_trace_decay,
                            exc_trace_normalized=exc_trace_normalized,
+                           assembly_flow_credit=assembly_flow_credit,
+                           assembly_decay_frac=assembly_decay_frac,
                            inhibitory_flow_rate=inhibitory_flow_rate,
                            inh_trace_decay=inh_trace_decay,
                            inh_trace_normalized=inh_trace_normalized,
@@ -773,6 +785,10 @@ class SimulationEngine:
                     # Only floors positive weights; the inhibitory sign is untouched.
                     if p['pos_weight_floor'] is not None:
                         n.min_positive_weight = p['pos_weight_floor']
+                    # Flow-proportional assembly credit on this inhibitory neuron's
+                    # own fire (L2I / L1I): the E->I "assembly evidence" synapses.
+                    n.assembly_flow_credit = p['assembly_flow_credit']
+                    n.assembly_decay_frac = p['assembly_decay_frac']
 
         # Sparse excitatory flow-rate accumulation (opt-in): configure the current-
         # trace on the POSITIVE-charge integrators. Applies to L2E, L2I and L1I --
@@ -940,7 +956,8 @@ class SimulationEngine:
                'inh_trace_normalized', 'inhibitory_delta_rule', 'inhibitory_rule_mode',
                'inhibitory_eta_up', 'inhibitory_eta_down', 'inhibitory_p_max',
                'inhibitory_margin_frac', 'inhibitory_delta_eta',
-               'distance_weighting', 'distance_power', 'distance_ref', 'distance_min')
+               'distance_weighting', 'distance_power', 'distance_ref', 'distance_min',
+               'assembly_flow_credit', 'assembly_decay_frac')
 
     def apply_config(self, overrides: dict):
         """Merge tunable overrides into self.params and rebuild the network in
@@ -957,7 +974,8 @@ class SimulationEngine:
                      'signed_spike_learning', 'l1i_immediate_relay',
                      'excitatory_flow_rate', 'exc_trace_normalized',
                      'inhibitory_flow_rate', 'inh_trace_normalized',
-                     'inhibitory_delta_rule', 'distance_weighting'):
+                     'inhibitory_delta_rule', 'distance_weighting',
+                     'assembly_flow_credit'):
                 v = bool(v)
             elif k in ('seed', 'refractory', 'l2_charge_chunks'):
                 v = int(v)

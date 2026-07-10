@@ -42,7 +42,19 @@ engine = SimulationEngine(
     signed_spike_learning=True,   # signed +1/-1 feedforward learning (the algorithm)
     l2e_budget=False,             # no positive-weight budget; -1 signal supplies down-pressure
     confidence_consolidation=False,
-    loser_depression=False,
+    # Consolidation stack: loser depression breaks the feed-forward symmetry so one
+    # L2E owns a held pattern; assembly-flow credit then lets that habitual winner's
+    # L2E->L2I synapse climb to self-sufficiency so L2I fires in rhythm (it removes
+    # the last-volley-only credit that stalled the E->I synapse below threshold --
+    # the L2I firing deadlock). Both run off the SAME event (L2I's discharge), so
+    # they share one clock: no boolean gate. Validated on held 'row 0' -- one L2E
+    # specialist + L2I firing on a ~16-step rhythm with the winner's E->I synapse
+    # matured to threshold; legacy last-volley credit stalls it at ~0.55*thr and L2I
+    # stays silent. Keep the default l2i_lr_frac (0.01): a faster E->I rate makes L2I
+    # over-inhibit early and destabilizes it. See Inhibition_And_Consolidation_State.md.
+    loser_depression=True,
+    eta_loss=10.0,                # symmetry-breaker strength (0.01 default is far too weak)
+    assembly_flow_credit=True,    # flow-proportional E->I credit on L2I/L1I fire
     signed_depression=False,      # superseded by the unified signed rule
     homeostasis=False,
     refractory=0,                 # inhibition regulates frequency, not a hard lockout
@@ -224,6 +236,19 @@ CONFIG_SPEC = [
              "Higher = current lingers and charge spreads over more timesteps; 0 = "
              "delivers in a single step (≈ instantaneous). Only used when flow-rate "
              "mode is on."},
+    {"key": "assembly_flow_credit", "label": "Assembly flow credit (E→I)", "kind": "toggle",
+     "desc": "On an inhibitory neuron's (L2I/L1I) OWN fire, credit its incoming "
+             "positive E→I synapses in proportion to the flow each delivered over "
+             "the retention window (per-synapse leaky trace), normalized so the "
+             "DOMINANT driver gets the full learning rate; non-contributors decay "
+             "toward the floor. Replaces the last-volley-only credit that stalled a "
+             "habitual winner's E→I synapse below threshold (the L2I firing deadlock), "
+             "so one specialist can grow enough to fire L2I in rhythm by itself."},
+    {"key": "assembly_decay_frac", "label": "Assembly non-contributor decay", "kind": "range",
+     "min": 0.0, "max": 2.0, "step": 0.05,
+     "desc": "Down-pressure on E→I synapses that delivered no flow this window, as a "
+             "fraction of the learning rate: dw = -eta*p*frac*(w-w_min). 0 = grow "
+             "contributors only. Only used when assembly flow credit is on."},
     {"key": "inhibitory_flow_rate", "label": "Inhibitory flow-rate", "kind": "toggle",
      "desc": "Model the L2I->L2E discharge as a decaying current that drains charge "
              "over several steps (sustained suppression), symmetric to the excitatory "
