@@ -132,6 +132,12 @@ export class Controls {
          () => this.api.post('/api/pause'));
     bind(['g-step', 'x-step'], () => this.api.post('/api/step'));
     bind(['g-reset', 'x-reset'], () => this.api.post('/api/reset'));
+    // Reseed = randomized reset: fresh random initial weights under the same
+    // config. Wipes learned state (like Reset), so confirm before firing.
+    bind(['g-reseed', 'x-reseed'], () => {
+      if (window.confirm('Reseed draws new random initial weights and wipes all learned state. Continue?'))
+        this.api.post('/api/reseed');
+    });
     // Overlay Stop = reset: halts AND rebuilds the network from fresh weights, so
     // it wipes all learned state -- confirm before firing.
     bind(['raster-stop', 'charge-stop', 'weights-stop'], () => {

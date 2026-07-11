@@ -173,6 +173,17 @@ async def reset():
     return {"reset": True}
 
 
+@app.post("/api/reseed")
+async def reseed():
+    # Randomized reset: new random seed -> fresh initial weights under the SAME
+    # config (works for any plasticity combination). Wipes learned state like reset.
+    runner.running = False
+    seed = engine.reseed()
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return {"reseed": True, "seed": seed}
+
+
 @app.post("/api/speed/{sps}")
 async def set_speed(sps: float):
     runner.speed = max(0.5, min(120.0, sps))

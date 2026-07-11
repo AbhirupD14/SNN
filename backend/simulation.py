@@ -957,6 +957,17 @@ class SimulationEngine:
     def reset(self):
         self._build()
 
+    def reseed(self):
+        """Draw a fresh random seed and rebuild from new random initial weights,
+        preserving every other tunable -- so it works under ANY plasticity/config
+        combination (only the seed-driven random draws change: L2E feedforward,
+        E->I, L1I). Like reset(), this rebuilds the network and wipes learned
+        state -- reseeding *is* a randomized reset. Returns the new seed (which
+        becomes the current seed, so a subsequent Reset reproduces this network)."""
+        self.params['seed'] = int(np.random.SeedSequence().generate_state(1)[0])
+        self._build()
+        return self.params['seed']
+
     # Parameters the dashboard is allowed to change live. Anything not listed here
     # is rejected so a stray key can't silently no-op or corrupt self.params.
     TUNABLE = ('signed_depression', 'eta_off', 'l2e_budget', 'l2e_lr_frac',
