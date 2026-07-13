@@ -1,5 +1,19 @@
 # Inhibition & Consolidation — Current State
 
+> **Architecture update — L2 hard-reset competitive depression (2026-07-13).**
+> L2I no longer suppresses L2E through a learned negative gate. L2I recruitment is
+> learned on its positive `L2E -> L2I` inputs; its output is an unweighted
+> competitive-reset event (hard reset of every non-winner to rest + local
+> depression of the participating positive feedforward weights, scaled by the
+> loser's pre-reset charge, via the shared bounded kernel). No learned `L2I->L2E`
+> magnitude remains on the active path — every mention below of a gate capped at
+> `sqrt(L2_GATE_WMAX)`, gate equilibria, or the turnover/margin inhibitory rule
+> refers to the superseded design (now only the legacy `apply_inhibition` path for
+> `L1I->L1E`). Multi-seed diagnostic in `report_competitive_depression.py`:
+> competitive depression lifts sustained per-pattern dominance (~0.63 -> ~0.85)
+> but trades participation for it (more dead units); one-to-one ownership remains
+> unsolved. See `L2_Hard_Reset_Competitive_Depression_Spec.md`.
+
 Status snapshot of the L2 competition / inhibition work (2026-07-09). Records the
 problem, what was built, what worked, what didn't, and the open question.
 
@@ -95,7 +109,8 @@ of owners.
 | **Distance** attenuation of delivered drive `(d_ref/max(d,d_min))^power` (weight=gate, distance=delivery, trace=temporal) | `distance_weighting`, `distance_power/ref/min` | OFF (per-synapse distances=1) | mechanism only; functional geometry not yet assigned |
 | Differentiating **inhibitory-gate rule** (turnover: `du=eta_up·p_t·(1−u)−eta_down·u`; also a `margin` diagnostic) vs legacy saturating | `inhibitory_delta_rule`, `inhibitory_rule_mode`, `inhibitory_eta_up/down`, `inhibitory_p_max` | delta ON, mode `turnover` | gates differentiate (spread ~260 vs 4) but stay sub-θ |
 | **Inhibitory flow** (discharge drains out over time, symmetric to excitatory flow) | `inhibitory_flow_rate`, `inh_trace_decay`, `inh_trace_normalized` | OFF | **NEW** |
-| L1I **immediate relay** (fires on any nonzero feedback, no integration) | `l1i_immediate_relay` | ON | |
+| L1I **immediate relay** (fires on any nonzero feedback, no integration) | `l1i_immediate_relay` | OFF | Trainable accumulator is the default. |
+| Constant L1 drive + delayed trainable feedback | `input_period`, `l1i_feedback_delay` | ON (`input_period=1`) | L1I at `t` suppresses paired L1E only at `t+1`; shared task-independent L1I initialization and temporal credit keep active pixels in phase, while L1I refractory prevents consecutive feedback pulses. |
 | Chunked L2 charge; post-inhibition charge snapshot for the graph; per-L2E phase diagnostics + invariant warnings | `l2_charge_chunks`; `l2_charge`, `l2_inh_phases` | — | graph now shows the inhibition dip |
 
 ## What worked / didn't for CONSOLIDATION (hold row 0)

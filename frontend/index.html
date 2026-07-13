@@ -22,7 +22,7 @@
       <span class="logo"></span>
       <div>
         <div class="brand-title">Spiking Neural Network</div>
-        <div class="brand-sub">8-line recognition · 3×3 grid</div>
+        <div class="brand-sub">4 center-crossing lines · 3×3 grid</div>
       </div>
     </div>
 
@@ -193,8 +193,15 @@
             <p class="rf-note">Signed-spike learning: on each L2E fire, its <b>active</b> pixels
               (+1) potentiate and its <b>inactive</b> pixels (−1) depress —
               <code>dw = η·p·(1−(w/w_cap)²)·signal</code>, no weight budget. Each 3×3 grid below is
-              one L2E neuron's feedforward receptive field (weight ÷ cap). A ring marks the current
+              one L2E neuron's feedforward receptive field. A ring marks the current
               winner; units that can no longer reach threshold are flagged <b>dead</b>.</p>
+            <div class="rf-controls">
+              <div class="rf-toggle" id="rf-mode-toggle" role="group" aria-label="cell display">
+                <button type="button" class="rf-toggle-btn is-on" data-mode="weight">weight</button>
+                <button type="button" class="rf-toggle-btn" data-mode="ratio">ratio</button>
+              </div>
+              <span class="rf-edit-hint" id="rf-edit-hint">Pause to edit a cell — type a value and press Enter to push a neuron toward winning/losing.</span>
+            </div>
           </div>
           <div class="rf-grid" id="rf-grid"></div>
         </div>
@@ -258,7 +265,7 @@
   <div class="viz-overlay" id="weights-overlay" hidden>
     <div class="viz-bar">
       <span class="viz-title">Weights over time · <b id="weights-target">L2E0</b></span>
-      <span class="viz-legend">L1E→L2E feedforward (green) ÷ cap · L2I→L2E gate (red) ÷ cap · dashed = cap</span>
+      <span class="viz-legend">L1E→L2E feedforward (green) ÷ cap · dashed = cap</span>
       <span class="viz-hint">pick a neuron: click an L2E in the 3D view · full training history, newest right · Esc to close</span>
       <span class="viz-transport" role="group" aria-label="playback">
         <button class="btn sm" id="weights-play" title="Play — run the simulation">▶</button>

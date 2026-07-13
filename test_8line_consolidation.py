@@ -1,10 +1,10 @@
 """
-End-to-end characterization of local charge-based learning on the 8-line pattern
-task, using per-source feedforward fan-in.
+End-to-end characterization of local charge-based learning on the four
+center-crossing line patterns, using per-source feedforward fan-in.
 
-3x3 grid -> 8 line patterns (3 rows, 3 cols, 2 diagonals).
+3x3 grid -> middle row, middle column, and two diagonals.
 L1: InputLayer of 9 E/I pairs (one excitatory neuron per pixel).
-L2: CorticalColumn of 8 E neurons sharing 1 I neuron, each E neuron having ONE
+L2: CorticalColumn of 4 E neurons sharing 1 I neuron, each E neuron having ONE
     feedforward synapse per L1 pixel (9 of them) plus a local-inhibition synapse.
 
 This is the test the old demos could not be: because each L2 neuron now owns a
@@ -15,7 +15,7 @@ We check two things:
      L2 neuron's feedforward weights on that pattern's ACTIVE pixels grow clearly
      above its weights on the silent pixels. This is the hard assertion.
   B. Characterization of the current limit -- after interleaved training on all
-     8 patterns, we report how many distinct L2 neurons win. With no counter-force
+     4 patterns, we report how many distinct L2 neurons win. With no counter-force
      yet (deliberately deferred), the first neuron to win grows its weights
      monotonically toward the cap across EVERY pattern it sees, snowballs, and
      becomes the universal winner (WTA tyranny). So today this collapses to a
@@ -34,12 +34,8 @@ from layers import InputLayer
 from cortical_column_flexible import CorticalColumn
 
 PATTERNS = {
-    'row0':  [1,1,1, 0,0,0, 0,0,0],
     'row1':  [0,0,0, 1,1,1, 0,0,0],
-    'row2':  [0,0,0, 0,0,0, 1,1,1],
-    'col0':  [1,0,0, 1,0,0, 1,0,0],
     'col1':  [0,1,0, 0,1,0, 0,1,0],
-    'col2':  [0,0,1, 0,0,1, 0,0,1],
     'diag0': [1,0,0, 0,1,0, 0,0,1],
     'diag1': [0,0,1, 0,1,0, 1,0,0],
 }
@@ -47,7 +43,7 @@ NAMES = list(PATTERNS)
 VECTORS = {k: np.array(v, dtype=float) for k, v in PATTERNS.items()}
 
 N_PIX = 9
-N_OUT = 8
+N_OUT = len(PATTERNS)
 THRESHOLD = 0.4
 LEAK = 0.02
 LR = 0.05
@@ -135,16 +131,16 @@ def present(l1, l2, pattern, n_steps=30, learn=True):
 
 
 def test_receptive_field_forms():
-    print("=== Test A: receptive field forms for a single pattern (row0) ===")
+    print("=== Test A: receptive field forms for a single pattern (row1) ===")
     l1, l2 = build_network(seed=1)
     W0 = l2.feedforward_weights().copy()
     for _ in range(80):
-        present(l1, l2, VECTORS['row0'], n_steps=30, learn=True)
-    counts = present(l1, l2, VECTORS['row0'], n_steps=30, learn=False)
+        present(l1, l2, VECTORS['row1'], n_steps=30, learn=True)
+    counts = present(l1, l2, VECTORS['row1'], n_steps=30, learn=False)
     winner = int(np.argmax(counts))
     W = l2.feedforward_weights()
-    active = [0, 1, 2]                      # row0 pixels
-    silent = [3, 4, 5, 6, 7, 8]
+    active = [3, 4, 5]                      # middle-row pixels
+    silent = [0, 1, 2, 6, 7, 8]
     a_mean, s_mean = W[winner, active].mean(), W[winner, silent].mean()
     print(f"  winner = L2 E{winner}, fired {counts[winner]}/30 steps")
     print(f"  winner active-pixel weights {np.round(W[winner, active],3)} (mean {a_mean:.3f})")
@@ -184,4 +180,4 @@ def test_differentiation():
 if __name__ == "__main__":
     test_receptive_field_forms()
     test_differentiation()
-    print("ALL 8-LINE TESTS PASSED")
+    print("ALL 4-PATTERN TESTS PASSED")

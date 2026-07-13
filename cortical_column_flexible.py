@@ -1,7 +1,7 @@
 """
 CorticalColumn with explicit per-source feedforward fan-in.
 
-Each excitatory neuron's afferent weights are laid out as:
+In the legacy weighted-inhibition layout, each excitatory neuron's afferents are:
 
     [ from_local_I , from_below_0 , from_below_1 , ... , from_below_{n_ff-1} ]
 
@@ -14,10 +14,10 @@ The shared inhibitory neuron's afferent weights are:
 
     [ from_local_E_0 , ... , from_local_E_{n-1} , feedback_0 , ... ]
 
-E->I weights are excitatory (positive): an E spike drives the shared I neuron,
-which then blankets the pool through its negative I->E weights
-(set_local_inhibition_weights). E/I is encoded purely by the sign of the weight
-at the target -- see neuron_flexible.Neuron._update_weights.
+E->I weights are excitatory (positive). A legacy column can return inhibition
+through negative I->E weights. The active SimulationEngine instead constructs the
+column with `include_local_inhibition=False`: E afferents are only the feedforward
+sources, and the shared I neuron returns an unweighted competitive-reset event.
 """
 
 import numpy as np
@@ -29,9 +29,17 @@ class CorticalColumn:
     feedforward fan-in and optional feedback fan-in from a higher layer."""
 
     def __init__(self, n_neurons, threshold=1000 / UNIT, refractory_period=2,
-                 learning_rate=0.05, weight_cap=1000 / UNIT, leak_rate=10 / LEAK_SCALE):
+                 learning_rate=0.05, weight_cap=1000 / UNIT, leak_rate=10 / LEAK_SCALE,
+                 include_local_inhibition=True):
         self.n_neurons = n_neurons
-        # Excitatory neurons: afferents are [from_local_I, *from_below].
+        # Feedforward afferent layout offset. Legacy columns prepend one weighted
+        # local-I gate at index 0 (offset 1); the active hard-reset architecture has
+        # no learned L2I->L2E gate, so the feedforward pixels start at index 0
+        # (offset 0). set_feedforward_weights()/feedforward_weights() use this offset.
+        self.include_local_inhibition = bool(include_local_inhibition)
+        self.feedforward_offset = 1 if self.include_local_inhibition else 0
+        # Excitatory neurons: afferents are [from_local_I, *from_below] (legacy) or
+        # [*from_below] when include_local_inhibition is False.
         self.excitatory_neurons = [
             Neuron(threshold=threshold, refractory_period=refractory_period,
                    learning_rate=learning_rate, weight_cap=weight_cap, leak_rate=leak_rate)
@@ -50,14 +58,16 @@ class CorticalColumn:
         """
         Allocate afferent synapses (placeholders at 0.0, filled by the setters).
 
-        E neuron: index 0 = from_local_I; indices 1..n_ff = one per feedforward source.
+        Legacy E neuron: index 0 = from_local_I; indices 1..n_ff = feedforward.
+        Hard-reset E neuron: indices 0..n_ff-1 are feedforward (no local-I gate).
         I neuron: indices 0..n_neurons-1 = from each local E; then n_feedback feedback.
         """
         self.n_feedforward_inputs = n_feedforward_inputs
         self.n_feedback_inputs = n_feedback_inputs
 
         for e in self.excitatory_neurons:
-            e.add_input_connection(0.0)                 # 0: from the shared inhibitory neuron
+            if self.include_local_inhibition:
+                e.add_input_connection(0.0)             # 0: from the shared inhibitory neuron
             for _ in range(n_feedforward_inputs):
                 e.add_input_connection(0.0)             # one synapse per feedforward source
 
@@ -79,8 +89,15 @@ class CorticalColumn:
 
     # ---- excitatory afferents -------------------------------------------------
     def set_local_inhibition_weights(self, weight):
-        """I -> E (index 0 on every E neuron). Should be negative."""
+        """I -> E (index 0 on every E neuron). Should be negative. Only valid on a
+        column built WITH the local-I gate; otherwise index 0 is a feedforward pixel
+        and writing it would silently corrupt a receptive field, so raise instead."""
         self._ensure_finalized()
+        if not self.include_local_inhibition:
+            raise RuntimeError(
+                "set_local_inhibition_weights() is invalid on a column built with "
+                "include_local_inhibition=False (no learned local-I gate; the active "
+                "L2 competition uses Neuron.apply_competitive_reset instead).")
         for e in self.excitatory_neurons:
             w = e._weights_array.copy()
             w[0] = weight
@@ -88,7 +105,7 @@ class CorticalColumn:
 
     def set_feedforward_weights(self, weights):
         """
-        below -> E (indices 1..n_ff on every E neuron). Should be positive.
+        below -> E (starting at `feedforward_offset`) on every E neuron. Positive.
 
         `weights` may be:
           - scalar:                 same value on every feedforward synapse
@@ -96,7 +113,8 @@ class CorticalColumn:
           - 2D array (n_neurons, n_ff): a distinct receptive field per E neuron
         """
         self._ensure_finalized()
-        start, stop = 1, 1 + self.n_feedforward_inputs
+        start = self.feedforward_offset
+        stop = start + self.n_feedforward_inputs
         scalar = np.isscalar(weights)
         if not scalar:
             weights = np.asarray(weights, dtype=float)
@@ -114,8 +132,9 @@ class CorticalColumn:
     def set_lateral_excitation_weights(self, weight):
         """
         local E -> I (indices 0..n_neurons-1 on the shared I neuron). Should be
-        positive: an E spike drives the shared inhibitory neuron, which is what
-        produces lateral inhibition once it fires back through set_local_inhibition_weights.
+        positive: an E spike drives the shared inhibitory neuron. A legacy column
+        returns through weighted local inhibition; the active engine uses an
+        unweighted competitive-reset event instead.
         """
         self._ensure_finalized()
         w = self.inhibitory_neuron._weights_array.copy()
@@ -134,7 +153,9 @@ class CorticalColumn:
     def feedforward_weights(self):
         """Return the (n_neurons, n_ff) matrix of feedforward receptive fields."""
         self._ensure_finalized()
-        return np.array([e._weights_array[1:1 + self.n_feedforward_inputs]
+        start = self.feedforward_offset
+        stop = start + self.n_feedforward_inputs
+        return np.array([e._weights_array[start:stop]
                          for e in self.excitatory_neurons])
 
     def get_state(self):

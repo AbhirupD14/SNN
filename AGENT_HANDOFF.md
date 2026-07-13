@@ -1,5 +1,21 @@
 # Agent Handoff — SNN Cortical Column, `feature/inhibitory-plasticity`
 
+> **Architecture update — L2 hard-reset competitive depression (2026-07-13).**
+> The learned negative `L2I -> L2E` gate is **gone** from the active engine. L2I
+> recruitment is still learned on its positive `L2E -> L2I` inputs, but its output
+> is now an **unweighted competitive-reset event**: when L2I fires, every
+> non-winner L2E is unconditionally hard-reset to rest (traces cleared) and its
+> participating positive feedforward weights are locally depressed via the shared
+> bounded kernel, scaled by the loser's own pre-reset charge. No learned
+> `L2I->L2E` magnitude exists on the active path; the `inhibitory_delta_rule` /
+> turnover / `L2_GATE_*` machinery below applies only to the legacy standalone
+> `apply_inhibition` path (`L1I->L1E` feedback, old experiments). Active L2E have
+> exactly `N_PIX` positive afferents and no index-0 gate. Multi-seed diagnostic:
+> `report_competitive_depression.py` (competitive depression roughly doubles
+> sustained per-pattern dominance, 0.63 -> 0.85, but reduces distinct winners /
+> raises dead-unit count — it does **not** on its own deliver clean 8/8 one-to-one
+> ownership). See `L2_Hard_Reset_Competitive_Depression_Spec.md`.
+
 Read this top-to-bottom before touching the competition code. It tells you where
 the implementation is, what the real goal is, what has been tried (and rejected,
 with evidence), and what to try next. It reflects the state as of this branch.
@@ -8,9 +24,9 @@ with evidence), and what to try next. It reflects the state as of this branch.
 
 ## 1. What this project is
 
-An 8-line-primitive recognition SNN. Input is a 3×3 pixel grid (`N_PIX=9`); the 8
-patterns are the horizontal/vertical/diagonal lines (`row 0..2`, `col 0..2`,
-`diag \`, `diag /`). Architecture: `L1E` pixel encoders → `L2E` (8 competing
+An overcomplete four-pattern recognition SNN. Input is a 3x3 pixel grid
+(`N_PIX=9`); the retained patterns are the center row, center column, and two
+diagonals. Architecture: `L1E` pixel encoders -> `L2E` (8 competing
 excitatory units) with a shared `L2I` inhibitory neuron providing lateral
 inhibition; `L1I` gives feedback suppression. The whole engine is
 `backend/simulation.py::SimulationEngine`; the single neuron implementation is
@@ -77,7 +93,8 @@ Defaults in `SimulationEngine.__init__` (backend/simulation.py):
 | `eta_off` | 0.20 | depression rate; only relevant in the old budget regime |
 | `event_driven` | **True** | canonical per-step competition: resolve one argmax winner every timestep (was False = once-per-cycle; still reachable by turning off) |
 | `l2_charge_chunks` | **1** | K: deliver this step's L1→L2E drive in K chunks (w/K per synapse) inside a frozen timestep, resolving the argmax WTA after each and stopping at the first crosser (consolidation-first). K=1 = un-chunked baseline |
-| `l1i_immediate_relay` | **True** | L1I fires on ANY nonzero L2E feedback — deterministic relay, no learned-threshold crossing or feedback-weight training (fixes the integrator phase shift). Off = legacy trainable threshold integrator |
+| `input_period` | **1** | Constant held-pattern drive; independent `cycle_period` still defaults to `volley_period`. |
+| `l1i_immediate_relay` | **False** | Default is the trainable threshold accumulator. Its spikes inhibit paired L1E one step later; shared random initialization, temporal contributor credit, and an effective one-step refractory interval produce synchronized half-frequency feedback. On enables the deterministic relay. |
 | `excitatory_flow_rate` | **False** | weight = current amplitude: a spike opens a decaying excitatory current trace integrated into V over time (closed-form lazy advance) for L2E/L2I/L1I (not L1E, not relay L1I). Off = instantaneous `V += dot(w,spikes)`. Forces effective `l2_charge_chunks`=1. `exc_trace_decay`=0.8 (d), `exc_trace_normalized`=True (inject `g(1-d)` so total≈g) |
 | `inhibitory_delta_rule` | **True** | differentiating L2I→L2E gate rule instead of legacy saturating (all gates → sqrt(w_max), uniform). `inhibitory_rule_mode`="turnover" (default): `du=eta_up·p_t·(1−u) − eta_down·u`, `u=w/G`, `G=sqrt(w_max)`, `p_t=clamp(v_pre/θ,0,p_max)` — event-local, no target voltage/averages; high-charge rivals accumulate stronger gates, weak ones decay (spread ~260 vs 4, distinct winners preserved). "margin" mode = diagnostic (`s=clamp(v_pre−margin·θ,0,G)`). Params `inhibitory_eta_up`=0.02, `inhibitory_eta_down`=0.005, `inhibitory_p_max`=1.0 |
 | `lasting_inhibition` | **False** | experimental scalar field; FAILED — leave off |

@@ -16,8 +16,12 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 const COLORS = {
   E: 0x5eead4, I: 0xf0788c, winner: 0xffce5c,
   feedforward: 0x4cc38a, inhibition: 0xf0788c, excitation: 0x7c9cff, feedback: 0xc084fc,
+  // Structural L2I->L2E competitive-reset fanout: fixed inhibitory styling, no
+  // learned weight (rendered at a constant opacity, independent of the weak filter).
+  reset_inhibition: 0xf0788c,
 };
 const WEAK = 0.25;
+const RESET_OPACITY = 0.22;   // fixed opacity for the unweighted reset fanout edges
 
 export class NeuronRenderer {
   constructor(container, { onSelect }) {
@@ -152,6 +156,11 @@ export class NeuronRenderer {
 
   _applyEdgeWeights() {
     for (const e of this.edges.values()) {
+      if (e.syn.kind === 'reset_inhibition') {
+        // Unweighted structural fanout: fixed opacity, no weight scaling.
+        e.baseOpacity = RESET_OPACITY;
+        continue;
+      }
       const mag = Math.min(1, Math.abs(e.weight));
       e.baseOpacity = 0.04 + 0.32 * mag;
     }
@@ -181,7 +190,9 @@ export class NeuronRenderer {
     }
     for (const e of this.edges.values()) {
       let vis = true;
-      if (F.weak && Math.abs(e.weight) < WEAK) vis = false;
+      // The structural reset fanout has no weight; it must stay visible regardless
+      // of the weak-weight filter (only neuron-visibility/assembly filters apply).
+      if (e.syn.kind !== 'reset_inhibition' && F.weak && Math.abs(e.weight) < WEAK) vis = false;
       const sN = this.neurons.get(e.syn.source), tN = this.neurons.get(e.syn.target);
       if (sN && !sN.mesh.visible) vis = false;
       if (tN && !tN.mesh.visible) vis = false;

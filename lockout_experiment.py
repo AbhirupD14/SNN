@@ -19,7 +19,7 @@ Metric (learning ON throughout; hold each pattern HOLD_CYCLES cycles):
                    1.0 == perfect lockout (only the owner ever fires). This is the
                    direct read of "no other neuron fires".
   - dominance    : owner's share of cycles during the hold (1.0 == owner every cycle).
-  - distinct/8   : distinct owners across the 8 patterns (want 8 -> per-pattern,
+  - distinct/N   : distinct owners across N patterns (want N -> per-pattern,
                    not one universal king).
   - collisions   : patterns sharing an owner (want 0).
   - dead         : L2E that never won any pattern (secondary).
@@ -113,10 +113,10 @@ def _run(tag, kw):
     print(f"\n===== {tag} =====")
     for m in res:
         print(f"  seed {m['seed']}: firers/hold={m['mean_firers']:.2f}  "
-              f"dominance={m['mean_dom']:.3f}  distinct={m['distinct']}/8  "
+              f"dominance={m['mean_dom']:.3f}  distinct={m['distinct']}/{len(PATTERNS)}  "
               f"collisions={m['collisions']}  dead={m['dead']}  peakV={m['peakV']:.2f}x")
     print(f"  MEAN: firers/hold={agg['mean_firers']:.2f}  dominance={agg['mean_dom']:.3f}  "
-          f"distinct={agg['distinct']:.2f}/8  collisions={agg['collisions']:.2f}  "
+          f"distinct={agg['distinct']:.2f}/{len(PATTERNS)}  collisions={agg['collisions']:.2f}  "
           f"dead={agg['dead']:.2f}  peakV={agg['peakV']:.2f}x")
     return tag, agg
 
@@ -135,7 +135,7 @@ def main():
           f"{'distinct':>9} {'collis':>7} {'dead':>5} {'peakV':>6}")
     for tag, a in summary:
         print(f"  {tag:<28} {a['mean_firers']:>11.2f} {a['mean_dom']:>10.3f} "
-              f"{a['distinct']:>7.2f}/8 {a['collisions']:>7.2f} {a['dead']:>5.2f} "
+              f"{a['distinct']:>7.2f}/{len(PATTERNS)} {a['collisions']:>7.2f} {a['dead']:>5.2f} "
               f"{a['peakV']:>5.2f}x")
     print("\n  firers/hold -> 1.0 means the owner locked every rival out (goal).")
 

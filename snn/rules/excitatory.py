@@ -27,6 +27,36 @@ def _closeness(n, v_pre):
     return min(max(theta / v_pre, 0.0), 1.0) if v_pre > 0 else 0.0
 
 
+def bounded_signed_update(w, w_min, w_cap, gain, signal):
+    """Shared direction-aware bounded weight kernel (L2_Hard_Reset spec Section 6).
+
+    For a positive weight w with lower/upper bounds w_min, w_cap, let
+        q = clamp((w - w_min) / (w_cap - w_min), 0, 1).
+    Upward movement uses H_up(q) = 1 - q^2 (largest at w_min, zero at w_cap);
+    downward movement uses the REFLECTED H_down(q) = 1 - (1 - q)^2 (zero at w_min,
+    maximal at w_cap). The reflection is required: a literal negative copy of the
+    upward form (1 - (w/w_cap)^2) becomes zero at w_cap and would make a capped
+    losing weight impossible to depress. Then
+        dw = +gain * H_up(q)   where signal >= 0,
+        dw = -gain * H_down(q) where signal <  0,
+    and w_next = clip(w + dw, w_min, w_cap).
+
+    `signal` is +1 (up) / -1 (down) per element (or a scalar); `gain` is a scalar
+    or per-element array. Vectorized so the winner rule (mixed +1/-1 afferents) and
+    competitive depression (all -1) share one implementation. `w_cap <= w_min` is a
+    no-op (returns w unchanged) to avoid a divide-by-zero on the degenerate range.
+    """
+    w = np.asarray(w, dtype=float)
+    if w_cap <= w_min:
+        return w.copy()
+    q = np.clip((w - w_min) / (w_cap - w_min), 0.0, 1.0)
+    signal = np.asarray(signal, dtype=float)
+    H_up = 1.0 - q ** 2
+    H_down = 1.0 - (1.0 - q) ** 2
+    dw = np.where(signal >= 0.0, gain * H_up, -gain * H_down)
+    return np.clip(w + dw, w_min, w_cap)
+
+
 class ExcitatoryRule:
     def on_fire(self, n, v_pre):
         raise NotImplementedError
@@ -47,9 +77,12 @@ class SignedSpikeRule(ExcitatoryRule):
             gain = (n.learning_rate * n._structural_free_energy_gate()
                     if n.structural_free_energy
                     else n.learning_rate * p)
-            dw = gain * (1.0 - (w / n.weight_cap) ** 2) * signal
             w_min = n.min_positive_weight if n.min_positive_weight is not None else 0.0
-            n._weights_array[pos] = np.clip(w + dw, w_min, n.weight_cap)
+            # Shared bounded kernel: +1 afferents potentiate via H_up, OFF afferents
+            # depress via the reflected H_down -- the SAME downward branch the
+            # competitive-depression loser update uses (spec Section 6).
+            n._weights_array[pos] = bounded_signed_update(
+                w, w_min, n.weight_cap, gain, signal)
 
 
 class AssemblyFlowCredit(ExcitatoryRule):

@@ -61,7 +61,7 @@ def _train_interleaved(engine, names, steps, epochs):
 
 def _sustained_winners(engine, name, steps, hold_cycles):
     """Hold one pattern; return the per-cycle L2E winner sequence and loser
-    V/theta captured before reset (from the inhibitory event's v_pre). The
+    V/theta captured before reset (from the competitive-reset record's v_pre). The
     round-robin signature -- how often the winner CHANGES from one cycle to the
     next under a fixed input -- is computed from the winner sequence by the
     caller; a hard reset that removes loser carryover should lower it."""
@@ -71,9 +71,9 @@ def _sustained_winners(engine, name, steps, hold_cycles):
     thr = engine.params['threshold_l2']
     for _ in range(steps * hold_cycles):
         engine.step()
-        for nid, ev in engine._inh_events:
+        for nid, rec in engine._reset_events:
             if nid.startswith('L2E'):
-                loser_vpre_ratios.append(ev['v_pre'] / thr if thr else 0.0)
+                loser_vpre_ratios.append(rec['v_pre'] / thr if thr else 0.0)
         for j in range(N_OUT):
             if engine.spiked[f'L2E{j}']:
                 winners.append(j)
@@ -149,12 +149,12 @@ def _summarize(tag, results):
     print(f"\n===== {tag} =====")
     keys = ('distinct', 'mean_dom', 'best_dom', 'dead', 'rotation', 'vpre', 'sat')
     for m in results:
-        print(f"  seed {m['seed']}: distinct={m['distinct']}/8  "
+        print(f"  seed {m['seed']}: distinct={m['distinct']}/{len(PATTERNS)}  "
               f"sustained_dom={m['mean_dom']:.3f}  best={m['best_dom']:.3f}  "
               f"dead={m['dead']}  rotation={m['rotation']:.3f}  "
               f"loserV/θ={m['vpre']:.3f}  sat={m['sat']:.3f}")
     agg = {k: float(np.mean([m[k] for m in results])) for k in keys}
-    print(f"  MEAN: distinct={agg['distinct']:.2f}/8  sustained_dom={agg['mean_dom']:.3f}  "
+    print(f"  MEAN: distinct={agg['distinct']:.2f}/{len(PATTERNS)}  sustained_dom={agg['mean_dom']:.3f}  "
           f"best_held={agg['best_dom']:.3f}  dead={agg['dead']:.2f}  "
           f"rotation={agg['rotation']:.3f}  loserV/θ={agg['vpre']:.3f}  sat={agg['sat']:.3f}")
     return agg
@@ -172,7 +172,7 @@ def main():
               f"(delta {fmt.format(h[k] - b[k])})")
     line("sustained dominance", "mean_dom")
     line("single held-pattern dom", "best_dom")
-    line("distinct owners /8", "distinct")
+    line(f"distinct owners /{len(PATTERNS)}", "distinct")
     line("dead L2E", "dead")
     line("winner rotation rate", "rotation")
     line("loser V/theta pre-reset", "vpre")

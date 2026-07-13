@@ -241,8 +241,8 @@ def test_flow_traces_cleared_on_reset():
 
 # --------------------------------------------------------------- integration
 def test_preset_eliminates_carryover_end_to_end():
-    """Sanity end-to-end: under the preset, whenever L2I discharges the pool the
-    inhibited L2E neurons end the step at rest (zero carryover)."""
+    """Sanity end-to-end: under the preset, whenever L2I issues competitive resets
+    the reset L2E neurons end the step at rest (zero carryover)."""
     e = SimulationEngine(seed=1, **HARD_RESET_PRESET)
     carryover_steps = 0
     discharge_steps = 0
@@ -252,7 +252,7 @@ def test_preset_eliminates_carryover_end_to_end():
             e.set_pattern(name)
             for _ in range(25):
                 e.step()
-                inhibited = [int(nid[3:]) for nid, _ in e._inh_events
+                inhibited = [int(nid[3:]) for nid, _ in e._reset_events
                              if nid.startswith('L2E')]
                 if inhibited:
                     discharge_steps += 1

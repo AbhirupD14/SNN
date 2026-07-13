@@ -1,25 +1,28 @@
 # SNN
 
-A from-scratch spiking neural network for the eight 3x3 line primitives:
-three rows, three columns, and two diagonals. The project is intentionally small:
-pure NumPy neurons, local plasticity, no gradients, no labels, and no global
-error signal.
+A from-scratch spiking neural network for four center-crossing 3x3 line
+primitives: the middle row, middle column, and two diagonals. The project is
+intentionally small: pure NumPy neurons, local plasticity, no gradients, no
+labels, and no global error signal.
+
+Every retained pattern activates the center pixel. This narrows the task toward
+center-on retinal stimuli, but L1 is still a binary pixel encoder; an explicit
+antagonistic surround-off receptive field is not yet modeled.
 
 ## Core Status
 
 The current branch is `feature/inhibitory-plasticity`.
 
-The network has good participation and a clean modal assignment: after
-interleaved training, the eight patterns usually map to eight distinct L2E
-specialists. The hard part is not solved yet: under sustained presentation, the
-pool still round-robins. The honest metric is sustained dominance: hold one
+The four-pattern task deliberately increases overlap because all stimuli share
+the center pixel. Pool participation remains good, but stable one-to-one
+ownership must be re-measured on this task rather than inferred from the earlier
+eight-pattern results. The honest metric remains sustained dominance: hold one
 pattern for about 40 intrinsic cycles and measure how often its modal specialist
-wins. Current defaults are around `8/8` distinct modal winners but only
-`0.34-0.36` mean sustained dominance, not stable one-to-one ownership.
+wins.
 
 Do not use `metrics_consolidation.py` as the ownership metric. It presents each
 pattern in short visits and reports the reliable first-cycle-after-switch winner,
-so it can print `8/8` and `1.00` dominance while sustained presentation still
+so it can print perfect short-visit dominance while sustained presentation still
 rotates.
 
 ## Code Map
@@ -38,29 +41,52 @@ rotates.
 
 ## Model Summary
 
+> **Architecture update (L2 hard-reset competitive depression).** L2I no longer
+> suppresses L2E through a learned negative gate. L2I *recruitment* is still learned
+> on its positive `L2E -> L2I` inputs, but its *output* is an unweighted event: when
+> L2I fires, every non-winning L2E is hard-reset to rest (membrane and pending
+> current traces cleared) and its participating positive feedforward weights are
+> locally depressed, scaled by its own pre-reset charge. There is no learned
+> `L2I -> L2E` magnitude anywhere on the active path. See
+> `L2_Hard_Reset_Competitive_Depression_Spec.md` and `Neuron.apply_competitive_reset`.
+> Statements below about learned `L2I->L2E` gates describe the superseded design and
+> apply only to the legacy standalone `apply_inhibition` path (still used for
+> `L1I->L1E` feedback).
+
 Architecture:
 
 ```text
 L1E pixel encoders -> L2E pattern integrators
-L2E winners       -> shared L2I
-L2I               -> learned inhibitory gates onto L2E pool
+L2E winners       -> shared L2I   (learned positive E->I recruitment)
+L2I fires         -> unweighted competitive reset of every non-winner L2E
+                     (hard reset to rest + local depression of participating +weights)
 L2E feedback      -> L1I input suppression
 ```
 
-The L2E neurons each receive one trainable feedforward synapse per L1 pixel plus
-one local inhibitory gate from L2I. E/I identity is carried by synapse sign.
+The eight L2E neurons each receive exactly one trainable feedforward synapse per L1
+pixel and no negative gate. The output pool is deliberately overcomplete for the
+four patterns. E/I identity is carried by synapse sign.
 
 Default engine highlights:
 
 - `threshold_l2 = 8 * UNIT`
-- `confidence_consolidation = True`
-- `loser_depression = True`
-- `signed_depression = True`
-- `eta_off = 0.20`
-- L2E feedforward budget = `2 * threshold_l2`
-- `event_driven = False`
+- `input_period = 1`; held active pixels are driven every step
+- `cycle_period = volley_period`; the intrinsic clock is independent of input
+- `signed_spike_learning = True`; L2E has no feedforward weight budget
+- `l1i_immediate_relay = False`; L1I is a trainable accumulator
+- L2E, L2I, and L1I membrane leaks are off by default
+- balanced L2E initialization is opt-in; legacy wide random init is the default
+- `event_driven = True`
 - `lasting_inhibition = False`
 - `homeostasis = False`
+
+Trainable L1I feedback is delivered through a one-step register: an L1I spike at
+step `t` suppresses its paired L1E at `t+1` only. The L1I bank starts from one
+shared random L2E feedback vector, uses temporal contributor credit, and blocks
+consecutive feedback spikes. It therefore learns a phase-aligned alternating
+rhythm under constant stimulation rather than splitting pixels into random phase
+groups; the dashboard regression reaches a 0.5 firing rate for both active L1E
+and L1I neurons.
 
 Excitatory plasticity runs on a postsynaptic spike and updates only positive
 synapses active in the most recent input event:
@@ -96,6 +122,7 @@ PYTHONPATH=. .venv/bin/python test_neuron.py
 PYTHONPATH=. .venv/bin/python test_refractory_gating.py
 PYTHONPATH=. .venv/bin/python test_inhibitory_plasticity.py
 PYTHONPATH=. .venv/bin/python test_l2_competition.py
+PYTHONPATH=. .venv/bin/python test_constant_input_feedback.py
 PYTHONPATH=. .venv/bin/python test_8line_consolidation.py
 ```
 
@@ -118,27 +145,32 @@ WebSocket protocol.
 ## Minimal signed-spike experiment
 
 A stripped-down configuration that tests whether the **core local loop alone**
-(charge → fire → local feedforward update → learned L2I lateral inhibition → L1I
+(charge → fire → local feedforward update → L2I competitive reset → L1I
 feedback inhibition → repeat) can learn stable pattern ownership, with all the
 accumulated compensating mechanisms turned off. See
 `Claude_Minimal_Signed_Spike_Learning_Prompt.md`.
 
 **The rule (`signed_spike_learning=True`, L2E only, default off).** On a
 postsynaptic fire, every *positive* feedforward synapse gets one local **signed**
-update — active inputs potentiate, inactive inputs depress — through the same
-saturating term written with a **linear** cap:
+update — active inputs potentiate, inactive inputs depress — through the shared
+**direction-aware bounded kernel** (`snn.rules.bounded_signed_update`), which is
+also what the competitive-depression loser update uses:
 
 ```
+q        = clamp((w_i - w_floor) / (w_cap - w_floor), 0, 1)
 signal_i = +1 if input i was active in the firing volley, else -1
-p        = clamp(theta / v_pre, 0, 1)
-dw_i     = learning_rate * p * (1 - (w_i / w_cap)^2) * signal_i
+p        = clamp(theta / v_pre, 0, 1)         # or the structural gate when enabled
+dw_i     = +learning_rate * p * (1 - q^2)          if signal_i = +1   (H_up)
+dw_i     = -learning_rate * p * (1 - (1 - q)^2)    if signal_i = -1   (H_down, reflected)
 w_i      = clip(w_i + dw_i, w_floor, w_cap)
 ```
 
-There is **no weight budget**: the `-1` signal on inactive inputs supplies the
-downward pressure the budget used to impose. Negative inhibitory gates are never
-touched here (they still learn only via `apply_inhibition`). This one equation
-replaces the whole potentiation + OFF-depression + confidence + budget stack.
+The reflected downward branch is required: it goes to zero at `w_floor` (a floored
+weight can't be pushed lower) and stays fully effective at `w_cap` (a capped losing
+weight can still be depressed). There is **no weight budget**: the `-1` signal on
+inactive inputs supplies the downward pressure the budget used to impose. This one
+kernel replaces the whole potentiation + OFF-depression + confidence + budget stack,
+and the same kernel drives the L2I-event competitive depression.
 
 **Minimal config** (used by `stage_learning_harness.py`, exposed on the engine
 and dashboard): `signed_spike_learning=True`; `confidence_consolidation`,
@@ -152,16 +184,17 @@ frequency. Lateral (L2I) and feedback (L1I) inhibition stay active.
 fractions, set in the dashboard/harness preset):
 
 ```
-per-afferent positive weight cap = E-neuron threshold / 3   (l2e_weight_cap_frac=1/3)
-I-neuron threshold               = E-neuron threshold / 3   (l2i/l1i_threshold_frac=1/3)
-positive-afferent floor          = 1                        (pos_weight_floor=1)
+per-afferent positive weight cap = L2E threshold / 3       (l2e_weight_cap_frac=1/3)
+L2I threshold                    = L2E threshold / 3       (l2i_threshold_frac=1/3)
+L1I threshold                    = L2I threshold           (l1i_threshold_frac=1.0)
+positive-afferent floor          = 1                       (pos_weight_floor=1)
 ```
 
 so **three maximally strong active afferents reach threshold** (matching the
 3-pixel line patterns), one strong winner can recruit its inhibitory neuron, and
 E→I init ranges (`[0.25,0.5]×thr_I`) recompute from the lowered I thresholds.
-The negative L2I→L2E gate is **not** floored as a positive weight — it stays
-negative and is bounded by magnitude in `apply_inhibition`. Defaults
+The active L2E has no negative afferent at all — L2 competition is the unweighted
+competitive reset, not a learned gate. Defaults
 (`l2e_weight_cap_frac=1.0`, `pos_weight_floor=None`, I-threshold fracs `=1`)
 reproduce the prior behavior, so the existing tests are unchanged.
 

@@ -9,8 +9,8 @@ presentations: show P1 -> neuron A wins; later show P1 again -> A wins again;
 each of the 8 line patterns should have a stable, distinct owner.
 
 So the metric here is measured PER VISIT, not per cycle:
-  - Train by cycling the 8 patterns for many visits (learning stays on).
-  - Evaluate by cycling the 8 patterns for EVAL_ROUNDS more rounds (learning
+  - Train by cycling the patterns for many visits (learning stays on).
+  - Evaluate by cycling the patterns for EVAL_ROUNDS more rounds (learning
     stays on -- ownership must survive ongoing plasticity, which is the point).
   - For each visit, record the FIRST L2E winner after the pattern switch
     (first L2E to spike within an early window of VISIT_CYCLES cycles).
@@ -18,7 +18,7 @@ So the metric here is measured PER VISIT, not per cycle:
     consistency(P) = fraction of P's visits that the owner won.
 
 Reports pattern->owner, per-pattern consistency, mean consistency, distinct
-owners/8, collisions (owners shared by >1 pattern), and -- secondary only --
+owners/patterns, collisions (owners shared by >1 pattern), and -- secondary only --
 dead L2E (never won any visit).
 
 The model uses NO labels and NO pattern->winner table; ownership is read out
@@ -46,7 +46,7 @@ import numpy as np
 from backend.simulation import SimulationEngine, PATTERNS, N_OUT
 
 
-TRAIN_ROUNDS = 60      # training sweeps over all 8 patterns
+TRAIN_ROUNDS = 60      # training sweeps over all patterns
 EVAL_ROUNDS = 25       # evaluation visits per pattern
 VISIT_CYCLES = 3       # early window (in cycles) in which the first winner is taken
 SEEDS = (1, 2, 3, 4)
@@ -110,7 +110,7 @@ def measure(seed, refractory, v_sat_frac=None, freeze=True,
     if freeze:
         _freeze_plasticity(e)
 
-    # Evaluation: cycle the 8 patterns eval_rounds times, first-winner per visit.
+    # Evaluation: cycle all patterns eval_rounds times, first-winner per visit.
     hist: dict[str, Counter] = {n: Counter() for n in names}
     peaks: list[float] = []
     for _ in range(eval_rounds):
@@ -151,7 +151,7 @@ def _print_condition(tag, results):
     for m in results:
         per = "  ".join(f"{n}->L2E{m['owner'][n]}:{m['consistency'][n]:.2f}"
                         for n in m['owner'])
-        print(f"  seed {m['seed']}: distinct={m['distinct']}/8  "
+        print(f"  seed {m['seed']}: distinct={m['distinct']}/{len(PATTERNS)}  "
               f"mean_consistency={m['mean_cons']:.3f}  "
               f"collisions={m['collisions']}  dead={m['dead']}  "
               f"peak_V={m['peak_mean']:.2f}x/{m['peak_max']:.2f}x thr")
@@ -160,7 +160,7 @@ def _print_condition(tag, results):
     agg = {k: sum(m[k] for m in results) / n
            for k in ('distinct', 'mean_cons', 'collisions', 'dead',
                      'peak_mean', 'peak_max')}
-    print(f"  MEAN: distinct={agg['distinct']:.2f}/8  consistency={agg['mean_cons']:.3f}  "
+    print(f"  MEAN: distinct={agg['distinct']:.2f}/{len(PATTERNS)}  consistency={agg['mean_cons']:.3f}  "
           f"collisions={agg['collisions']:.2f}  dead={agg['dead']:.2f}  "
           f"peak_V(mean/max)={agg['peak_mean']:.2f}x/{agg['peak_max']:.2f}x thr")
     return agg
@@ -186,7 +186,7 @@ def main():
     print(f"  {'condition':<30} {'distinct':>9} {'consist':>8} "
           f"{'collis':>7} {'dead':>5} {'peakV(mn/mx)':>16}")
     for tag, a in summary:
-        print(f"  {tag:<30} {a['distinct']:>7.2f}/8 {a['mean_cons']:>8.3f} "
+        print(f"  {tag:<30} {a['distinct']:>7.2f}/{len(PATTERNS)} {a['mean_cons']:>8.3f} "
               f"{a['collisions']:>7.2f} {a['dead']:>5.2f} "
               f"{a['peak_mean']:>7.2f}x/{a['peak_max']:.2f}x")
 

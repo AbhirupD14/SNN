@@ -8,10 +8,11 @@ while refractory: return [] (no events), leave the potential untouched, and leav
 the negative gate weight untouched. This preserves the principle that inhibitory
 plasticity fires only when inhibition actually reduces charge in an active target.
 
-Covers: fixed-fan-in construction, dynamic fan-in construction, and the
-in-engine L2I->L2E gate. Each also has an ACTIVE control showing the gate DOES
-update when the target is not refractory, so the no-op assertions can't pass
-vacuously.
+Covers: fixed-fan-in and dynamic-fan-in construction of a standalone negative gate
+(apply_inhibition, still used by L1I->L1E feedback and legacy experiments), each
+with an ACTIVE control so the no-op assertions can't pass vacuously. A separate
+in-engine test covers the active L2 path, which has NO learned gate: its
+competitive reset is unconditional and ignores the refractory timer entirely.
 
 Run:
     PYTHONPATH=. .venv/bin/python test_refractory_gating.py
@@ -70,34 +71,38 @@ def test_fixed_and_dynamic_refractory_gating():
     _active_updates(_make_dynamic, "dynamic")
 
 
-def test_in_engine_gate_refractory():
-    print("=== in-engine: L2I->L2E gate does not update when target is refractory ===")
+def test_in_engine_competitive_reset_ignores_refractory():
+    """The active engine has NO learned L2I->L2E gate: L2 competition is the
+    unweighted competitive reset. Unlike apply_inhibition (which no-ops on a
+    refractory target), a competitive reset is UNCONDITIONAL -- it must clamp even a
+    refractory loser to rest and leave its refractory timer untouched (spec Sec 5)."""
+    print("=== in-engine: competitive reset is unconditional (refractory too) ===")
     e = SimulationEngine(seed=1)
     n = e.l2.excitatory_neurons[0]
     thr = e.params['threshold_l2']
-    inh_spk = np.zeros(L2E_FANIN)
-    inh_spk[0] = 1.0                       # index 0 = the L2I->L2E gate line
 
-    # Refractory target: the gate must NOT update.
+    # Active L2E has exactly N_PIX positive pixel afferents and no negative gate.
+    assert len(n._weights_array) == L2E_FANIN, len(n._weights_array)
+    assert not (n._weights_array < 0).any(), "active L2E must have no negative gate"
+
+    # Refractory target: still resets to rest, timer preserved.
     n.refractory_timer = 2
     n.potential = 0.9 * thr
-    w_before = float(n._weights_array[0])
-    ev = n.apply_inhibition(inh_spk)
-    assert ev == [], f"in-engine: expected no events on refractory target, got {ev}"
-    assert float(n._weights_array[0]) == w_before, "in-engine: gate updated while target refractory"
-    print("  PASS refractory: gate weight unchanged, no discharge event")
+    rec = n.apply_competitive_reset()
+    assert float(n.potential) == n.resting_potential, "refractory loser not reset to rest"
+    assert n.refractory_timer == 2, "competitive reset must not touch the refractory timer"
+    assert rec['v_post'] == n.resting_potential
+    print("  PASS refractory: membrane clamped to rest, refractory timer untouched")
 
-    # Active target: the gate DOES update (control), proving the no-op is real.
+    # Active target: also resets to rest.
     n.refractory_timer = 0
     n.potential = 0.9 * thr
-    w_before2 = float(n._weights_array[0])
-    ev2 = n.apply_inhibition(inh_spk)
-    assert ev2, "in-engine: expected a discharge event on an active target"
-    assert abs(float(n._weights_array[0])) > abs(w_before2), "in-engine: gate should strengthen when active"
-    print("  PASS active: gate strengthened on a real discharge (control)")
+    n.apply_competitive_reset()
+    assert float(n.potential) == n.resting_potential, "active loser not reset to rest"
+    print("  PASS active: membrane clamped to rest")
 
 
 if __name__ == "__main__":
     test_fixed_and_dynamic_refractory_gating()
-    test_in_engine_gate_refractory()
+    test_in_engine_competitive_reset_ignores_refractory()
     print("ALL REFRACTORY-GATING TESTS PASSED")

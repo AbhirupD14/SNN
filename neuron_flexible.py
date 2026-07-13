@@ -74,7 +74,7 @@ from snn.entity import NeuralEntity      # noqa: E402
 from snn.synapses import SynapseBank    # noqa: E402
 from snn.membrane import Membrane        # noqa: E402
 from snn.rules import (select_excitatory_rule, select_inhibitory_rule,  # noqa: E402
-                       select_delivery, effective_weights)
+                       select_delivery, effective_weights, bounded_signed_update)
 
 
 class Neuron(NeuralEntity):
@@ -595,6 +595,69 @@ class Neuron(NeuralEntity):
         self._weights_array[active] = np.maximum(w - dw_minus, w_min)
         self.loser_depression_events += 1
         self._apply_budget_and_cap()
+
+    def apply_competitive_reset(self):
+        """Unweighted L2I competitive-reset event on a LOSING L2E neuron
+        (L2_Hard_Reset_Competitive_Depression_Spec). This REPLACES the learned
+        L2I->L2E negative gate: there is no inhibitory magnitude and no negative
+        afferent involved. The event has two effects:
+
+          - structural: depress only the POSITIVE feedforward weights whose L1E
+            sources participated in this response (weight > 0 AND last input spike),
+            using the shared direction-aware bounded kernel with direction -1 and
+            gain = learning_rate * structural_gate * p_loss, where
+            p_loss = clamp(V_pre / theta, 0, 1). OFF (non-participating) afferents
+            are NEVER touched -- depressing them would potentiate absent pixels.
+            Only runs when loser_depression is enabled; a zero-charge loser (p_loss
+            == 0) learns nothing.
+          - transient: UNCONDITIONALLY reset the membrane to rest and clear the
+            pending excitatory/inhibitory current traces (when hard_reset_clear_traces).
+
+        The reset is unconditional even under a refractory timer (which is left
+        untouched): the guarantee is zero membrane/current state after the event.
+        Does NOT call apply_inhibition and needs no negative synapse. Returns a
+        diagnostic record (v_pre, v_post, theta, p_loss, depressed_indices,
+        weights_before, delta_weights, weights_after)."""
+        self._ensure_finalized()
+        theta = self.threshold
+        v_pre = float(self.potential)
+        p_loss = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
+
+        depressed_indices: list[int] = []
+        weights_before = np.zeros(0)
+        delta_weights = np.zeros(0)
+        weights_after = np.zeros(0)
+        if (self.loser_depression and p_loss > 0.0 and self.weight_cap > 0
+                and self._weights_array is not None and len(self._weights_array) > 0):
+            participating = self._last_input_spikes > 0.5
+            eligible = np.nonzero((self._weights_array > 0) & participating)[0]
+            if eligible.size > 0:
+                w_before = self._weights_array[eligible].astype(float).copy()
+                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
+                gate = (self._structural_free_energy_gate()
+                        if self.structural_free_energy else 1.0)
+                gain = self.learning_rate * gate * p_loss
+                signal = np.full(eligible.size, -1.0)
+                w_after = bounded_signed_update(w_before, w_min, self.weight_cap,
+                                                gain, signal)
+                self._weights_array[eligible] = w_after
+                depressed_indices = eligible.tolist()
+                weights_before = w_before
+                weights_after = w_after
+                delta_weights = w_after - w_before
+                self.loser_depression_events += 1
+
+        # Unconditional hard reset: zero the membrane and pending current traces.
+        # The refractory timer is deliberately left untouched.
+        self.potential = self.resting_potential
+        if self.hard_reset_clear_traces:
+            self.exc_trace = 0.0
+            self.inh_trace = 0.0
+        v_post = float(self.potential)
+        return dict(v_pre=v_pre, v_post=v_post, theta=theta, p_loss=p_loss,
+                    depressed_indices=depressed_indices,
+                    weights_before=weights_before, delta_weights=delta_weights,
+                    weights_after=weights_after)
 
     def update(self):
         """

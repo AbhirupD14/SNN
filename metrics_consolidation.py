@@ -2,9 +2,9 @@
 Focused consolidation metrics for the confidence-gated consolidation mechanism
 (Claude_Confidence_Consolidation_Plan.md).
 
-Reports, for the eight 3x3 line primitives driven through the L1->L2 engine:
+Reports for the center-crossing 3x3 line primitives driven through the L1->L2 engine:
 
-  - distinct winners across the 8 patterns,
+  - distinct winners across the patterns,
   - within-pattern winner dominance (how consistently one neuron owns a pattern),
   - old-pattern preservation after training NEW patterns (continual-learning check),
   - number of L2E neurons that never fired,
@@ -61,8 +61,8 @@ def _winner_map(engine, patterns, steps, epochs, record_last):
 
 def measure(seed, consolidation, epochs=60):
     """Full metric run at one seed. Also does an old-pattern-preservation probe:
-    train the first 4 patterns, snapshot their winners, train the last 4, then
-    re-probe the first 4 and check how many kept their original owner."""
+    train the first half of the patterns, snapshot their winners, train the
+    second half, then re-probe the first half and check retention."""
     names = list(PATTERNS.keys())
     steps = None
 
@@ -70,7 +70,7 @@ def measure(seed, consolidation, epochs=60):
                          loser_depression=consolidation)
     steps = e.params['cycle_period']
 
-    # --- main interleaved training over all 8 patterns ---
+    # --- main interleaved training over all patterns ---
     modal, dominance, fired = _winner_map(e, names, steps, epochs, record_last=5)
 
     distinct = len(set(v for v in modal.values() if v is not None))
@@ -87,7 +87,8 @@ def measure(seed, consolidation, epochs=60):
     # --- old-pattern preservation (continual learning) ---
     e2 = SimulationEngine(seed=seed, confidence_consolidation=consolidation,
                           loser_depression=consolidation)
-    first, second = names[:4], names[4:]
+    split = max(1, len(names) // 2)
+    first, second = names[:split], names[split:]
     old_map, _, _ = _winner_map(e2, first, steps, epochs, record_last=5)
     _winner_map(e2, second, steps, epochs, record_last=5)          # train the new set
     reprobe, _, _ = _winner_map(e2, first, steps, max(8, epochs // 6), record_last=5)
@@ -109,14 +110,14 @@ def main():
             m = measure(seed, consolidation)
             dsum += m['distinct']; psum += m['preserved']
             conf_str = "[" + " ".join(f"{c:.2f}" for c in m['max_conf']) + "]"
-            print(f"  seed {seed}: distinct_winners={m['distinct']}/8  "
+            print(f"  seed {seed}: distinct_winners={m['distinct']}/{len(PATTERNS)}  "
                   f"within_pattern_dominance={m['dominance']:.2f}  "
                   f"never_fired={m['never_fired']}  "
                   f"old_preserved={m['preserved']}/{m['n_old']}  "
                   f"loser_depressions={m['loss_events']}")
             print(f"           max_feedforward_confidence per L2E {conf_str}")
-        print(f"  mean distinct winners: {dsum/len(seeds):.2f}/8   "
-              f"mean old-pattern preservation: {psum/len(seeds):.2f}/4")
+        print(f"  mean distinct winners: {dsum/len(seeds):.2f}/{len(PATTERNS)}   "
+              f"mean old-pattern preservation: {psum/len(seeds):.2f}/{max(1, len(PATTERNS)//2)}")
 
 
 if __name__ == "__main__":

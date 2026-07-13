@@ -106,6 +106,14 @@ function synCard(title, list, self) {
   // cards pass the full set and their titles show the true count, so the rows
   // shown must match that count rather than being capped here.
   const rows = list.map(sy => {
+    // Structural L2I->L2E competitive reset: unweighted event, no learned
+    // magnitude -- show a fixed "reset" chip instead of a weight bar/value.
+    if (sy.kind === 'reset_inhibition') {
+      return `<div class="syn-row">
+        <span class="name">${sy.other}</span>
+        <span class="wbar"></span>
+        <span class="wv" style="color:var(--in)" title="unweighted hard-reset event">reset</span></div>`;
+    }
     const mag = Math.min(1, Math.abs(sy.w));
     const pos = sy.w >= 0;
     const width = (mag * 50).toFixed(0);

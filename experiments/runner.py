@@ -56,7 +56,7 @@ DEFAULT_MINIMAL = dict(
     signed_spike_learning=True, l2e_budget=False, confidence_consolidation=False,
     loser_depression=False, signed_depression=False, homeostasis=False, refractory=0,
     l2e_weight_cap_frac=1 / 3, pos_weight_floor=1, l2i_threshold_frac=1 / 3,
-    l1i_threshold_frac=1 / 3, l2e_lr_frac=0.02, ei_sat_mult=4.0,
+    l1i_threshold_frac=1.0, l2e_lr_frac=0.02, ei_sat_mult=4.0,
 )
 
 STABLE_WINDOW = 20      # trailing presentations used to judge ownership stability

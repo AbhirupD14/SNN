@@ -67,9 +67,16 @@ class NeuronConfig:
           L1I acting as an immediate relay (it bypasses trace integration).
         - Inhibitory flow-rate applies wherever a neuron RECEIVES inhibition
           (everything except L1E).
-        - The inhibitory-gate rule + distance knobs apply uniformly (frozen/never-
-          inhibited neurons are inert under them, so uniform setting is safe).
+        - The inhibitory-gate rule applies uniformly (frozen/never-inhibited neurons
+          are inert under it, so uniform setting is safe).
+        - Distance weighting applies ONLY to L2E. L2E is the only population with real
+          per-synapse source->target geometry (its distance array is set from the 3D
+          layout); every other neuron keeps distance = 1.0, and with distance_ref != 1
+          a uniform flag would scale their delivered charge by (distance_ref)^power
+          (e.g. ~55x at ref=7.472) -- which silently amplifies L1E pixel drive and
+          breaks L1I->L1E inhibition. So gate it to L2E.
         """
+        is_l2e = not (is_l1e or is_l1i or is_l2i)
         if is_l1e:
             neuron.excitatory_flow_rate = False
         elif is_l1i:
@@ -99,7 +106,7 @@ class NeuronConfig:
         neuron.inhibitory_margin_frac = self.inhibitory_margin_frac
         neuron.inhibitory_delta_eta = self.inhibitory_delta_eta
 
-        neuron.distance_weighting = self.distance_weighting
+        neuron.distance_weighting = self.distance_weighting and is_l2e
         neuron.distance_power = self.distance_power
         neuron.distance_ref = self.distance_ref
         neuron.distance_min = self.distance_min

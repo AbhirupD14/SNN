@@ -1,8 +1,8 @@
 {
-  "name": "finite_time_row_consolidation_sweep",
-  "description": "Tests whether row patterns consolidate to a stable single owner within a fixed presentation budget under the minimal signed-spike model (no budget, refractory=0, cap=thr/3). Sweeps seeds x dwell x schedule to quantify seed sensitivity and time-to-stable-owner.",
+  "name": "finite_time_center_crossing_consolidation_sweep",
+  "description": "Tests whether the four center-crossing line patterns consolidate to stable owners within a fixed presentation budget under the minimal signed-spike model (no budget, refractory=0, cap=thr/3). Sweeps seeds x dwell x schedule to quantify seed sensitivity and time-to-stable-owner.",
   "hypothesis": "Consolidation is seed-symmetry-limited: baseline leaves many patterns split ~0.5 because symmetric ties are never broken, so inhibition + signed learning cannot reliably amplify a single owner within ~200 presentations per pattern.",
-  "patterns": ["row 0", "row 1", "row 2"],
+  "patterns": ["row 1", "col 1", "diag \\", "diag /"],
   "seeds": [1, 2, 3, 4],
   "dwell_steps": [8, 16],
   "schedules": ["interleaved", "blocked"],

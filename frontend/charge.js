@@ -1,8 +1,7 @@
 // Full-screen charge-over-time view: per neuron, the vertical axis within its
 // lane is membrane CHARGE (potential / threshold). A per-timestep bar rises with
-// charge, a dashed line marks threshold (V/θ = 1), and a spike is a full-height
-// bright peak. Lets you see charge accumulation, threshold crossing, inhibition
-// discharge, reset, and whether losers carry charge across pattern switches.
+// charge, a dashed line marks threshold (V/theta = 1), and a spike is a full-height
+// bright peak. Inhibitory discharges remain separate event markers.
 //
 // Same virtualized/coalesced rendering as the spike raster (viewport-sized
 // canvas, only the visible time window drawn).
@@ -23,6 +22,7 @@ export class ChargeChart {
     this.order = [];
     this.charge = [];      // Float32Array per timestep: activation (V/θ)
     this.spike = [];       // Uint8Array per timestep
+    this.inhibited = [];   // Uint8Array: L2I discharge/hard-reset reached target
     this.times = [];
     this.showL1 = true;
     this.colW = 8;
@@ -56,22 +56,30 @@ export class ChargeChart {
   build(topo) {
     this.order = (topo?.neurons ?? []).map(n => ({ id: n.id, type: n.type, group: n.layer + n.type }));
     this.index = new Map(this.order.map((n, i) => [n.id, i]));
-    this.charge = []; this.spike = []; this.times = [];
+    this.charge = []; this.spike = []; this.inhibited = []; this.times = [];
     this.built = true;
   }
 
   update(dyn) {
     if (!this.built || !dyn || !dyn.neurons) return;
     const nN = this.order.length;
-    const chg = new Float32Array(nN), spk = new Uint8Array(nN);
+    const chg = new Float32Array(nN), spk = new Uint8Array(nN), inh = new Uint8Array(nN);
     for (const n of dyn.neurons) {
       const i = this.index.get(n.id);
       if (i == null) continue;
       chg[i] = n.activation ?? 0;
       if (n.spiked) spk[i] = 1;
     }
-    this.charge.push(chg); this.spike.push(spk); this.times.push(dyn.timestep);
-    while (this.charge.length > HISTORY) { this.charge.shift(); this.spike.shift(); this.times.shift(); }
+    for (const edge of dyn.emitted || []) {
+      // Structural L2I->L2E competitive reset (reset->{j}); no learned magnitude.
+      if (!edge.startsWith('reset->')) continue;
+      const i = this.index.get(`L2E${edge.slice(7)}`);
+      if (i != null) inh[i] = 1;
+    }
+    this.charge.push(chg); this.spike.push(spk); this.inhibited.push(inh); this.times.push(dyn.timestep);
+    while (this.charge.length > HISTORY) {
+      this.charge.shift(); this.spike.shift(); this.inhibited.shift(); this.times.shift();
+    }
     this._schedule();
   }
 
@@ -166,7 +174,7 @@ export class ChargeChart {
       ctx.moveTo(MARGIN, ty); ctx.lineTo(vw, ty); ctx.stroke(); ctx.setLineDash([]);
     }
 
-    // Charge bars (dim), then spike peaks (bright) -- batched lane-outer.
+    // Charge bars (dim), then full-height spike peaks and inhibition markers.
     ctx.globalAlpha = 0.30;
     for (let i = 0; i < n; i++) {
       const idx = this.index.get(lanes[i].id);
@@ -182,8 +190,18 @@ export class ChargeChart {
     ctx.globalAlpha = 1;
     for (let i = 0; i < n; i++) {
       const idx = this.index.get(lanes[i].id);
-      ctx.fillStyle = lanes[i].type === 'E' ? cExc : cInh;
-      for (let c = cFrom; c < cTo; c++) if (this.spike[c][idx]) ctx.fillRect(xOf(c), y0 + i * laneH + 1, barW, laneH - 2);
+      const laneTop = y0 + i * laneH + 1;
+      for (let c = cFrom; c < cTo; c++) {
+        if (this.spike[c][idx]) {
+          ctx.fillStyle = lanes[i].type === 'E' ? cExc : cInh;
+          ctx.fillRect(xOf(c), laneTop, barW, laneH - 2);
+        }
+        if (this.inhibited[c][idx]) {
+          ctx.fillStyle = cInh;
+          ctx.fillRect(xOf(c), laneTop + Math.max(5, laneH * 0.22), barW,
+                       Math.max(2, Math.min(4, laneH * 0.18)));
+        }
+      }
     }
 
     // Pinned gutter + axis.
@@ -197,6 +215,6 @@ export class ChargeChart {
     ctx.strokeStyle = cLine; ctx.beginPath(); ctx.moveTo(MARGIN + .5, 0); ctx.lineTo(MARGIN + .5, vh); ctx.stroke();
     ctx.clearRect(MARGIN, 0, vw - MARGIN, AXIS);
     ctx.fillStyle = cMut; ctx.font = '10px ui-monospace, monospace'; ctx.textBaseline = 'top';
-    if (cols) ctx.fillText(`charge V/θ (bar) · dashed = threshold · spike = full peak · ${cols} steps · ${this.colW.toFixed(0)} px/step · newest →`, MARGIN + 6, 3);
+    if (cols) ctx.fillText(`charge V/theta (bar) · dashed = threshold · spike = full peak · red tick = inhibition/reset · ${cols} steps · ${this.colW.toFixed(0)} px/step · newest ->`, MARGIN + 6, 3);
   }
 }

@@ -45,7 +45,7 @@ from backend.simulation import SimulationEngine, PATTERNS, N_OUT
 
 
 # Honest-protocol defaults (match sustained_dominance.py so numbers are comparable).
-TRAIN_EPOCHS = 60      # interleaved training sweeps over all 8 patterns
+TRAIN_EPOCHS = 60      # interleaved training sweeps over all patterns
 HOLD_CYCLES = 40       # cycles a pattern is held during sustained measurement
 SEEDS = (1, 2, 3)      # >=3 seeds so seed variance is meaningful
 
@@ -214,7 +214,7 @@ def print_condition(tag, result):
     for r in result['rows']:
         tts = r['time_to_stable']
         tts_s = f"{tts}" if tts is not None else "--"
-        print(f"  seed {r['seed']}: dom={r['mean_dom']:.3f}  distinct={r['distinct']}/8  "
+        print(f"  seed {r['seed']}: dom={r['mean_dom']:.3f}  distinct={r['distinct']}/{len(PATTERNS)}  "
               f"collisions={r['collisions']}  dead={r['dead']}  "
               f"rf_cos init={r['init_rf_cos']:.3f}->final={r['final_rf_cos']:.3f}  "
               f"t_stable={tts_s}")
@@ -226,7 +226,7 @@ def print_condition(tag, result):
     tstos_s = f"{tstos_mean:.1f} ({tstos_n}/{result['n_seeds']} reached)" if tstos_mean is not None else "-- (0 reached)"
     print(f"  MEAN+-SD over {result['n_seeds']} seeds:")
     print(f"    sustained_dominance = {ms('mean_dom')}")
-    print(f"    distinct/8          = {ms('distinct')}   collisions = {ms('collisions')}")
+    print(f"    distinct/{len(PATTERNS)}          = {ms('distinct')}   collisions = {ms('collisions')}")
     print(f"    dead                = {ms('dead')}")
     print(f"    rf_cos initial      = {ms('init_rf_cos')}   final = {ms('final_rf_cos')}")
     print(f"    time_to_stable      = {tstos_s} epochs")

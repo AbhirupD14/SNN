@@ -5,7 +5,7 @@ Unlike metrics_consolidation.py (which presents each pattern for a single short
 window per sweep and takes the modal winner ACROSS sweeps -- a measurement
 artifact that only ever sees the specialist's reliable first-cycle-after-switch
 win), this harness HOLDS each pattern continuously for many cycles and records
-one winner PER CYCLE. That exposes the round-robin: even when 8/8 distinct modal
+one winner PER CYCLE. That exposes round-robin behavior even when short visits
 specialists exist, rivals can still take most cycles under sustained input.
 
 Protocol (per seed, per condition):
@@ -43,7 +43,7 @@ import numpy as np
 from backend.simulation import SimulationEngine, PATTERNS, N_OUT
 
 
-TRAIN_EPOCHS = 60      # interleaved training sweeps over all 8 patterns
+TRAIN_EPOCHS = 60      # interleaved training sweeps over all patterns
 HOLD_CYCLES = 40       # cycles a pattern is held during sustained measurement
 SEEDS = (1, 2, 3, 4)
 
@@ -108,14 +108,14 @@ def _print_run(tag, results):
     print(f"\n===== subtractive_reset {tag} =====")
     ds = dd = dm = 0.0
     for m in results:
-        print(f"  seed {m['seed']}: distinct={m['distinct']}/8  "
+        print(f"  seed {m['seed']}: distinct={m['distinct']}/{len(PATTERNS)}  "
               f"mean_sustained_dominance={m['mean_dom']:.3f}  dead={m['dead']}")
         per = "  ".join(f"{name}->L2E{m['modal'][name]}:{m['dominance'][name]:.2f}"
                         for name in m['modal'])
         print(f"           {per}")
         ds += m['distinct']; dd += m['dead']; dm += m['mean_dom']
     n = len(results)
-    print(f"  MEAN: distinct={ds/n:.2f}/8  sustained_dominance={dm/n:.3f}  dead={dd/n:.2f}")
+    print(f"  MEAN: distinct={ds/n:.2f}/{len(PATTERNS)}  sustained_dominance={dm/n:.3f}  dead={dd/n:.2f}")
     return dm / n, ds / n, dd / n
 
 
@@ -135,7 +135,7 @@ def _refractory_probe():
             dom = sum(m['mean_dom'] for m in res) / n
             dead = sum(m['dead'] for m in res) / n
             tag = "exp " if sub else "base"
-            print(f"  refractory={refr}  {tag}: distinct={dist:.2f}/8  "
+            print(f"  refractory={refr}  {tag}: distinct={dist:.2f}/{len(PATTERNS)}  "
                   f"sustained_dominance={dom:.3f}  dead={dead:.2f}")
 
 
@@ -148,7 +148,7 @@ def main():
     print("\n===== summary (mean over seeds, default refractory=2) =====")
     print(f"  sustained dominance : baseline {b_dom:.3f}  ->  experiment {e_dom:.3f}  "
           f"(delta {e_dom - b_dom:+.3f})")
-    print(f"  distinct winners /8 : baseline {b_dist:.2f}   ->  experiment {e_dist:.2f}")
+    print(f"  distinct winners /{len(PATTERNS)} : baseline {b_dist:.2f}   ->  experiment {e_dist:.2f}")
     print(f"  dead L2E            : baseline {b_dead:.2f}   ->  experiment {e_dead:.2f}")
     print("  NOTE: identical at default refractory -- the residual is erased by the")
     print("        refractory clamp (see module docstring). See the sweep below.")

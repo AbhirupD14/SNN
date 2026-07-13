@@ -10,7 +10,7 @@ compensating stack down to the core local loop:
     inhibition regulates input -> repeat.  refractory = 0 (inhibition, not a hard
     lockout, regulates frequency).
 
-We do NOT jump straight to 8 patterns; we grow the problem in 5 stages and find
+We grow the four-pattern problem incrementally and find
 where ownership first collapses. Ownership is measured the honest way -- visit
 level, not per-cycle -- and swept over dwell length because a 1-cycle visit gives
 a misleadingly perfect first-winner map.
@@ -55,19 +55,19 @@ MINIMAL = dict(
     l2e_budget=False,       # NO positive-weight budget
     refractory=0,           # inhibition regulates frequency, not a hard lockout
     # Capacity rule: per-afferent cap = thr/3 (three strong active afferents reach
-    # threshold), positive floor = 1, each I threshold = its E threshold / 3.
+    # threshold), positive floor = 1, L2I threshold = L2E threshold / 3, and
+    # L1I shares L2I's threshold.
     l2e_weight_cap_frac=1 / 3,
     pos_weight_floor=1,
     l2i_threshold_frac=1 / 3,
-    l1i_threshold_frac=1 / 3,
+    l1i_threshold_frac=1.0,
 )
 
 STAGES = [
-    ("1: one pattern",            ["row 0"]),
-    ("2: two disjoint patterns",  ["row 0", "row 2"]),
-    ("3: rows only",              ["row 0", "row 1", "row 2"]),
-    ("4: rows + columns",         ["row 0", "row 1", "row 2", "col 0", "col 1", "col 2"]),
-    ("5: all eight",              list(PATTERNS.keys())),
+    ("1: one pattern",            ["row 1"]),
+    ("2: orthogonal axes",        ["row 1", "col 1"]),
+    ("3: axes + diagonal",        ["row 1", "col 1", "diag \\"]),
+    ("4: all center-crossing",    list(PATTERNS.keys())),
 ]
 
 DWELLS = [1, 2, 4, 8, 16, 40]
@@ -79,7 +79,7 @@ SEEDS = (1, 2, 3, 4)
 def _ff(engine, j):
     """Owner j's feedforward (pixel) weight vector -- afferent indices 1.. (index
     0 is the L2I->L2E inhibitory gate)."""
-    return engine.l2.excitatory_neurons[j]._weights_array[1:1 + len(PATTERNS['row 0'])]
+    return engine.l2.excitatory_neurons[j]._weights_array[1:1 + len(next(iter(PATTERNS.values())))]
 
 
 def _rf_match(engine, j, pattern_name):

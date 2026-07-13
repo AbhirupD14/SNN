@@ -6,7 +6,7 @@ threshold-integrating neuron: any L1I that receives a nonzero L2E feedback signa
 fires in that same outer timestep, regardless of its learned threshold or its
 feedback-weight training. The contract pinned here:
 
-  * Default ON: a fresh engine has l1i_immediate_relay == True.
+  * Default OFF: a fresh engine uses the trainable threshold accumulator.
   * On the step an L2E winner fires, EVERY L1I fires -- even when L1I is sabotaged
     (feedback weights zeroed, threshold set impossibly high) so that the legacy
     integrator could never cross threshold. This proves the firing decision does
@@ -33,7 +33,7 @@ def _sabotage_l1i(engine):
         inh.threshold = 1e12
 
 
-def _run_to_first_l2e_winner(engine, pattern='row 0', max_steps=300):
+def _run_to_first_l2e_winner(engine, pattern='row 1', max_steps=300):
     """Step (holding one pattern) until any L2E fires; record, per step, whether
     any L2E fired and how many L1I fired. Returns (winner_step, per_step_l1i_counts,
     l2e_fired_flags)."""
@@ -52,10 +52,10 @@ def _run_to_first_l2e_winner(engine, pattern='row 0', max_steps=300):
     return winner_step, l1i_counts, l2e_flags
 
 
-def test_default_is_relay():
+def test_default_is_trainable_accumulator():
     e = SimulationEngine(seed=1)
-    assert e.l1i_immediate_relay is True, e.l1i_immediate_relay
-    print("PASS: l1i_immediate_relay defaults to True")
+    assert e.l1i_immediate_relay is False, e.l1i_immediate_relay
+    print("PASS: l1i_immediate_relay defaults to False (trainable accumulator)")
 
 
 def test_relay_fires_all_l1i_on_winner_despite_sabotage():
@@ -107,7 +107,7 @@ def test_relay_requires_nonzero_feedback():
 
 
 def main():
-    test_default_is_relay()
+    test_default_is_trainable_accumulator()
     test_relay_fires_all_l1i_on_winner_despite_sabotage()
     test_integrator_does_not_fire_under_same_sabotage()
     test_relay_requires_nonzero_feedback()

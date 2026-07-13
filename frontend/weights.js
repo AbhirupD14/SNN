@@ -1,10 +1,11 @@
 // Full-screen weights-over-time view: the selected L2E neuron's 9 incoming
-// feedforward weights (L1E -> L2E, one per pixel) plus its L2I -> L2E inhibitory
-// gate magnitude, all as a fraction of the weight cap, over the full (bounded)
-// training history. This is the view for debugging whether a receptive field is
-// forming and whether the signed +1/-1 rule replaces the old budget: the three
-// pattern pixels should climb toward the cap while the rest are pushed to the
-// floor. Pick a neuron by clicking an L2E in the 3D view.
+// feedforward weights (L1E -> L2E, one per pixel) as a fraction of the weight cap,
+// over the full (bounded) training history. There is no L2I -> L2E gate series:
+// the active L2 competition is an unweighted hard reset + competitive depression,
+// with no learned inhibitory magnitude to plot. This is the view for debugging
+// whether a receptive field is forming and whether the signed +1/-1 rule replaces
+// the old budget: the three pattern pixels should climb toward the cap while the
+// rest are pushed to the floor. Pick a neuron by clicking an L2E in the 3D view.
 //
 // Fit-to-width (no horizontal scroll): the whole history is compressed into the
 // viewport so the learning curve is visible at a glance. History is bounded.
@@ -23,7 +24,6 @@ export class WeightsChart {
     this.targetEl = document.getElementById('weights-target');
     this.target = 'L2E0';
     this.ff = [];          // Float32Array(9) per sample
-    this.gate = [];        // number per sample
     this._raf = 0;
     this._cw = this._ch = 0;
 
@@ -40,7 +40,7 @@ export class WeightsChart {
   }
 
   build() { this._reset(); }
-  _reset() { this.ff = []; this.gate = []; }
+  _reset() { this.ff = []; }
 
   setTarget(id) {
     if (!id || !id.startsWith('L2E') || id === this.target) return;
@@ -57,8 +57,7 @@ export class WeightsChart {
     const ff = new Float32Array(N_PIX);
     for (let i = 0; i < N_PIX; i++) ff[i] = w.get(`ff${i}->${j}`) ?? 0;
     this.ff.push(ff);
-    this.gate.push(Math.abs(w.get(`inh->${j}`) ?? 0));
-    while (this.ff.length > HISTORY) { this.ff.shift(); this.gate.shift(); }
+    while (this.ff.length > HISTORY) { this.ff.shift(); }
     this._schedule();
   }
 
@@ -86,7 +85,6 @@ export class WeightsChart {
     ctx.clearRect(0, 0, vw, vh);
 
     const css = getComputedStyle(document.documentElement);
-    const cInh = css.getPropertyValue('--inh').trim() || '#f0788c';
     const cLine = css.getPropertyValue('--line').trim() || '#242b3a';
     const cMut = css.getPropertyValue('--txt-2').trim() || '#5f6b82';
 
@@ -127,14 +125,5 @@ export class WeightsChart {
       ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
       ctx.fillText(`p${i} ${last.toFixed(2)}`, x1 + 4, yOf(last));
     }
-
-    // Inhibitory gate magnitude (red, thicker).
-    ctx.strokeStyle = cInh; ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let k = 0; k < N; k++) {
-      const v = this.gate[k] / cap;
-      k ? ctx.lineTo(xOf(k), yOf(v)) : ctx.moveTo(xOf(k), yOf(v));
-    }
-    ctx.stroke();
   }
 }

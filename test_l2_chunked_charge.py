@@ -104,7 +104,7 @@ def test_invalid_chunks_clamped():
     """K is clamped to >= 1 (a 0 or negative value must not divide-by-zero)."""
     e = SimulationEngine(seed=1, l2_charge_chunks=0)
     assert e.l2_charge_chunks == 1, e.l2_charge_chunks
-    e.set_pattern('row 0')
+    e.set_pattern('row 1')
     for _ in range(20):
         e.step()
     print("PASS: l2_charge_chunks <= 0 is clamped to 1 (no divide-by-zero)")

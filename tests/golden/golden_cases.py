@@ -28,7 +28,7 @@ from neuron_flexible import Neuron
 
 T_NEURON = 30          # steps per neuron case
 T_ENGINE = 40          # steps per engine case
-_ENGINE_INPUT = [1.0, 1.0, 1.0, 0, 0, 0, 0, 0, 0]   # "row 0", fixed
+_ENGINE_INPUT = [0, 0, 0, 1.0, 1.0, 1.0, 0, 0, 0]   # "row 1", fixed
 
 
 # --------------------------------------------------------------- neuron driver

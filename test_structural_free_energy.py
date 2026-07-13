@@ -15,6 +15,7 @@ Plain-script style (matches test_l2_competition.py etc.):
 import numpy as np
 
 from neuron_flexible import Neuron
+from snn.rules import bounded_signed_update
 
 
 def _make_neuron(weights, theta=8.0, cap=8.0 / 3, floor=0.001, lr=0.02):
@@ -78,12 +79,11 @@ def test_flag_off_identical():
     n._update_weights(v_pre)
     got = n.weights
 
-    # hand-computed reference
+    # hand-computed reference via the shared bounded kernel (gain = eta*p)
     ref = np.asarray(w0, dtype=float)
     pos = ref > 0
     sig = np.where(participating[pos] > 0.5, 1.0, -1.0)
-    dw = lr * p * (1.0 - (ref[pos] / cap) ** 2) * sig
-    ref[pos] = np.clip(ref[pos] + dw, floor, cap)
+    ref[pos] = bounded_signed_update(ref[pos], floor, cap, lr * p, sig)
     assert np.allclose(got, ref), (got, ref)
     print("PASS: flag OFF reproduces the exact p-scaled signed-spike update")
 
@@ -106,8 +106,7 @@ def test_gate_replaces_p():
     ref = np.asarray(w0, dtype=float)
     pos = ref > 0
     sig = np.where(participating[pos] > 0.5, 1.0, -1.0)
-    dw = lr * gate * (1.0 - (ref[pos] / cap) ** 2) * sig
-    ref[pos] = np.clip(ref[pos] + dw, floor, cap)
+    ref[pos] = bounded_signed_update(ref[pos], floor, cap, lr * gate, sig)
     assert np.allclose(got, ref), (got, ref)
     # and confirm it is genuinely different from the p-scaled path
     p = theta / v_pre
