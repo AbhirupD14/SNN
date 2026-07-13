@@ -109,6 +109,15 @@ engine = SimulationEngine(
     # Neuron.apply_competitive_reset). No learned inhibitory magnitude; the rate is
     # the L2E's own learning_rate (eta_loss is not used and is removed here).
     loser_depression=True,
+    # Competitive-reset loser weight rule (Inhibitory_Off_Weight_Recruitment_Spec).
+    # "redistribution" (new default): a non-refractory loser moves an incremental,
+    # bounded amount of its ACTIVE feedforward gate capacity into its inactive (OFF)
+    # gates with headroom, conserving total positive feedforward mass -- gate
+    # recruitment. "depression" is the retained one-sided charge-scaled loser
+    # depression (the direct A/B baseline). "none" is hard-reset-only. Winner
+    # protection is the refractory timer alone (refractory=1 below), NOT a one-hot
+    # check, so the neuron that fired this step is spared and the rest redistribute.
+    competitive_weight_update="redistribution",
     # Assembly-flow credit lets a habitual winner's L2E->L2I synapse climb to
     # self-sufficiency so L2I fires in rhythm -- it removes the last-volley-only
     # credit that stalled the E->I synapse below threshold (the L2I firing deadlock).
@@ -163,7 +172,14 @@ engine = SimulationEngine(
     # reset + competitive depression above. l2_gate_eq_frac / l2_gate_eta are no
     # longer set here; the constructor still accepts them for old experiments but
     # they build no gate in SimulationEngine.)
-    refractory=0,                 # inhibition regulates frequency, not a hard lockout
+    # Refractory=1 is canonical: it is the SAME-STEP winner-protection veto for the
+    # redistribution rule. The winner fires, learns, arms refractory_timer=1, then
+    # the L2I competitive reset broadcasts to the whole pool -- the winner sees
+    # refractory_timer>0 and skips the loser weight update while losers redistribute;
+    # end-of-step update() decrements it 1->0 so the winner competes again next step.
+    # refractory=0 removes this protection (an explicit ablation); >1 also protects
+    # older spikers (Inhibitory_Off_Weight_Recruitment_Spec Section 3).
+    refractory=1,
     # Capacity rule: per-afferent cap = thr/3 so three strong active afferents reach
     # threshold (3-pixel lines); positive floor = 1; each I threshold = its E's / 3.
     l2e_weight_cap_frac=1 / 3,
@@ -471,8 +487,11 @@ CONFIG_SPEC = [
     {"key": "refractory", "label": "Refractory period", "kind": "range",
      "min": 0, "max": 3, "step": 1,
      "desc": "Steps a neuron is locked out (membrane clamped to rest) after firing. "
-             "0 = no lockout: inhibition alone regulates frequency. Ownership is "
-             "identical at 0 vs 2 under the visit-consistency metric."},
+             "1 (default) is the SAME-STEP winner-protection veto for the competitive "
+             "reset: the winner fires, arms refractory_timer=1, and skips the loser "
+             "weight update when the reset broadcasts, then decrements to 0 at "
+             "end-of-step so it competes again next step. 0 removes winner protection "
+             "(ablation); >1 also protects older spikers from redistribution."},
     {"key": "v_sat_frac", "label": "L2E membrane saturation (×thr)", "kind": "range",
      "min": 0.0, "max": 3.0, "step": 0.25,
      "desc": "Ceiling on accumulated L2E charge as a multiple of threshold "
@@ -504,14 +523,23 @@ CONFIG_SPEC = [
     {"key": "confidence_consolidation", "label": "Confidence consolidation", "kind": "toggle",
      "desc": "Mature gates learn slower and resist depression (protects specialists). "
              "Also gates signed depression via (1 - C)."},
-    {"key": "loser_depression", "label": "Competitive depression", "kind": "toggle",
-     "desc": "On an L2I hard-reset event (default ON), each losing L2E depresses only "
-             "the POSITIVE feedforward weights whose L1E sources participated in its "
-             "losing response (weight>0 AND input spiked), via the shared bounded "
-             "kernel with direction -1 and gain scaled by the loser's own pre-reset "
-             "charge p_loss = clamp(V_pre/theta, 0, 1). OFF pixels are never touched. "
-             "The rate is the L2E's learning_rate; there is no learned inhibitory "
-             "magnitude. OFF still hard-resets losers, it just skips the depression."},
+    {"key": "competitive_weight_update", "label": "Competitive weight update",
+     "kind": "select",
+     "options": [
+         {"value": "redistribution", "label": "Redistribution (recruit OFF gates)"},
+         {"value": "depression", "label": "Depression (one-sided baseline)"},
+         {"value": "none", "label": "None (hard reset only)"},
+     ],
+     "desc": "Loser weight rule on the L2I competitive-reset event. REDISTRIBUTION "
+             "(default): a non-refractory loser moves an incremental bounded amount "
+             "of its ACTIVE gate capacity into its inactive (OFF) gates with headroom, "
+             "conserving total positive feedforward mass (p_match = clamp(active "
+             "effective-weight sum / theta, 0, 1)) -- gate recruitment. DEPRESSION: the "
+             "retained A/B baseline -- depress only participating positive gates via "
+             "the reflected kernel scaled by p_loss = clamp(V_pre/theta, 0, 1); OFF "
+             "gates unchanged, mass not conserved. NONE: hard-reset only, no weight "
+             "update. The winner (refractory this step) is always spared; every mode "
+             "hard-resets the whole pool identically."},
     {"key": "leak_enabled", "label": "L2E leak enabled", "kind": "toggle",
      "desc": "Controls membrane leak for the L2 excitatory population only. OFF "
              "(default) "
@@ -541,9 +569,10 @@ _MAIN_CONFIG_KEYS = {
     "l2e_init_mode", "l2e_init_jitter",
     "event_driven", "refractory", "l2e_lr_frac", "l1i_immediate_relay", "leak_enabled",
     "l2i_leak_enabled", "l1i_leak_enabled", "leak_l2",
-    # Competitive depression is the canonical ablation switch for the L2 hard-reset
-    # event (spec Section 8), so it lives on the main panel.
-    "loser_depression",
+    # The competitive weight-update MODE (redistribution / depression / none) is the
+    # canonical loser-rule switch for the L2 competitive-reset event, so it lives on
+    # the main panel (Inhibitory_Off_Weight_Recruitment_Spec Section 9).
+    "competitive_weight_update",
 }
 # l2_charge_chunks (K) is the MAIN timing knob: the flow-rate current-trace path it
 # replaced is neutered/hidden (see _HIDDEN_CONFIG_KEYS and _build). event_driven stays

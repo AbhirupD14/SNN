@@ -41,25 +41,30 @@ rotates.
 
 ## Model Summary
 
-> **Architecture update (L2 hard-reset competitive depression).** L2I no longer
+> **Architecture update (OFF-weight redistribution / recruitment).** L2I no longer
 > suppresses L2E through a learned negative gate. L2I *recruitment* is still learned
-> on its positive `L2E -> L2I` inputs, but its *output* is an unweighted event: when
-> L2I fires, every non-winning L2E is hard-reset to rest (membrane and pending
-> current traces cleared) and its participating positive feedforward weights are
-> locally depressed, scaled by its own pre-reset charge. There is no learned
-> `L2I -> L2E` magnitude anywhere on the active path. See
-> `L2_Hard_Reset_Competitive_Depression_Spec.md` and `Neuron.apply_competitive_reset`.
-> Statements below about learned `L2I->L2E` gates describe the superseded design and
-> apply only to the legacy standalone `apply_inhibition` path (still used for
-> `L1I->L1E` feedback).
+> on its positive `L2E -> L2I` inputs, but its *output* is an unweighted event
+> broadcast to **every** L2E: each is hard-reset to rest (membrane and pending
+> current traces cleared), and a **non-refractory** loser also runs a loser weight
+> update. Winner protection is the refractory timer alone (`refractory = 1`) — the
+> neuron that fired this step skips the weight update. The loser rule is one flag
+> `competitive_weight_update`: **`redistribution`** (default) conservatively moves a
+> loser's ACTIVE gate capacity into its inactive (OFF) gates, conserving total
+> positive feedforward mass; **`depression`** is the retained one-sided A/B baseline;
+> **`none`** is hard-reset-only. There is no learned `L2I -> L2E` magnitude anywhere
+> on the active path. See `Inhibitory_Off_Weight_Recruitment_Spec.md` and
+> `Neuron.apply_competitive_reset`. Statements below about learned `L2I->L2E` gates
+> describe the superseded design and apply only to the legacy standalone
+> `apply_inhibition` path (still used for `L1I->L1E` feedback).
 
 Architecture:
 
 ```text
 L1E pixel encoders -> L2E pattern integrators
 L2E winners       -> shared L2I   (learned positive E->I recruitment)
-L2I fires         -> unweighted competitive reset of every non-winner L2E
-                     (hard reset to rest + local depression of participating +weights)
+L2I fires         -> unweighted competitive reset broadcast to every L2E
+                     (hard reset to rest; non-refractory losers run the loser
+                      weight update: redistribution | depression | none)
 L2E feedback      -> L1I input suppression
 ```
 
@@ -170,15 +175,18 @@ weight can't be pushed lower) and stays fully effective at `w_cap` (a capped los
 weight can still be depressed). There is **no weight budget**: the `-1` signal on
 inactive inputs supplies the downward pressure the budget used to impose. This one
 kernel replaces the whole potentiation + OFF-depression + confidence + budget stack,
-and the same kernel drives the L2I-event competitive depression.
+and the same kernel drives both the L2I-event `depression` mode and the active-gate
+decrease of the default `redistribution` mode.
 
 **Minimal config** (used by `stage_learning_harness.py`, exposed on the engine
 and dashboard): `signed_spike_learning=True`; `confidence_consolidation`,
 `loser_depression`, `signed_depression`, `homeostasis`, `subtractive_reset`,
 `lasting_inhibition`, `event_driven`, membrane saturation (`v_sat_frac`), and
-`l2e_budget` all **off**; `refractory=0`. The no-refractory choice is
-deliberate: **inhibition**, not a hard lockout, is meant to regulate firing
-frequency. Lateral (L2I) and feedback (L1I) inhibition stay active.
+`l2e_budget` all **off**. The dashboard now runs `refractory=1` as the same-step
+winner-protection veto for the competitive reset (the `stage_learning_harness.py`
+minimal preset historically used `refractory=0`, relying on inhibition alone to
+regulate frequency; `refractory=0` is now an explicit ablation that removes winner
+protection). Lateral (L2I) and feedback (L1I) inhibition stay active.
 
 **Capacity rule** (`l2e_weight_cap_frac`, `pos_weight_floor`, and the I-threshold
 fractions, set in the dashboard/harness preset):

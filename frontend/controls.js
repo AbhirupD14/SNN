@@ -44,6 +44,23 @@ export class Controls {
         lab.appendChild(document.createTextNode(' ' + s.label));
         item.appendChild(lab);
         this.configInputs[s.key] = () => cb.checked;
+      } else if (s.kind === 'select') {
+        // Multi-choice string control (e.g. competitive weight-update mode).
+        const lab = document.createElement('label');
+        lab.className = 'field';
+        const span = document.createElement('span');
+        span.textContent = s.label;
+        const sel = document.createElement('select');
+        for (const o of (s.options || [])) {
+          const opt = document.createElement('option');
+          opt.value = o.value;
+          opt.textContent = o.label || o.value;
+          if (o.value === val) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        lab.append(span, sel);
+        item.appendChild(lab);
+        this.configInputs[s.key] = () => sel.value;
       } else {
         const lab = document.createElement('label');
         lab.className = 'field';

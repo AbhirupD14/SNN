@@ -1,8 +1,9 @@
 # Inhibitory Gate Redistribution and Recruitment
 
-Technical implementation specification for replacing charge-scaled one-sided
-competitive depression with conservative redistribution of a losing neuron's
-active feedforward gate capacity into its inactive gates.
+Technical implementation specification for adding conservative redistribution of
+a losing neuron's active feedforward gate capacity into its inactive gates as an
+A/B-selectable alternative to the current charge-scaled one-sided competitive
+depression rule.
 
 This is the next architectural change. It must be implemented against the current
 unweighted L2I hard-reset model; learned negative `L2I -> L2E` gates must not return.
@@ -57,7 +58,9 @@ Do not introduce:
 - OFF growth independent of an actual active-gate decrease.
 
 Keep L2I recruitment through the existing positive trainable `L2E -> L2I`
-weights. Keep ordinary signed winner learning unchanged.
+weights. Keep ordinary signed winner learning unchanged. Retain the current
+one-sided competitive-depression rule as the baseline A/B mode; the baseline and
+redistribution modes are mutually exclusive for each reset event.
 
 ## 3. Winner Protection Through Refractory State
 
@@ -85,7 +88,9 @@ end-of-step update()
 ```
 
 Thus the winner is available to fire again on the next outer step. Do not add a
-second winner-protection signal.
+second winner-protection signal. Use this same reset fanout and refractory-based
+winner protection in both the redistribution and one-sided-depression modes so
+the A/B comparison changes only the loser weight-update rule.
 
 Required implementation changes:
 
@@ -96,6 +101,8 @@ Required implementation changes:
 - Always perform the hard reset, including for a refractory winner.
 - Do not change the refractory timer during competitive reset.
 - Do not use `spiked`, the one-hot L2E vector, or an engine winner ID as a fallback.
+- Apply the selected loser weight-update mode only when `refractory_timer == 0`;
+  the hard reset remains unconditional in every mode.
 
 With refractory `1`, only the neuron that fired in the current outer step is
 protected. Longer refractory settings are an explicit ablation and will protect
@@ -134,6 +141,18 @@ Properties:
 Do not multiply this rule by the existing structural free-energy maturity gate.
 `p_match` is already the structural competition signal; applying the maturity
 brake would protect the strongest mature competitors from redistribution.
+
+This section applies only to the `redistribution` A/B mode. The retained
+`depression` baseline must continue using its current membrane-charge signal:
+
+```text
+p_loss = clamp(V_pre / theta, 0, 1)
+```
+
+and must depress only participating positive gates through the existing reflected
+downward kernel. It must not grow OFF gates or conserve the removed mass. Keeping
+that baseline equation intact makes the experiment a comparison of the proposed
+redistribution rule against the currently implemented loser-depression rule.
 
 ## 5. Candidate Active-Gate Decrease
 
@@ -239,16 +258,20 @@ loser redistribution reallocates the remaining pool
 Conceptual pseudocode:
 
 ```python
-def apply_competitive_reset(current_input):
+def apply_competitive_reset(current_input, competitive_weight_update):
     refractory_at_arrival = refractory_timer > 0
 
-    if not refractory_at_arrival and redistribution_enabled:
-        active, off = feedforward_masks(current_input)
-        p_match = active_effective_weight_sum(active) / threshold
-        candidate_down = bounded_active_decreases(active, p_match)
-        transfer = min(sum(candidate_down), off_capacity(off))
-        scale_and_apply_active_decreases(candidate_down, transfer)
-        allocate_transfer_to_off_gates(off, transfer)
+    if not refractory_at_arrival:
+        if competitive_weight_update == "redistribution":
+            active, off = feedforward_masks(current_input)
+            p_match = active_effective_weight_sum(active) / threshold
+            candidate_down = bounded_active_decreases(active, p_match)
+            transfer = min(sum(candidate_down), off_capacity(off))
+            scale_and_apply_active_decreases(candidate_down, transfer)
+            allocate_transfer_to_off_gates(off, transfer)
+        elif competitive_weight_update == "depression":
+            apply_current_one_sided_depression(V_pre, current_input)
+        # "none" is the hard-reset-only control
 
     potential = resting_potential
     clear pending excitatory/inhibitory current traces
@@ -275,23 +298,29 @@ off_before / off_delta / off_after
 v_pre / v_post
 ```
 
-Retain existing reset diagnostics where compatible, but remove `p_loss` from the
-new redistribution equation and documentation.
+Retain existing reset diagnostics where compatible. Record `p_loss` for the
+`depression` mode and `p_match` for the `redistribution` mode; neither signal is
+used by the other rule.
 
 ## 9. Configuration and Cleanup
 
-Use one canonical flag:
+Use one canonical mode flag:
 
 ```text
-competitive_redistribution = True
+competitive_weight_update = "redistribution"
 ```
 
-- Default it on in the dashboard configuration.
-- When off, L2I still hard-resets the pool but performs no loser weight update.
-- Replace the dashboard's `loser_depression` label with
-  `Competitive gate redistribution`.
+- Allowed values are `"redistribution"`, `"depression"`, and `"none"`.
+- Default the dashboard to `"redistribution"` after the new rule is implemented.
+- `"depression"` runs the currently implemented charge-scaled one-sided loser
+  update, providing the direct A/B baseline.
+- `"none"` still hard-resets the pool but performs no loser weight update.
+- Expose the dashboard control as `Competitive weight update`, with all three
+  choices, rather than as two independent booleans.
 - Backward-compatible acceptance of `loser_depression` is allowed temporarily for
-  old experiment files, but do not run both mechanisms.
+  old experiment files only when `competitive_weight_update` is absent: map `true`
+  to `"depression"` and `false` to `"none"`.
+- Never run depression and redistribution for the same event.
 - Remove/hide `eta_loss`; the rule uses the L2E learning rate.
 - Set the dashboard refractory default to `1` and explain its same-step
   winner-protection role.
@@ -302,8 +331,11 @@ competitive_redistribution = True
 
 ### `neuron_flexible.py`
 
-- Replace the active one-sided competitive-depression block in
-  `apply_competitive_reset()` with the refractory-gated redistribution contract.
+- Retain the active one-sided competitive-depression calculation as the
+  `"depression"` branch of `apply_competitive_reset()`.
+- Add the refractory-gated conservative redistribution calculation as the
+  mutually exclusive `"redistribution"` branch.
+- Support `"none"` as hard-reset-only and reject unknown mode values.
 - Keep unconditional hard reset and trace clearing.
 - Keep generic weighted `apply_inhibition()` for L1 and legacy experiments.
 
@@ -312,6 +344,8 @@ competitive_redistribution = True
 - Broadcast competitive reset to every L2E when L2I fires.
 - Remove explicit one-hot/current-winner exclusion from reset delivery.
 - Supply the current L2E feedforward input mask needed by redistribution.
+- Pass the resolved `competitive_weight_update` mode into every competitive-reset
+  event.
 - Ensure L2E refractory is `1` in the canonical engine.
 - Update reset-phase diagnostics and statistics.
 
@@ -325,9 +359,9 @@ competitive_redistribution = True
 ### Documentation and experiments
 
 Update the equation sheet, README, handoff, inhibition state, config examples,
-experiment runners, reports, and affected harnesses. Remove descriptions of
-current-charge competitive depression from the default methodology once the new
-rule is implemented.
+experiment runners, reports, and affected harnesses. Describe redistribution as
+the new default and current-charge competitive depression as the retained A/B
+baseline once the new rule is implemented.
 
 ## 11. Required Tests
 
@@ -363,6 +397,19 @@ rule is implemented.
 - Capped allocation is deterministic and redistributes clipping remainder.
 - Repeated losses move capacity incrementally rather than in one reset.
 
+### Mode selection and A/B isolation
+
+- `"redistribution"` decreases active gates and increases OFF gates by the same
+  total amount.
+- `"depression"` reproduces the current charge-scaled one-sided numerical update
+  and leaves OFF gates unchanged.
+- `"none"` changes no weights while preserving the identical hard reset.
+- Exactly one mode is executed per competitive-reset event.
+- All three modes use identical L2I firing, reset fanout, refractory winner
+  protection, input sequence, initialization, and hard-reset behavior.
+- Legacy `loser_depression` config maps to a mode only when the new mode field is
+  absent.
+
 ### Recruitment behavior
 
 - A strong non-refractory competitor reallocates more than a weak noncompetitor.
@@ -385,7 +432,13 @@ rule is implemented.
 ## 12. Experimental Report
 
 Run the four-pattern dashboard configuration over multiple fixed seeds and compare
-redistribution enabled versus hard-reset-only:
+all three modes using paired seeds and otherwise identical configuration:
+
+```text
+competitive_weight_update = "redistribution"
+competitive_weight_update = "depression"
+competitive_weight_update = "none"
+```
 
 - sustained winner sequences and dominance;
 - time for three-neuron timing loops to collapse;
@@ -414,4 +467,5 @@ Implementation is complete when:
 7. Saturation is accepted as recruitment and naturally limits further transfer.
 8. Focused tests, impacted regressions, and regenerated golden tests pass.
 9. The multi-seed report records timing, recruitment, and cold-start outcomes.
-
+10. Paired-seed A/B results directly compare redistribution with the retained
+    one-sided-depression baseline, with hard-reset-only reported as a control.

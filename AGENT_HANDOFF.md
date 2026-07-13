@@ -1,20 +1,31 @@
 # Agent Handoff — SNN Cortical Column, `feature/inhibitory-plasticity`
 
-> **Architecture update — L2 hard-reset competitive depression (2026-07-13).**
+> **Architecture update — OFF-weight redistribution / recruitment (2026-07-13).**
 > The learned negative `L2I -> L2E` gate is **gone** from the active engine. L2I
 > recruitment is still learned on its positive `L2E -> L2I` inputs, but its output
-> is now an **unweighted competitive-reset event**: when L2I fires, every
-> non-winner L2E is unconditionally hard-reset to rest (traces cleared) and its
-> participating positive feedforward weights are locally depressed via the shared
-> bounded kernel, scaled by the loser's own pre-reset charge. No learned
-> `L2I->L2E` magnitude exists on the active path; the `inhibitory_delta_rule` /
-> turnover / `L2_GATE_*` machinery below applies only to the legacy standalone
+> is now an **unweighted competitive-reset event broadcast to every L2E** (winner
+> included): each L2E is unconditionally hard-reset to rest (traces cleared), and a
+> **non-refractory** loser also runs a loser weight update. Winner protection is the
+> refractory timer alone (`refractory = 1`) — the neuron that fired this step is in
+> refractory when the reset broadcasts, so it hard-resets but skips the weight update.
+> The loser rule is one canonical flag `competitive_weight_update`:
+> - **`redistribution`** (new default): move an incremental bounded amount of the
+>   loser's ACTIVE feedforward gate capacity into its inactive (OFF) gates with
+>   headroom, conserving total positive feedforward mass; signal `p_match` = active
+>   effective-weight sum / θ (structural, not membrane charge). OFF gates may reach
+>   `w_cap` (recruitment); the rule then naturally stops.
+> - **`depression`**: retained one-sided charge-scaled depression of participating
+>   gates (the direct A/B baseline); OFF gates untouched, mass not conserved.
+> - **`none`**: hard-reset-only control.
+>
+> No learned `L2I->L2E` magnitude exists on the active path; the `inhibitory_delta_rule`
+> / turnover / `L2_GATE_*` machinery below applies only to the legacy standalone
 > `apply_inhibition` path (`L1I->L1E` feedback, old experiments). Active L2E have
-> exactly `N_PIX` positive afferents and no index-0 gate. Multi-seed diagnostic:
-> `report_competitive_depression.py` (competitive depression roughly doubles
-> sustained per-pattern dominance, 0.63 -> 0.85, but reduces distinct winners /
-> raises dead-unit count — it does **not** on its own deliver clean 8/8 one-to-one
-> ownership). See `L2_Hard_Reset_Competitive_Depression_Spec.md`.
+> exactly `N_PIX` positive afferents and no index-0 gate. `depression`-mode multi-seed
+> diagnostic: `report_competitive_depression.py` (~0.63 -> 0.85 sustained dominance,
+> at the cost of distinct winners / dead units — not clean 8/8 ownership on its own).
+> See `Inhibitory_Off_Weight_Recruitment_Spec.md` (supersedes
+> `L2_Hard_Reset_Competitive_Depression_Spec.md`).
 
 Read this top-to-bottom before touching the competition code. It tells you where
 the implementation is, what the real goal is, what has been tried (and rejected,
@@ -88,7 +99,8 @@ Defaults in `SimulationEngine.__init__` (backend/simulation.py):
 | `signed_spike_learning` | **True** | canonical L2E rule; takes over `_update_weights`, bypasses the four below |
 | `l2e_budget` | **False** | budget off; inert under signed-spike anyway |
 | `confidence_consolidation` | True | bypassed under signed-spike (was: keeps specialists distinct) |
-| `loser_depression` | True | bypassed under signed-spike (was: decorrelation) |
+| `loser_depression` | True | legacy `apply_inhibition` path only; the L2 competitive-reset loser rule is now `competitive_weight_update` (below), and an absent mode maps this bool: True→`depression`, False→`none` |
+| `competitive_weight_update` | None→`depression` (ctor); **`redistribution`** (dashboard) | L2 competitive-reset loser rule. `redistribution`=conserved ON→OFF gate recruitment on non-refractory losers (winner spared by `refractory=1`); `depression`=one-sided A/B baseline; `none`=hard-reset only. See `Inhibitory_Off_Weight_Recruitment_Spec.md` |
 | `signed_depression` (4a) | True | bypassed under signed-spike (was: OFF-pixel gate depression) |
 | `eta_off` | 0.20 | depression rate; only relevant in the old budget regime |
 | `event_driven` | **True** | canonical per-step competition: resolve one argmax winner every timestep (was False = once-per-cycle; still reachable by turning off) |
@@ -99,7 +111,7 @@ Defaults in `SimulationEngine.__init__` (backend/simulation.py):
 | `inhibitory_delta_rule` | **True** | differentiating L2I→L2E gate rule instead of legacy saturating (all gates → sqrt(w_max), uniform). `inhibitory_rule_mode`="turnover" (default): `du=eta_up·p_t·(1−u) − eta_down·u`, `u=w/G`, `G=sqrt(w_max)`, `p_t=clamp(v_pre/θ,0,p_max)` — event-local, no target voltage/averages; high-charge rivals accumulate stronger gates, weak ones decay (spread ~260 vs 4, distinct winners preserved). "margin" mode = diagnostic (`s=clamp(v_pre−margin·θ,0,G)`). Params `inhibitory_eta_up`=0.02, `inhibitory_eta_down`=0.005, `inhibitory_p_max`=1.0 |
 | `lasting_inhibition` | **False** | experimental scalar field; FAILED — leave off |
 | `homeostasis` | False | Turrigiano scaling; off by default |
-| `refractory` | 2 | irrelevant to the round-robin (see §5) |
+| `refractory` | 2 (ctor); **1** (dashboard) | at 1 it is the same-step winner-protection veto for the competitive reset: the winner fires (arms timer=1), the reset broadcasts, the winner skips the loser weight update while losers redistribute, then `update()` decrements 1→0. 0 removes protection (ablation); >1 also protects older spikers |
 
 Key mechanisms & locations:
 - **Competition**: `SimulationEngine.step()`, section "2b/2c" + helper

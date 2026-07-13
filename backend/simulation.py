@@ -335,6 +335,15 @@ class SimulationEngine:
                  # conf_cap, which is a weight and scales with thr_l2 via conf_cap_frac.
                  confidence_consolidation: bool = True,
                  loser_depression: bool = True,
+                 # Loser weight-update rule for the L2I competitive-reset event
+                 # (Inhibitory_Off_Weight_Recruitment_Spec). One canonical flag with
+                 # three mutually-exclusive modes:
+                 #   "redistribution" -- conservative ON->OFF gate recruitment (new default);
+                 #   "depression"     -- retained one-sided charge-scaled loser depression (A/B baseline);
+                 #   "none"           -- hard-reset-only control (no loser weight update).
+                 # None (absent) maps from the legacy loser_depression bool for old
+                 # experiment files: True -> "depression", False -> "none".
+                 competitive_weight_update: str | None = None,
                  conf_cap_frac: float = 1 / 3,   # effective mature gate value = frac * thr_l2
                  conf_beta: float = 0.05,        # confidence EMA rate toward maturity
                  eta_min: float = 0.05,          # plasticity floor fraction for mature gates
@@ -572,6 +581,14 @@ class SimulationEngine:
         l2i_lr_frac = ETA_FRAC if l2i_lr_frac is None else l2i_lr_frac
         l1i_lr_frac = ETA_FRAC if l1i_lr_frac is None else l1i_lr_frac
         l2_gate_eta = L2_GATE_ETA if l2_gate_eta is None else l2_gate_eta
+        # Resolve the competitive-reset loser rule. When absent, fall back to the
+        # legacy loser_depression bool (True -> "depression", False -> "none") so old
+        # experiment files replay unchanged; otherwise use the canonical mode flag.
+        if competitive_weight_update is None:
+            competitive_weight_update = "depression" if loser_depression else "none"
+        if competitive_weight_update not in ("redistribution", "depression", "none"):
+            raise ValueError("competitive_weight_update must be 'redistribution', "
+                             f"'depression', or 'none'; got {competitive_weight_update!r}")
         self.params = dict(seed=seed, threshold=threshold, threshold_l2=threshold_l2,
                            leak_l1=leak_l1, leak_l2=leak_l2, leak_enabled=leak_enabled,
                            l2i_leak_enabled=l2i_leak_enabled,
@@ -589,6 +606,7 @@ class SimulationEngine:
                            l1i_ei_init_frac=l1i_ei_init_frac,
                            confidence_consolidation=confidence_consolidation,
                            loser_depression=loser_depression,
+                           competitive_weight_update=competitive_weight_update,
                            conf_cap_frac=conf_cap_frac, conf_beta=conf_beta,
                            eta_min=eta_min, eta_loss=eta_loss, loss_gamma=loss_gamma,
                            conf_rho_active=conf_rho_active, conf_rho_dead=conf_rho_dead,
@@ -1084,6 +1102,7 @@ class SimulationEngine:
     # is rejected so a stray key can't silently no-op or corrupt self.params.
     TUNABLE = ('signed_depression', 'eta_off', 'l2e_budget', 'l2e_lr_frac',
                'confidence_consolidation', 'loser_depression', 'eta_loss',
+               'competitive_weight_update',
                'eta_min', 'conf_cap_frac', 'leak_l2', 'event_driven',
                'subtractive_reset', 'l2i_hard_reset_losers',
                'hard_reset_clear_traces', 'refractory', 'v_sat_frac',
@@ -1130,6 +1149,10 @@ class SimulationEngine:
                 v = ('balanced' if v else 'legacy_wide') if isinstance(v, bool) else str(v)
             elif k == 'inhibitory_rule_mode':
                 v = str(v)
+            elif k == 'competitive_weight_update':
+                v = str(v)
+                if v not in ('redistribution', 'depression', 'none'):
+                    continue   # reject an unknown mode rather than corrupting params
             else:
                 v = float(v)
             self.params[k] = v
@@ -1271,7 +1294,13 @@ class SimulationEngine:
                 v_start=round(v_start.get(j, 0.0), 3),
                 v_pre=round(rec['v_pre'], 3),      # charge before the reset
                 p_loss=round(rec['p_loss'], 3),
+                # depression mode records p_loss/depressed gates; redistribution mode
+                # records p_match and the ON->OFF transfer. Both are surfaced so the
+                # phase panel reflects whichever loser rule ran.
+                p_match=round(rec.get('p_match', 0.0), 3),
+                refractory=bool(rec.get('refractory_at_arrival', False)),
                 depressed=len(rec['depressed_indices']),
+                transferred=round(rec.get('transferred', 0.0), 3),
                 v_post=round(rec['v_post'], 3),    # after the reset (should be rest)
                 v_end=round(v_end, 3)))
             if abs(rec['v_post'] - rest) > 1e-6:
@@ -1282,18 +1311,21 @@ class SimulationEngine:
                                   f"same timestep (v_end={v_end:.1f}) -- unexpected "
                                   f"post-reset recharge")
 
-    def _resolve_l2_competition(self, l2, l2e, t):
+    def _resolve_l2_competition(self, l2, l2e, t, current_input):
         """Attempt one standard argmax WTA resolution on the CURRENT L2E membrane
         state. If any L2E crossed threshold, the max-charge crosser fires, drives
-        L2I, and (if L2I fires) EVERY non-winner receives an unweighted competitive
-        reset -- an unconditional hard reset of its membrane/current traces plus
-        local competitive depression of the participating positive feedforward
-        weights (Neuron.apply_competitive_reset; there is no learned inhibitory
-        magnitude). Mutates `l2e` in place (sets the winner's one-hot bit). Returns
-        (l2i, inhibited, winner); winner is None and L2I is left UNTOUCHED when
-        nobody crossed, so a caller running this per charge-chunk can drive L2I's
-        no-winner integration exactly once after the chunk loop instead of K times.
-        `t` is the current outer timestep (passed through to L2I flow-rate charge).
+        L2I, and (if L2I fires) the unweighted competitive-reset event is broadcast
+        to EVERY L2E -- including the winner (Inhibitory_Off_Weight_Recruitment_Spec).
+        Each neuron unconditionally hard-resets its membrane/current traces; the
+        loser weight update runs ONLY for the non-refractory neurons (the winner
+        fired this step and is in refractory, so it is protected -- winner protection
+        comes solely from the refractory timer, not a one-hot winner check). The
+        resolved `competitive_weight_update` mode and the current feedforward input
+        mask are passed to every reset. Mutates `l2e` in place (sets the winner's
+        one-hot bit). Returns (l2i, inhibited, winner); winner is None and L2I is left
+        UNTOUCHED when nobody crossed, so a caller running this per charge-chunk can
+        drive L2I's no-winner integration exactly once after the chunk loop instead
+        of K times. `t` is the current outer timestep (passed to L2I flow-rate charge).
         """
         eligible = [j for j, e in enumerate(l2.excitatory_neurons) if e.check_threshold()]
         if not eligible:
@@ -1302,20 +1334,22 @@ class SimulationEngine:
         l2.excitatory_neurons[winner].fire()
         l2e[winner] = 1.0
         # The winner drives L2I, which fires (E->I weight = thr_l2) and issues the
-        # competitive-reset event to the whole rest of the pool.
+        # competitive-reset event to the WHOLE pool.
         l2.inhibitory_neuron.receive_input(l2e, t=t)
         l2i = 1.0 if l2.inhibitory_neuron.check_threshold() else 0.0
         inhibited = []
+        mode = self.params['competitive_weight_update']
         if l2i:
             l2.inhibitory_neuron.fire()
             for j in range(N_OUT):
-                if j == winner:
-                    continue                        # winner already fired via its own fire()
-                # Every non-winner resets unconditionally (even far below threshold,
-                # even refractory); depression may be zero but the reset is not.
-                rec = l2.excitatory_neurons[j].apply_competitive_reset()
+                # Broadcast to EVERY L2E, winner included. The hard reset is
+                # unconditional; the refractory winner skips the loser weight update
+                # internally (refractory_timer > 0 at arrival).
+                rec = l2.excitatory_neurons[j].apply_competitive_reset(
+                    current_input=current_input, competitive_weight_update=mode)
                 self._reset_events.append((f'L2E{j}', rec))
-                inhibited.append(j)
+                if j != winner:
+                    inhibited.append(j)
         return l2i, inhibited, winner
 
     # ------------------------------------------------------------------- step
@@ -1439,7 +1473,7 @@ class SimulationEngine:
                 # Pre-WTA membrane snapshot at the current evaluation point (charge
                 # viz / winner-margin diagnostics read this).
                 self.l2_drive = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
-                l2i, inhibited, winner = self._resolve_l2_competition(l2, l2e, t)
+                l2i, inhibited, winner = self._resolve_l2_competition(l2, l2e, t, ff_vec)
                 if winner is not None:
                     self.l2_winner_chunk = chunk
                     resolved = True

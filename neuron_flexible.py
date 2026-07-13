@@ -152,6 +152,7 @@ class Neuron(NeuralEntity):
         self.conf_grace = 5000                 # inactive steps before dead-decay engages
         self.inactive_steps = 0                # long grace counter (see update())
         self.loser_depression_events = 0       # diagnostic counter
+        self.redistribution_events = 0         # diagnostic counter (redistribution mode)
         # Flow-proportional assembly credit (opt-in; for the E->I "assembly
         # evidence" neurons L2I / L1I -- see _update_weights). On this neuron's
         # OWN fire, credit every incoming positive synapse in proportion to the
@@ -596,68 +597,245 @@ class Neuron(NeuralEntity):
         self.loser_depression_events += 1
         self._apply_budget_and_cap()
 
-    def apply_competitive_reset(self):
-        """Unweighted L2I competitive-reset event on a LOSING L2E neuron
-        (L2_Hard_Reset_Competitive_Depression_Spec). This REPLACES the learned
-        L2I->L2E negative gate: there is no inhibitory magnitude and no negative
-        afferent involved. The event has two effects:
+    def apply_competitive_reset(self, current_input=None,
+                                competitive_weight_update="depression"):
+        """Unweighted L2I competitive-reset event, broadcast to EVERY L2E neuron
+        (Inhibitory_Off_Weight_Recruitment_Spec). There is no learned L2I->L2E gate,
+        no inhibitory magnitude, and no negative afferent involved. The event has
+        two parts:
 
-          - structural: depress only the POSITIVE feedforward weights whose L1E
-            sources participated in this response (weight > 0 AND last input spike),
-            using the shared direction-aware bounded kernel with direction -1 and
-            gain = learning_rate * structural_gate * p_loss, where
-            p_loss = clamp(V_pre / theta, 0, 1). OFF (non-participating) afferents
-            are NEVER touched -- depressing them would potentiate absent pixels.
-            Only runs when loser_depression is enabled; a zero-charge loser (p_loss
-            == 0) learns nothing.
-          - transient: UNCONDITIONALLY reset the membrane to rest and clear the
-            pending excitatory/inhibitory current traces (when hard_reset_clear_traces).
+          - a refractory-gated LOSER WEIGHT UPDATE selected by
+            `competitive_weight_update`. The neuron that fired this step is in
+            refractory (refractory_timer > 0 at arrival) and is the current WINNER:
+            it skips the weight update entirely (winner protection). A non-refractory
+            neuron is a LOSER and runs one of:
+              * "redistribution": estimate how strongly its ACTIVE feedforward gates
+                match the current input (p_match from the active effective-weight
+                sum), move an incremental bounded amount OUT of those active gates,
+                and place exactly that amount INTO its inactive (OFF) gates with
+                headroom -- total positive feedforward mass is conserved. See
+                _redistribute_off.
+              * "depression": the retained one-sided competitive-depression baseline
+                -- depress only participating positive gates through the reflected
+                downward kernel, scaled by p_loss = clamp(V_pre/theta, 0, 1). OFF
+                gates are never touched and mass is NOT conserved. See
+                _depress_one_sided.
+              * "none": hard-reset-only control -- no weight update at all.
+          - an UNCONDITIONAL hard reset of the membrane to rest and clearing of the
+            pending excitatory/inhibitory current traces (when hard_reset_clear_traces),
+            performed in EVERY mode and even for a refractory winner.
 
-        The reset is unconditional even under a refractory timer (which is left
-        untouched): the guarantee is zero membrane/current state after the event.
-        Does NOT call apply_inhibition and needs no negative synapse. Returns a
-        diagnostic record (v_pre, v_post, theta, p_loss, depressed_indices,
-        weights_before, delta_weights, weights_after)."""
+        The refractory timer is left untouched (end-of-step update() decrements it),
+        so with refractory=1 the winner is protected only for the current step and
+        can compete again next step. `current_input` is the accepted feedforward
+        input mask (same one the L2E charge path used); when None the neuron's own
+        `_last_input_spikes` is used. Returns a diagnostic record (see below)."""
         self._ensure_finalized()
+        if competitive_weight_update not in ("redistribution", "depression", "none"):
+            raise ValueError("unknown competitive_weight_update mode: "
+                             f"{competitive_weight_update!r}")
         theta = self.threshold
         v_pre = float(self.potential)
+        refractory_at_arrival = self.refractory_timer > 0
         p_loss = min(max(v_pre / theta, 0.0), 1.0) if theta > 0 else 0.0
 
-        depressed_indices: list[int] = []
-        weights_before = np.zeros(0)
-        delta_weights = np.zeros(0)
-        weights_after = np.zeros(0)
-        if (self.loser_depression and p_loss > 0.0 and self.weight_cap > 0
-                and self._weights_array is not None and len(self._weights_array) > 0):
+        # Input mask: the current accepted feedforward input used by the charge path.
+        if current_input is None:
             participating = self._last_input_spikes > 0.5
-            eligible = np.nonzero((self._weights_array > 0) & participating)[0]
-            if eligible.size > 0:
-                w_before = self._weights_array[eligible].astype(float).copy()
-                w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
-                gate = (self._structural_free_energy_gate()
-                        if self.structural_free_energy else 1.0)
-                gain = self.learning_rate * gate * p_loss
-                signal = np.full(eligible.size, -1.0)
-                w_after = bounded_signed_update(w_before, w_min, self.weight_cap,
-                                                gain, signal)
-                self._weights_array[eligible] = w_after
-                depressed_indices = eligible.tolist()
-                weights_before = w_before
-                weights_after = w_after
-                delta_weights = w_after - w_before
-                self.loser_depression_events += 1
+        else:
+            participating = np.asarray(current_input, dtype=float) > 0.5
 
-        # Unconditional hard reset: zero the membrane and pending current traces.
-        # The refractory timer is deliberately left untouched.
+        # Redistribution diagnostics (defaults for the non-redistribution paths).
+        plasticity_applied = False
+        active_indices: list[int] = []
+        off_indices: list[int] = []
+        active_effective_sum = 0.0
+        p_match = 0.0
+        candidate_release = 0.0
+        transferred = 0.0
+        active_before = np.zeros(0); active_delta = np.zeros(0); active_after = np.zeros(0)
+        off_before = np.zeros(0); off_delta = np.zeros(0); off_after = np.zeros(0)
+        # Depression / legacy-compatible diagnostics.
+        depressed_indices: list[int] = []
+        weights_before = np.zeros(0); delta_weights = np.zeros(0); weights_after = np.zeros(0)
+
+        have_weights = (self.weight_cap > 0 and self._weights_array is not None
+                        and len(self._weights_array) > 0)
+        # Weight plasticity runs ONLY for a non-refractory loser (winner protection
+        # comes solely from refractory_timer, never a one-hot winner check).
+        if (not refractory_at_arrival) and have_weights:
+            w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
+            w_cap = self.weight_cap
+            if competitive_weight_update == "redistribution":
+                r = self._redistribute_off(participating, w_min, w_cap, theta)
+                (plasticity_applied, active_indices, off_indices,
+                 active_effective_sum, p_match, candidate_release, transferred,
+                 active_before, active_delta, active_after,
+                 off_before, off_delta, off_after) = r
+            elif competitive_weight_update == "depression":
+                d = self._depress_one_sided(participating, w_min, w_cap, p_loss)
+                (plasticity_applied, depressed_indices,
+                 weights_before, delta_weights, weights_after) = d
+            # "none": hard reset only, no weight update.
+
+        # Unconditional hard reset (every mode, even a refractory winner): zero the
+        # membrane and pending current traces. The refractory timer is untouched.
         self.potential = self.resting_potential
         if self.hard_reset_clear_traces:
             self.exc_trace = 0.0
             self.inh_trace = 0.0
         v_post = float(self.potential)
-        return dict(v_pre=v_pre, v_post=v_post, theta=theta, p_loss=p_loss,
-                    depressed_indices=depressed_indices,
-                    weights_before=weights_before, delta_weights=delta_weights,
-                    weights_after=weights_after)
+        return dict(
+            mode=competitive_weight_update,
+            refractory_at_arrival=refractory_at_arrival,
+            plasticity_applied=plasticity_applied,
+            v_pre=v_pre, v_post=v_post, theta=theta,
+            p_loss=p_loss, p_match=p_match,
+            active_indices=active_indices, off_indices=off_indices,
+            active_effective_sum=active_effective_sum,
+            candidate_release=candidate_release, transferred=transferred,
+            active_before=active_before, active_delta=active_delta, active_after=active_after,
+            off_before=off_before, off_delta=off_delta, off_after=off_after,
+            # Depression / legacy-compatible keys (empty in the other modes).
+            depressed_indices=depressed_indices,
+            weights_before=weights_before, delta_weights=delta_weights,
+            weights_after=weights_after)
+
+    def _depress_one_sided(self, participating, w_min, w_cap, p_loss):
+        """Retained one-sided competitive-depression baseline (the "depression"
+        mode). Depress only the ACTIVE positive feedforward gates (weight>0 AND the
+        pixel participated) through the reflected downward kernel, scaled by
+        p_loss = clamp(V_pre/theta, 0, 1) and the structural-FE gate when enabled.
+        OFF gates are untouched and mass is NOT conserved. Returns
+        (plasticity_applied, depressed_indices, weights_before, delta, weights_after)."""
+        depressed_indices: list[int] = []
+        weights_before = np.zeros(0); delta_weights = np.zeros(0); weights_after = np.zeros(0)
+        if p_loss <= 0.0:
+            return False, depressed_indices, weights_before, delta_weights, weights_after
+        eligible = np.nonzero((self._weights_array > 0) & participating)[0]
+        if eligible.size == 0:
+            return False, depressed_indices, weights_before, delta_weights, weights_after
+        w_before = self._weights_array[eligible].astype(float).copy()
+        gate = (self._structural_free_energy_gate()
+                if self.structural_free_energy else 1.0)
+        gain = self.learning_rate * gate * p_loss
+        signal = np.full(eligible.size, -1.0)
+        w_after = bounded_signed_update(w_before, w_min, w_cap, gain, signal)
+        self._weights_array[eligible] = w_after
+        self.loser_depression_events += 1
+        return (True, eligible.tolist(), w_before, w_after - w_before, w_after)
+
+    def _redistribute_off(self, participating, w_min, w_cap, theta):
+        """Conservative redistribution of a loser's ACTIVE feedforward gate capacity
+        into its OFF gates (the "redistribution" mode; spec Sections 4-6).
+
+        Structural competition signal (Section 4):
+            c_ji = w_ji * delivery_factor_ji   (effective_weights; distance-aware)
+            S_on = sum(c_ji for active gates); p_match = clamp(S_on/theta, 0, 1)
+        Candidate active decrease (Section 5): per active gate, the reflected bounded
+        downward kernel gain = learning_rate * p_match, clipped so no gate crosses
+        w_min. Conservative OFF recruitment (Section 6): transfer T = min(R_candidate,
+        C_off); if OFF capacity is short, scale every active decrease by T/R_candidate
+        so untransferable resource stays in the active gates; place exactly T across
+        OFF gates via H_up-weighted capped water-filling. Total positive feedforward
+        mass is invariant. Returns the redistribution diagnostic tuple."""
+        w = self._weights_array
+        pos = w > 0
+        active_idx = np.nonzero(pos & participating)[0]
+        off_idx = np.nonzero(pos & ~participating)[0]
+        active_before = w[active_idx].astype(float).copy()
+        off_before = w[off_idx].astype(float).copy()
+
+        # Structural competition signal from active DELIVERED support.
+        active_effective_sum = 0.0
+        p_match = 0.0
+        if active_idx.size > 0 and theta > 0:
+            w_eff = effective_weights(self)
+            active_effective_sum = float(np.sum(np.maximum(w_eff[active_idx], 0.0)))
+            p_match = min(max(active_effective_sum / theta, 0.0), 1.0)
+
+        def _no_change():
+            return (False, active_idx.tolist(), off_idx.tolist(),
+                    active_effective_sum, p_match, 0.0, 0.0,
+                    active_before, np.zeros_like(active_before), active_before.copy(),
+                    off_before, np.zeros_like(off_before), off_before.copy())
+
+        if active_idx.size == 0 or p_match <= 0.0 or off_idx.size == 0:
+            return _no_change()
+
+        # Candidate active decreases: reflected downward kernel, already clipped at
+        # w_min by bounded_signed_update.
+        gain = self.learning_rate * p_match
+        signal = np.full(active_idx.size, -1.0)
+        candidate_after = bounded_signed_update(active_before, w_min, w_cap, gain, signal)
+        candidate_d = active_before - candidate_after   # >= 0
+        R_candidate = float(candidate_d.sum())
+        if R_candidate <= 0.0:
+            return _no_change()
+
+        # Conservative transfer: bounded by OFF capacity.
+        capacity = np.maximum(w_cap - off_before, 0.0)
+        C_off = float(capacity.sum())
+        transfer = min(R_candidate, C_off)
+        if transfer <= 0.0:
+            return _no_change()
+
+        scale = transfer / R_candidate
+        applied_d = candidate_d * scale                 # sum == transfer
+        active_after = active_before - applied_d
+        off_alloc = self._allocate_off_transfer(off_before, w_min, w_cap, transfer)
+
+        self._weights_array[active_idx] = active_after
+        self._weights_array[off_idx] = off_before + off_alloc
+        self.redistribution_events += 1
+        return (True, active_idx.tolist(), off_idx.tolist(),
+                active_effective_sum, p_match, R_candidate, transfer,
+                active_before, active_after - active_before, active_after,
+                off_before, off_alloc, off_before + off_alloc)
+
+    def _allocate_off_transfer(self, w_off, w_min, w_cap, transfer):
+        """Deterministic capped water-filling of exactly `transfer` across OFF gates
+        (spec Section 6). Allocate proportional to the FIXED upward headroom weight
+        H_up(q_k) = 1 - q_k^2 (q_k from the pre-transfer weight), respecting each
+        gate's remaining capacity w_cap - w_k; redistribute any clipping remainder
+        among gates that still have capacity using the same H_up weights until the
+        full transfer is placed or every OFF gate is at w_cap. Returns the per-gate
+        allocation (all >= 0, sum == min(transfer, total capacity))."""
+        n = w_off.size
+        alloc = np.zeros(n)
+        remaining_cap = np.maximum(w_cap - w_off, 0.0).astype(float)
+        left = min(float(transfer), float(remaining_cap.sum()))
+        if left <= 0.0:
+            return alloc
+        if w_cap > w_min:
+            q = np.clip((w_off - w_min) / (w_cap - w_min), 0.0, 1.0)
+            H_up = 1.0 - q ** 2
+        else:
+            H_up = np.zeros(n)
+        open_gate = remaining_cap > 1e-15
+        for _ in range(n + 1):
+            if left <= 1e-12 or not open_gate.any():
+                break
+            weights = np.where(open_gate, H_up, 0.0)
+            wsum = float(weights.sum())
+            if wsum <= 0.0:
+                # All open gates have zero upward headroom (near cap): fall back to
+                # capacity-proportional so the transfer still completes deterministically.
+                weights = np.where(open_gate, remaining_cap, 0.0)
+                wsum = float(weights.sum())
+                if wsum <= 0.0:
+                    break
+            give = np.minimum(left * weights / wsum, remaining_cap)
+            alloc += give
+            remaining_cap -= give
+            left -= float(give.sum())
+            open_gate = remaining_cap > 1e-15
+        # Float remainder: place in the gate with the most remaining capacity.
+        if left > 1e-12 and open_gate.any():
+            k = int(np.argmax(np.where(open_gate, remaining_cap, -1.0)))
+            give = min(left, float(remaining_cap[k]))
+            alloc[k] += give
+        return alloc
 
     def update(self):
         """

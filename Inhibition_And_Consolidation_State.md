@@ -1,18 +1,30 @@
 # Inhibition & Consolidation — Current State
 
-> **Architecture update — L2 hard-reset competitive depression (2026-07-13).**
+> **Architecture update — OFF-weight redistribution / recruitment (2026-07-13).**
 > L2I no longer suppresses L2E through a learned negative gate. L2I recruitment is
 > learned on its positive `L2E -> L2I` inputs; its output is an unweighted
-> competitive-reset event (hard reset of every non-winner to rest + local
-> depression of the participating positive feedforward weights, scaled by the
-> loser's pre-reset charge, via the shared bounded kernel). No learned `L2I->L2E`
-> magnitude remains on the active path — every mention below of a gate capped at
-> `sqrt(L2_GATE_WMAX)`, gate equilibria, or the turnover/margin inhibitory rule
-> refers to the superseded design (now only the legacy `apply_inhibition` path for
-> `L1I->L1E`). Multi-seed diagnostic in `report_competitive_depression.py`:
-> competitive depression lifts sustained per-pattern dominance (~0.63 -> ~0.85)
-> but trades participation for it (more dead units); one-to-one ownership remains
-> unsolved. See `L2_Hard_Reset_Competitive_Depression_Spec.md`.
+> competitive-reset event broadcast to **every** L2E (winner included). Every L2E
+> hard-resets unconditionally; only a **non-refractory** L2E (a loser) runs the
+> loser weight update, so winner protection is the refractory timer alone
+> (`refractory = 1`), not a one-hot winner check. The loser rule is one canonical
+> flag `competitive_weight_update`:
+> - **`redistribution`** (new default): move an incremental bounded amount of the
+>   loser's ACTIVE gate capacity into its inactive (OFF) gates with headroom,
+>   conserving total positive feedforward mass (signal `p_match` = active
+>   effective-weight sum / θ). OFF gates may saturate at `w_cap` (accepted as
+>   recruitment); the rule then naturally stops.
+> - **`depression`** (retained A/B baseline): the earlier one-sided charge-scaled
+>   depression of participating gates; OFF gates untouched, mass not conserved.
+> - **`none`**: hard-reset-only control.
+>
+> No learned `L2I->L2E` magnitude remains on the active path — every mention below
+> of a gate capped at `sqrt(L2_GATE_WMAX)`, gate equilibria, or the turnover/margin
+> inhibitory rule refers to the superseded design (now only the legacy
+> `apply_inhibition` path for `L1I->L1E`). The `depression`-mode multi-seed
+> diagnostic in `report_competitive_depression.py` lifts sustained per-pattern
+> dominance (~0.63 -> ~0.85) but trades participation for it; one-to-one ownership
+> remains open. See `Inhibitory_Off_Weight_Recruitment_Spec.md` (and the superseded
+> `L2_Hard_Reset_Competitive_Depression_Spec.md`).
 
 Status snapshot of the L2 competition / inhibition work (2026-07-09). Records the
 problem, what was built, what worked, what didn't, and the open question.

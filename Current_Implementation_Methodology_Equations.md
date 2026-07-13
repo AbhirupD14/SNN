@@ -8,9 +8,11 @@ homeostasis, weight budget, lasting inhibition, balanced init, membrane
 saturation, immediate-relay L1I, subtractive reset) have been removed from this
 sheet; they remain in the source as reversible experiments. Every equation below is
 cross-checked against `neuron_flexible.py`, `snn/rules/`, `backend/simulation.py`,
-and `backend/api.py` as of 2026-07-13. The planned refractory-protected,
-active-gate redistribution rule in `Inhibitory_Off_Weight_Recruitment_Spec.md`
-is intentionally not presented as current behavior here.
+and `backend/api.py` as of 2026-07-13. The default loser rule on the L2 competitive
+reset is now the refractory-protected, conserved ON→OFF **redistribution** rule
+(`Inhibitory_Off_Weight_Recruitment_Spec.md`); the earlier one-sided competitive
+depression is retained as the `depression` A/B baseline and `none` as a hard-reset-only
+control.
 
 ## Network Topology
 
@@ -45,7 +47,7 @@ l1i_threshold_frac    = 1.0          -> thr_l1i = thr_l2i
 weight_cap (base)     = 1.0
 l2e_weight_cap_frac   = 1/3          -> L2E per-afferent cap = thr_l2/3
 pos_weight_floor      = 1  (unit)    -> positive-weight floor w_min
-refractory            = 0            (current L1E/L2E dashboard value)
+refractory            = 1            (L1E/L2E; same-step winner-protection veto)
 volley_period         = 4
 input_period          = 1            (held pixel drives every step)
 cycle_period          = 4
@@ -57,7 +59,7 @@ leak_enabled          = False        (L2E/L2I/L1I are pure integrators)
 distance_weighting    = True   (power 2, ref 7.472, min 1)
 signed_spike_learning = True   (L2E feedforward rule)
 structural_free_energy= True   (eta_floor 0.02; replaces the voltage term)
-loser_depression      = True   (competitive depression on the reset event)
+competitive_weight_update = redistribution   (loser rule; A/B: depression | none)
 l2i_hard_reset_losers = True
 hard_reset_clear_traces = True
 l2e_init_mode         = legacy_wide   (balanced initialization is off)
@@ -72,14 +74,17 @@ signed_depression     = False         (superseded by signed-spike learning)
 Resolved population state:
 
 ```text
-L1E refractory/leak   = 0 / 0.10
+L1E refractory/leak   = 1 / 0.10   (L1E firing is paced by L1I feedback, not this window)
 L1I refractory/leak   = 2 / 0
-L2E refractory/leak   = 0 / 0
+L2E refractory/leak   = 1 / 0   (refractory=1 is the same-step winner-protection veto)
 L2I refractory/leak   = 0 / 0
 ```
 
-`refractory = 1` is the planned same-step winner-plasticity veto in the new
-redistribution specification; it is not implemented in the current dashboard.
+`refractory = 1` is the same-step winner-plasticity veto: the L2E that fired this
+step is in refractory when the L2I competitive reset broadcasts, so it hard-resets
+but skips the loser weight update, then `update()` decrements the timer to 0 so it
+competes again next step. L1E shares the `refractory` param but is paced by the L1I
+feedback loop, so its firing is unchanged by the 0→1 move.
 
 Learning rule per population (dashboard):
 
@@ -304,45 +309,61 @@ $$
 j^\ast = \arg\max_{j \in \mathcal{E}(t)} V_{\mathrm{L2E}_j}.
 $$
 
-The winner `L2E_{j*}` fires (resetting itself) and drives L2I. **If L2I crosses its
-own threshold**, it fires and issues an unweighted competitive-reset event to every
-non-winner; if it does not, no reset or depression occurs this step.
+The winner `L2E_{j*}` fires (resetting itself, arming `refractory_timer = 1`) and
+drives L2I. **If L2I crosses its own threshold**, it fires and broadcasts an
+unweighted competitive-reset event to **every** L2E (winner included); if it does
+not, no reset or weight update occurs this step.
 
-### Competitive reset + depression (per non-winner `j`)
+### Competitive reset + loser weight update (per L2E `j`)
 
-The event has two parts, using the pre-reset charge
-$p_{\mathrm{loss}} = \mathrm{clamp}(V_{\mathrm{pre},j}/\theta, 0, 1)$:
+The event has two parts. Every L2E — including the winner — is **hard-reset**
+unconditionally; only a **non-refractory** L2E (a loser) runs the loser weight
+update, so the neuron that fired this step is protected by its refractory timer
+alone (no one-hot winner check). The loser rule is selected by one canonical flag
+`competitive_weight_update ∈ {redistribution, depression, none}`.
 
-**Structural (competitive depression, `loser_depression` on).** Only the *positive*
-feedforward weights whose inputs participated in the losing response are depressed,
-via the shared bounded kernel with $\sigma = -1$:
+**`redistribution` (default; conservative ON→OFF recruitment).** The signal is the
+*active delivered support*, not the membrane charge. With active gates $A_j$ (positive,
+participating) and OFF gates $O_j$ (positive, non-participating), effective delivery
+weight $c_{ji} = w_{ji}\cdot\mathrm{delivery\_factor}_{ji}$:
 
 $$
-\eta_{\mathrm{loss}} = \mathrm{learning\_rate}\cdot\mathrm{gate}_j\cdot p_{\mathrm{loss}},
-\qquad
-w_{ji} \leftarrow \text{bounded\_kernel}(w_{ji},\ w_{\min},\ \mathrm{weight\_cap},\ \eta_{\mathrm{loss}},\ -1)
+S_{\mathrm{on},j} = \sum_{i \in A_j} c_{ji}, \qquad
+p_{\mathrm{match},j} = \mathrm{clamp}(S_{\mathrm{on},j}/\theta, 0, 1).
 $$
 
-for each afferent with $w_{ji} > 0 \land \mathrm{last\_input}_{ji} > 0.5$, where
-$\mathrm{gate}_j$ is the same structural brake as the signed rule. OFF pixels are
-never touched (that would potentiate absent pixels). A zero-charge loser
-($p_{\mathrm{loss}} = 0$) learns nothing.
+Each active gate has a candidate decrease through the reflected bounded kernel
+($\sigma=-1$, gain $=\mathrm{learning\_rate}\cdot p_{\mathrm{match}}$), clipped so it
+cannot cross $w_{\min}$; $R_{\mathrm{candidate}} = \sum_i d_i$. OFF capacity
+$C_{\mathrm{off}} = \sum_{k\in O_j}(w_{\mathrm{cap}} - w_k)$ bounds the transfer
+$T = \min(R_{\mathrm{candidate}}, C_{\mathrm{off}})$; if $T < R_{\mathrm{candidate}}$
+every active decrease is scaled by $T/R_{\mathrm{candidate}}$ (untransferable resource
+stays in the active gates). Exactly $T$ is then placed across OFF gates by capped
+water-filling weighted by upward headroom $H_{\mathrm{up}}(q_k)=1-q_k^2$. The invariant
+is **conservation**: $\sum(\text{active before}-\text{after}) = \sum(\text{OFF after}-\text{before})$,
+so total positive feedforward mass is unchanged. OFF gates may reach $w_{\mathrm{cap}}$
+(accepted as recruitment); as capacity fills the rule naturally stops.
 
-**Transient (hard reset, unconditional).** The membrane and pending current traces
-are cleared, even if the target is refractory (the refractory timer itself is left
-untouched):
+**`depression` (retained A/B baseline).** The prior one-sided rule, using the
+pre-reset charge $p_{\mathrm{loss}} = \mathrm{clamp}(V_{\mathrm{pre},j}/\theta, 0, 1)$.
+Only the *positive* participating gates are depressed via the bounded kernel with
+$\sigma=-1$, gain $=\mathrm{learning\_rate}\cdot\mathrm{gate}_j\cdot p_{\mathrm{loss}}$
+($\mathrm{gate}_j$ the structural brake). OFF pixels are never touched and mass is
+**not** conserved. A zero-charge loser learns nothing.
+
+**`none` (control).** Hard-reset only; no loser weight update.
+
+**Transient (hard reset, unconditional in every mode).** The membrane and pending
+current traces are cleared, even for the refractory winner (the refractory timer
+itself is left untouched, so end-of-step `update()` decrements it $1\to0$ and the
+winner competes again next step):
 
 $$
 V_j \leftarrow R_j,\qquad \text{exc\_trace}_j \leftarrow 0,\qquad \text{inh\_trace}_j \leftarrow 0.
 $$
 
 There is **no learned inhibitory magnitude** anywhere on this path; the reset is
-binary and complete.
-
-This is the currently implemented rule. It intentionally does not include
-OFF-gate recruitment, active-gate-sum matching, conserved redistribution, or
-refractory winner protection; those changes are specified but not yet implemented
-in `Inhibitory_Off_Weight_Recruitment_Spec.md`.
+binary and complete. See `Inhibitory_Off_Weight_Recruitment_Spec.md`.
 
 ## Inhibitory Delivery (L1I -> L1E feedback)
 

@@ -123,15 +123,18 @@ def test_reset_without_negative_afferent():
     print("PASS reset: works with no negative afferent weight")
 
 
-def test_reset_occurs_with_depression_off():
-    n = _l2e([2.0, 2.0, 2.0], participating=[1, 1, 0], loser_depression=False)
+def test_reset_occurs_with_mode_none():
+    # "none" is the hard-reset-only control: the pool still resets identically but
+    # no loser weight update runs (spec Section 9).
+    n = _l2e([2.0, 2.0, 2.0], participating=[1, 1, 0])
     w_before = n._weights_array.copy()
     n.potential = 0.9 * n.threshold
-    rec = n.apply_competitive_reset()
+    rec = n.apply_competitive_reset(competitive_weight_update="none")
     assert n.potential == n.resting_potential            # still resets
     assert np.array_equal(n._weights_array, w_before)    # but does not learn
     assert rec['depressed_indices'] == []
-    print("PASS reset: still resets with loser_depression=False (no weight change)")
+    assert rec['plasticity_applied'] is False
+    print("PASS reset: mode 'none' still resets (no weight change)")
 
 
 def test_no_reset_when_l2i_does_not_fire():
@@ -147,7 +150,7 @@ def test_no_reset_when_l2i_does_not_fire():
     l2.inhibitory_neuron.refractory_timer = 0
     l2.inhibitory_neuron.potential = 0.0                 # far from firing
     e._reset_events = []
-    l2i, inhibited, winner = e._resolve_l2_competition(l2, np.zeros(N_OUT), e.timestep)
+    l2i, inhibited, winner = e._resolve_l2_competition(l2, np.zeros(N_OUT), e.timestep, None)
     assert winner == 0
     if not l2i:
         assert inhibited == [] and e._reset_events == []
@@ -156,7 +159,12 @@ def test_no_reset_when_l2i_does_not_fire():
         raise AssertionError("L2I unexpectedly fired; test setup invalid")
 
 
-def test_winner_never_reset():
+def test_winner_receives_reset_but_is_protected():
+    # New contract (Inhibitory_Off_Weight_Recruitment_Spec): the reset is broadcast
+    # to EVERY L2E, winner included. The winner fired this step and is in refractory,
+    # so it receives the reset event but skips the loser weight update (protection is
+    # the refractory timer, not a one-hot winner check). It is still not counted as
+    # inhibited.
     e = SimulationEngine(seed=1, l1i_immediate_relay=False)
     l2 = e.l2
     thr = e.params['threshold_l2']
@@ -168,12 +176,14 @@ def test_winner_never_reset():
     l2.inhibitory_neuron.refractory_timer = 0
     l2.inhibitory_neuron.potential = l2.inhibitory_neuron.threshold   # ensure L2I fires
     e._reset_events = []
-    l2i, inhibited, winner = e._resolve_l2_competition(l2, np.zeros(N_OUT), e.timestep)
+    l2i, inhibited, winner = e._resolve_l2_competition(l2, np.zeros(N_OUT), e.timestep, None)
     assert winner == 0
-    reset_ids = {nid for nid, _ in e._reset_events}
-    assert 'L2E0' not in reset_ids, "winner was passed through the reset path"
+    recs = {nid: rec for nid, rec in e._reset_events}
+    assert 'L2E0' in recs, "winner must receive the broadcast reset event"
+    assert recs['L2E0']['refractory_at_arrival'] is True
+    assert recs['L2E0']['plasticity_applied'] is False, "refractory winner must not learn"
     assert 0 not in inhibited
-    print("PASS reset: the winner is never reset")
+    print("PASS reset: the winner receives the reset but is refractory-protected")
 
 
 # ======================================================================
@@ -352,9 +362,9 @@ if __name__ == "__main__":
     test_reset_positive_charge_to_rest()
     test_reset_clears_traces()
     test_reset_without_negative_afferent()
-    test_reset_occurs_with_depression_off()
+    test_reset_occurs_with_mode_none()
     test_no_reset_when_l2i_does_not_fire()
-    test_winner_never_reset()
+    test_winner_receives_reset_but_is_protected()
     # depression
     test_depression_only_participating_positive()
     test_depression_creates_no_negative_or_absent_weight()

@@ -123,7 +123,7 @@ def test_winner_not_reset():
 
     l2e = np.zeros(N_OUT)
     e._inh_events = []
-    l2i, inhibited, winner = e._resolve_l2_competition(l2, l2e, e.timestep)
+    l2i, inhibited, winner = e._resolve_l2_competition(l2, l2e, e.timestep, None)
 
     assert winner == winner_j, f"expected winner {winner_j}, got {winner}"
     assert winner_j not in inhibited, "winner must not be inhibited"
