@@ -54,8 +54,10 @@ engine = SimulationEngine(
     # self-sufficiency so L2I fires in rhythm -- it removes the last-volley-only
     # credit that stalled the E->I synapse below threshold (the L2I firing deadlock).
     # Runs off L2I's own discharge. See Flow_Credit_Dynamics_Explained.md and
-    # Inhibition_And_Consolidation_State.md.
-    assembly_flow_credit=True,    # flow-proportional E->I credit on L2I/L1I fire
+    # Inhibition_And_Consolidation_State.md. ARCHIVED (default OFF): in practice the
+    # minimal substrate -- excitatory flow-rate + hard-reset inhibition -- is all
+    # that's needed, so flow credit is off by default (still togglable in Advanced).
+    assembly_flow_credit=False,   # flow-proportional E->I credit on L2I/L1I fire
     # No down-weighting of the E->I "assembly evidence" synapses: keep the credit
     # (contributors still climb to self-sufficiency) but zero the decay term so a
     # non-contributing L2E->L2I synapse is NOT pushed toward the floor (1). With the
@@ -107,7 +109,7 @@ engine = SimulationEngine(
     # threshold (3-pixel lines); positive floor = 1; each I threshold = its E's / 3.
     l2e_weight_cap_frac=1 / 3,
     pos_weight_floor=1,
-    l2i_threshold_frac=1 / 7,     # L2I threshold = threshold_l2 / 3
+    l2i_threshold_frac=1 / 3,     # L2I threshold = threshold_l2 / 3
     l1i_threshold_frac=1 / 3,     # L1I threshold = threshold / 3
     l2e_lr_frac=0.02,             # L2E feedforward learning rate (fraction of the cap)
     ei_sat_mult=4.0,              # push E->I saturation above the clip so L2E->L2I reaches
@@ -437,11 +439,15 @@ CONFIG_SPEC = [
 # "Dashboard Config Cleanup" section for the rationale behind the split.
 _MAIN_CONFIG_KEYS = {
     "signed_spike_learning", "structural_free_energy", "structural_fe_eta_floor",
-    "assembly_flow_credit", "excitatory_flow_rate", "exc_trace_decay",
+    "inhibitory_delta_rule", "excitatory_flow_rate", "exc_trace_decay",
     "event_driven", "refractory", "l2e_lr_frac", "leak_l2",
 }
 # loser_depression / eta_loss were archived to the Advanced panel (default OFF) --
 # an imposed "punish the loser" rule that doesn't fit the local free-energy model.
+# assembly_flow_credit was likewise archived (default OFF): the minimal substrate
+# (flow-rate + hard-reset inhibition) is sufficient, so it's an Advanced experiment.
+# inhibitory_delta_rule stays on the MAIN panel: the differentiating turnover rule
+# is an active knob -- toggle it to compare against the legacy uniform saturating gate.
 for _spec in CONFIG_SPEC:
     # advanced := not a primary control (archived/inert/diagnostic). Main entries
     # are explicitly advanced=False so the frontend can rely on the key existing.
