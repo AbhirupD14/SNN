@@ -298,6 +298,19 @@ class Neuron(NeuralEntity):
         self.distance_ref = 1.0
         self.distance_min = 1.0
         self._distance = None               # per-afferent d_i (set at finalize)
+        # Explicit learning strategy boundaries (Local Predictive Inhibition,
+        # Experiment.md Sections 4.3 / 7). Both default True so every existing
+        # neuron / golden case is bit-exact.
+        #   postsynaptic_learning_enabled: when False, fire() delivers the spike and
+        #     resets, but the generic excitatory _update_weights is disabled entirely
+        #     (used for predictive L1I -- its feedback weights are moved ONLY by the
+        #     external Section 6 predictor, and its fixed local afferent never moves).
+        #   inhibitory_plastic: when False, apply_inhibition still DELIVERS the graded,
+        #     rest-floored discharge but the gate-magnitude learning rule is skipped
+        #     (used to freeze the fixed L1I->L1E gate regardless of which inhibitory
+        #     rule is otherwise selected -- "inhibitory learning rate = 0").
+        self.postsynaptic_learning_enabled = True
+        self.inhibitory_plastic = True
         self.last_inhibitory_events = []    # debug records from the most recent apply_inhibition()
         # (last_spike_time / spiked live on the Membrane, seeded in its constructor;
         # Neuron forwards to them via the properties below.)
@@ -540,7 +553,10 @@ class Neuron(NeuralEntity):
             # Per-discharge gate learning is a strategy (Phase 3b): saturating vs
             # differentiating turnover/margin, selected by the neuron's flags. All
             # inputs are local to this event; it returns the new gate magnitude.
-            w_new = select_inhibitory_rule(self).new_magnitude(self, w, v_pre, w_max, theta, p)
+            # inhibitory_plastic False freezes the gate (fixed L1I->L1E gate): the
+            # discharge above still happened, only the magnitude update is skipped.
+            w_new = (select_inhibitory_rule(self).new_magnitude(self, w, v_pre, w_max, theta, p)
+                     if self.inhibitory_plastic else w)
             self._weights_array[idx] = -w_new      # keep the inhibitory sign
             events.append(dict(index=int(idx), v_pre=v_pre, v_post=v_post,
                                theta=theta, p=p, w_before=w,
@@ -924,6 +940,11 @@ class Neuron(NeuralEntity):
         participation and confidence-weighted credit-splitting rules.
         """
         if self._weights_array is None or len(self._weights_array) == 0:
+            return
+        # Explicit strategy boundary: predictive L1I disables the generic
+        # postsynaptic excitatory update entirely (its weights move only via the
+        # external predictor). Default True keeps every other neuron unchanged.
+        if not self.postsynaptic_learning_enabled:
             return
         # Polymorphic dispatch over the one active excitatory rule (Phase 3a). The
         # signed-spike / assembly-flow / charge-based branches now live as strategy

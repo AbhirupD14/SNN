@@ -522,7 +522,42 @@ class SimulationEngine:
                  # Jitter eps for the balanced init: Z[j,i] ~ Uniform(1-eps, 1+eps).
                  # eps=0 -> exactly uniform (perfect symmetry); eps>0 -> small UNBIASED
                  # differences the learning rules must amplify. Ignored in legacy mode.
-                 l2e_init_jitter: float = L2E_INIT_JITTER):
+                 l2e_init_jitter: float = L2E_INIT_JITTER,
+                 # --- Local Predictive Inhibition (Experiment.md) -----------------
+                 # All default to LEGACY-PRESERVING values: with paired_local_enabled
+                 # and predictive_feedback_enabled both False, every L1I keeps its
+                 # legacy 8-element [L2E0..L2E7] afferent array, its legacy feedback
+                 # init/learning, and the L1E local gate stays at its legacy UNIT
+                 # magnitude -- bit-exact with the golden baseline.
+                 #
+                 # paired_local_enabled: add the nine paired L1E_i -> L1I_i edges
+                 # (L1I afferent index 0 = paired local L1E, indices 1..8 = feedback).
+                 # Turning this on ALSO switches each L1I to the predictive preset
+                 # (numeric leak, fixed local afferent, generic L1I learning off) and
+                 # fixes the L1I->L1E gate at predictive_output_gate_frac * theta_L1E.
+                 paired_local_enabled: bool = False,
+                 # predictive_feedback_enabled: run the Section 6 predictor rule on
+                 # the L2E->L1I feedback weights (requires paired_local_enabled).
+                 predictive_feedback_enabled: bool = False,
+                 # l2_to_l1i_delivery_enabled: whether live L2E feedback is delivered
+                 # to L1I at all. True is the legacy behaviour; the `baseline` and
+                 # `local_only` modes set it False (no-feedback controls).
+                 l2_to_l1i_delivery_enabled: bool = True,
+                 # Fixed local L1E->L1I afferent magnitude, as a fraction of L1I's
+                 # threshold distance G = theta_L1I - V_rest_L1I. Never plastic.
+                 predictive_local_weight_frac: float = 0.40,
+                 # Predictor feedback initial weight, as a fraction of G (all 72 start
+                 # identically). Also the init used for paired feedback afferents.
+                 predictive_feedback_init_frac: float = 0.10,
+                 predictive_feedback_eta_up: float = 0.08,
+                 predictive_feedback_eta_down: float = 0.04,
+                 predictive_trace_tau_steps: float = 2.0,
+                 # Explicit numeric L1I leak per update in the predictive preset. The
+                 # legacy optional L1I_LEAK_RATE (0.07) is too small: a held active
+                 # feature would accumulate past threshold under a 0.40 theta pulse.
+                 predictive_l1i_leak_rate: float = 0.50,
+                 # Fixed L1I->L1E output gate magnitude, as a fraction of theta_L1E.
+                 predictive_output_gate_frac: float = 0.50):
         # Decouple the SENSORY input rate from the INTRINSIC competition clock.
         # input_period: steps between external input samples. The default is 1:
         #   a held pixel supplies drive continuously, every simulation step.
@@ -612,7 +647,17 @@ class SimulationEngine:
                            l2e_weight_cap_frac=l2e_weight_cap_frac,
                            pos_weight_floor=pos_weight_floor,
                            l2e_init_mode=l2e_init_mode,
-                           l2e_init_jitter=l2e_init_jitter)
+                           l2e_init_jitter=l2e_init_jitter,
+                           paired_local_enabled=paired_local_enabled,
+                           predictive_feedback_enabled=predictive_feedback_enabled,
+                           l2_to_l1i_delivery_enabled=l2_to_l1i_delivery_enabled,
+                           predictive_local_weight_frac=predictive_local_weight_frac,
+                           predictive_feedback_init_frac=predictive_feedback_init_frac,
+                           predictive_feedback_eta_up=predictive_feedback_eta_up,
+                           predictive_feedback_eta_down=predictive_feedback_eta_down,
+                           predictive_trace_tau_steps=predictive_trace_tau_steps,
+                           predictive_l1i_leak_rate=predictive_l1i_leak_rate,
+                           predictive_output_gate_frac=predictive_output_gate_frac)
         self._build()
 
     # ------------------------------------------------------------------ build
@@ -669,6 +714,14 @@ class SimulationEngine:
             # exactly 0 (w = w_max = weight_cap). At the UNIT scale that needs
             # w_max = UNIT*weight_cap == weight_cap^2, so the gate still can't drift.
             e.inhibitory_weight_cap = UNIT * e.weight_cap
+            if p['paired_local_enabled']:
+                # Local Predictive Inhibition: fix the L1I->L1E gate magnitude at
+                # predictive_output_gate_frac * theta_L1E (thr_l1 == theta_L1E) and
+                # freeze it (inhibitory learning rate = 0) regardless of which
+                # inhibitory-gate rule is otherwise selected. Direct index write so
+                # the non-paired golden path (the untaken branch) is byte-identical.
+                e._weights_array[0] = -p['predictive_output_gate_frac'] * thr_l1
+                e.inhibitory_plastic = False
         # L1I: incoming (L2E->L1I) weights start randomly in [0.25, 0.5] * thr_l1
         # -- well below L1I's own threshold, not at-or-above it -- so L1I
         # behaves as a genuine temporal integrator early on (several distinct
@@ -681,20 +734,45 @@ class SimulationEngine:
             lo_frac, hi_frac = L1_EI_WEIGHT_INIT_LOW_FRAC, L1_EI_WEIGHT_INIT_HIGH_FRAC
         else:
             lo_frac = hi_frac = p['l1i_ei_init_frac']
-        # Every L1I receives the same L2E winner stream and is intended to suppress
-        # its paired pixel in phase with the rest of the active input. Give the bank
-        # one task-independent feedback vector; independent random vectors create
-        # arbitrary phase groups with no pixel-local signal that could correct them.
-        l1i_feedback_init = rng_fb.uniform(lo_frac * thr_l1i, hi_frac * thr_l1i,
-                                           size=N_OUT)
+        # Local Predictive Inhibition (Experiment.md Sections 4.1/6/7). When
+        # paired_local_enabled, each L1I afferent vector becomes
+        #   index 0      : paired local L1E_i (fixed magnitude, never plastic)
+        #   index 1..N_OUT: L2E0..L2E{N_OUT-1} feedback
+        # and the feedback weights start at predictive_feedback_init_frac * G,
+        # G = theta_L1I - V_rest_L1I. When disabled, the legacy 8-element
+        # [L2E0..L2E7] array is kept EXACTLY (bit-exact golden). The three weight
+        # RNG streams are independent SeedSequence children, so NOT drawing rng_fb
+        # in the paired branch leaves the L2 network (rng_ff/rng_ei) and layout
+        # (rng_layout) identical across all five experiment modes.
+        self._l1i_paired = bool(p['paired_local_enabled'])
+        self._l1i_fb_offset = 1 if self._l1i_paired else 0
+        v_rest_l1i = self.l1.inhibitory_neurons[0].resting_potential
+        self._l1i_G = thr_l1i - v_rest_l1i     # predictor threshold distance G
+        if self._l1i_paired:
+            local_w = p['predictive_local_weight_frac'] * self._l1i_G
+            fb_init = np.full(N_OUT, p['predictive_feedback_init_frac'] * self._l1i_G)
+        else:
+            # Every L1I receives the same L2E winner stream and is intended to
+            # suppress its paired pixel in phase with the rest of the active input.
+            # One task-independent feedback vector; independent random vectors create
+            # arbitrary phase groups with no pixel-local signal that could correct them.
+            fb_init = rng_fb.uniform(lo_frac * thr_l1i, hi_frac * thr_l1i, size=N_OUT)
         for inh in self.l1.inhibitory_neurons:
             inh.threshold = thr_l1i    # Phase 2: L1I's own (possibly lowered) threshold
             # InputLayer constructed L1I with L1E's cap. Raise the cap before
             # assigning L2I-scale feedback weights or SynapseBank.set_weights()
             # would clip every initialization value above the old L1E threshold.
+            # In the predictive preset G == thr_l1i, so the predictor's [0, G] clamp
+            # and this hard weight_cap coincide.
             inh.weight_cap = thr_l1i
-            inh.weights = l1i_feedback_init.copy()
-            inh.leak_rate = L1I_LEAK_RATE if p['l1i_leak_enabled'] else 0.0
+            if self._l1i_paired:
+                inh.weights = np.concatenate([[local_w], fb_init])
+                # Explicit numeric predictive leak; the legacy 0.07 window is too
+                # small to keep a held 0.40-theta local pulse below threshold.
+                inh.leak_rate = p['predictive_l1i_leak_rate']
+            else:
+                inh.weights = fb_init.copy()
+                inh.leak_rate = L1I_LEAK_RATE if p['l1i_leak_enabled'] else 0.0
             inh.refractory_period = L1I_FEEDBACK_REFRACTORY
 
         # L2E leak is independently switchable from the shared L2I neuron's fast
@@ -891,11 +969,19 @@ class SimulationEngine:
                     # Flow-proportional assembly credit on this inhibitory neuron's
                     # own fire (L2I / L1I): the E->I "assembly evidence" synapses.
                     if nid.startswith('L1'):
-                        # L1I membrane charge integrates a sequence of L2 winners.
-                        # Credit every contributor in that same membrane window, not
-                        # only the final winner that happened to cross threshold.
-                        n.assembly_flow_credit = True
-                        n.assembly_decay_frac = 0.0
+                        if p['paired_local_enabled']:
+                            # Predictive L1I: the generic postsynaptic excitatory
+                            # update is disabled ENTIRELY (Experiment.md Section 4.3).
+                            # Feedback weights move only via the external Section 6
+                            # predictor; the fixed local afferent never moves.
+                            n.postsynaptic_learning_enabled = False
+                            n.assembly_flow_credit = False
+                        else:
+                            # L1I membrane charge integrates a sequence of L2 winners.
+                            # Credit every contributor in that same membrane window,
+                            # not only the final winner that crossed threshold.
+                            n.assembly_flow_credit = True
+                            n.assembly_decay_frac = 0.0
                     else:
                         n.assembly_flow_credit = p['assembly_flow_credit']
                         n.assembly_decay_frac = p['assembly_decay_frac']
@@ -1025,6 +1111,12 @@ class SimulationEngine:
             self.synapses.append(dict(id=f'{j}->inh', source=f'L2E{j}', target='L2I', kind='excitation'))
         for i in range(N_PIX):
             self.synapses.append(dict(id=f'li{i}', source=f'L1I{i}', target=f'L1E{i}', kind='inhibition'))
+        # Paired local L1E_i -> L1I_i evidence edges (Local Predictive Inhibition).
+        # Exactly nine, one per pixel, NEVER cross-paired. Present only when enabled.
+        if self._l1i_paired:
+            for i in range(N_PIX):
+                self.synapses.append(dict(id=f'local{i}', source=f'L1E{i}',
+                                          target=f'L1I{i}', kind='local_evidence'))
         for j in range(N_OUT):
             for i in range(N_PIX):
                 self.synapses.append(dict(id=f'fb{j}->{i}', source=f'L2E{j}', target=f'L1I{i}', kind='feedback'))
@@ -1471,13 +1563,22 @@ class SimulationEngine:
         # mutate any neuron; dynamic_state() reports the later live membrane phase.
         self.l2_charge = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
 
-        # 2d. Deliver L2E winner spike immediately to all L1I neurons (feedback).
-        #     l2e is length N_OUT with a 1 at the winner index, matching each
-        #     L1I neuron's N_OUT-dimensional afferent weight vector. (t carries the
-        #     flow-rate current trace when L1I is a trainable integrator; ignored in
-        #     immediate-relay mode, where L1I's flow flag is off.)
-        for inh in l1.inhibitory_neurons:
-            inh.receive_input(l2e, t=t)
+        # 2d. Deliver L2E feedback to L1I.
+        #     Legacy: the shared length-N_OUT winner vector goes to every L1I; t
+        #     carries the flow-rate current trace when L1I is a trainable integrator
+        #     (ignored in immediate-relay mode, where L1I's flow flag is off).
+        #     Paired (Local Predictive Inhibition): one vector PER target,
+        #     [paired L1E_i spike, delivered L2E0..L2E{N_OUT-1}]. The feedback block is
+        #     the live winner vector when l2_to_l1i_delivery_enabled, else zeros
+        #     (the baseline / local_only no-feedback controls). Phase 2 inserts the
+        #     local-trace update, weight snapshot, and Section 6 predictor here.
+        if self._l1i_paired:
+            deliver_fb = l2e if self.params['l2_to_l1i_delivery_enabled'] else np.zeros(N_OUT)
+            for i, inh in enumerate(l1.inhibitory_neurons):
+                inh.receive_input(np.concatenate([[l1e[i]], deliver_fb]), t=t)
+        else:
+            for inh in l1.inhibitory_neurons:
+                inh.receive_input(l2e, t=t)
 
         # 2e. L1I fires after receiving L2E feedback.
         if self.l1i_immediate_relay:
@@ -1503,6 +1604,8 @@ class SimulationEngine:
             if l1e[i]:
                 for j in range(N_OUT):
                     self.emitted.append(f'ff{i}->{j}')
+                if self._l1i_paired:
+                    self.emitted.append(f'local{i}')   # paired L1E_i -> L1I_i fired
         for j in range(N_OUT):
             if l2e[j]:
                 for i in range(N_PIX):
@@ -1654,11 +1757,14 @@ class SimulationEngine:
         iw = self.l2.inhibitory_neuron._weights_array
         for j in range(N_OUT):
             w[f'{j}->inh'] = float(iw[j])
+        off = self._l1i_fb_offset
         for i in range(N_PIX):
             w[f'li{i}'] = float(self.l1.excitatory_neurons[i].weights[0])
             fbw = self.l1.inhibitory_neurons[i].weights
+            if self._l1i_paired:
+                w[f'local{i}'] = float(fbw[0])   # fixed local afferent (index 0)
             for j in range(N_OUT):
-                w[f'fb{j}->{i}'] = float(fbw[j])
+                w[f'fb{j}->{i}'] = float(fbw[off + j])
         return w
 
     def _detect_weight_changes(self):
