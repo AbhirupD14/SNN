@@ -146,13 +146,25 @@ def _neuron_ids():
     return l2e, l1i
 
 
+def l2_feedforward_matrix(engine) -> np.ndarray:
+    """Authoritative (N_OUT x N_PIX) L2E feedforward weight matrix.
+
+    The active L2E has exactly N_PIX pixel afferents at indices 0..N_PIX-1 with NO
+    index-0 inhibitory placeholder, so the columns are pixels 0..N_PIX-1 IN ORDER.
+    Earlier code sliced `_weights_array[1:1 + N_PIX]`, which for N_PIX=9 is [1:10]
+    -> indices 1..8: it dropped pixel 0 AND returned one column short. Every
+    metric, plot, and saved snapshot must read pixel 0 through this single helper.
+    """
+    return np.array([engine.l2.excitatory_neurons[j]._weights_array[0:N_PIX]
+                     for j in range(N_OUT)])
+
+
 def weight_saturation(engine) -> float:
     """Fraction of positive L2E feedforward weights within 5% of the cap."""
     cap = engine.l2.excitatory_neurons[0].weight_cap
-    hi = 0; tot = 0
-    for j in range(N_OUT):
-        w = engine.l2.excitatory_neurons[j]._weights_array[1:1 + N_PIX]
-        tot += len(w); hi += int((w >= 0.95 * cap).sum())
+    W = l2_feedforward_matrix(engine)
+    tot = W.size
+    hi = int((W >= 0.95 * cap).sum())
     return hi / tot if tot else 0.0
 
 
@@ -301,8 +313,8 @@ def run_combo(run: Run, cfg: dict, combo: dict, idx: int, total: int):
             checkpoint(done=False)
 
     rec = checkpoint(done=True)
-    # final weight snapshot
-    W = np.stack([engine.l2.excitatory_neurons[j]._weights_array for j in range(N_OUT)])
+    # final weight snapshot (authoritative full N_OUT x N_PIX matrix, pixel 0 first)
+    W = l2_feedforward_matrix(engine)
     np.savez_compressed(run.dir / "checkpoints" / f"{tag.replace('/','_')}.npz", weights=W)
 
     unstable = [p for p in patterns if time_to_stable[p] is None]
@@ -357,8 +369,7 @@ def _render_live_plots(run, tag, spk_buf, chg_buf, owner_hist, patterns, l2e_ids
         # 3. weights over time proxy: current L2E feedforward RF bars (snapshot)
         fig, ax = plt.subplots(figsize=(9, 3.2))
         cap = engine.l2.excitatory_neurons[0].weight_cap
-        M = np.stack([engine.l2.excitatory_neurons[j]._weights_array[1:1 + N_PIX] / cap
-                      for j in range(N_OUT)])
+        M = l2_feedforward_matrix(engine) / cap
         im = ax.imshow(M, aspect="auto", cmap="viridis", vmin=0, vmax=1)
         ax.set_yticks(range(N_OUT)); ax.set_yticklabels(l2e_ids, fontsize=6)
         ax.set_xlabel("pixel"); ax.set_title(f"L2E feedforward weights ÷ cap — {tag}")

@@ -205,9 +205,15 @@ def collect():
     from backend.simulation import SimulationEngine
     _run_engine(SimulationEngine(seed=1), "engine_defaults", out)
 
-    # Live dashboard engine (pins the FE gate + loser-depression archival that
-    # live in backend/api.py). reset() rebuilds fresh, seeded weights.
-    from backend.api import engine as dash_engine
-    dash_engine.reset()
-    _run_engine(dash_engine, "engine_dashboard", out)
+    # Dashboard config, built reproducibly from COMMITTED state. This case used to
+    # import backend.api.engine, whose seed comes from the UNCOMMITTED
+    # .claude/dashboard_seed.txt (backend.api._load_seed); on a fresh checkout that
+    # file is absent, _load_seed() returns 1, and the committed baseline -- generated
+    # under some other machine's persisted seed -- could no longer be reproduced (the
+    # gate failed before any edit). Building SimulationEngine(seed=1,
+    # **DASHBOARD_OVERRIDES) directly pins exactly the dashboard's learning config
+    # with no environment dependency; api.py holds only HTTP translation, no learning
+    # logic of its own to capture. Determinism for a fixed seed is unchanged.
+    from backend.dashboard_config import DASHBOARD_OVERRIDES
+    _run_engine(SimulationEngine(seed=1, **DASHBOARD_OVERRIDES), "engine_dashboard", out)
     return out
