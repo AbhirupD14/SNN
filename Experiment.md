@@ -1,1458 +1,525 @@
-# CIPP Technical Specification: Local Predictive Inhibition and Dashboard Simplification
+# Claude Implementation Brief: Local Predictive Inhibition
 
-## 1. Objective
+## Mission
 
-Modify the existing CIPP implementation to restore and improve the predictive inhibitory mechanism between L2E, L1I, and L1E while preserving the current architecture and biological intent.
+Implement and evaluate one focused hypothesis:
 
-The implementation must:
+> Giving each L1 inhibitory neuron access to its paired L1 excitatory activity
+> will let dense L2 feedback learn context-specific feature predictions, so that
+> predictable continued L1 activity is suppressed while surprising activity
+> remains available to L2.
 
-1. Work from the existing codebase and current topology.
-2. Preserve the current neuron, synapse, simulation, training, and visualization infrastructure wherever possible.
-3. Restore inhibitory synapses as weighted gates rather than unconditional membrane resets.
-4. Add local L1E information to each paired L1I neuron.
-5. Allow L1I neurons to combine local activity with L2E feedback.
-6. Support gradual, bounded suppression of predictable L1E activity.
-7. Avoid introducing pattern-specific inhibitory neurons or manually engineered pattern circuits.
-8. Simplify the dashboard so that normal experiments expose only the most important controls.
-9. Keep advanced configuration available, but remove it from the primary workflow.
+This is a local predictive-inhibition experiment, not a general rewrite of the
+network. Work from the current implementation, preserve the existing L2
+competition mechanism, and report honestly if the hypothesis does not improve
+stable specialization.
 
-The broader goal is to improve the reusable cortical-column fabric, not to hard-code a solution for row and column patterns.
-
----
-
-# 2. Research Context
-
-CIPP is a biologically inspired spiking neural network architecture based on local neuronal and synaptic dynamics.
-
-The system does not use:
-
-* backpropagation;
-* global error signals;
-* differentiable layers;
-* dense matrix optimization as the learning mechanism;
-* task-specific learning rules.
-
-The current experiment uses a simplified abstraction of cortical columns.
-
-A single L1E or L1I neuron should not be interpreted as a literal biological neuron. Each current unit is an aggregate surrogate for a future excitatory or inhibitory population inside a cortical column.
-
-The current implementation is intended to identify the correct reusable computation before replacing these abstract units with larger populations.
-
-The desired reusable column-level computation is:
+The target circuit is:
 
 ```text
-bottom-up evidence
-+
-top-down contextual prediction
-→
-local predictive inhibition
-→
-reduced transmission of expected information
+external input -> L1E_i -> all L2E
+                    |
+                    +------> paired L1I_i
+
+all L2E -----------> L1I_i
+                     |
+                     +------| paired L1E_i on a later step
 ```
 
-The system should preferentially preserve novel or surprising evidence while reducing repeated, contextually predictable evidence.
-
----
-
-# 3. Current Topology
-
-The current network contains:
+The intended computation is:
 
 ```text
-9 L1E neurons
-9 L1I neurons
-8 L2E neurons
-1 L2I neuron
+bottom-up local evidence
++ top-down contextual evidence
+-> local inhibitory response
+-> less repeated predictable evidence
+-> relatively more novel evidence reaches L2
 ```
 
-Current connectivity:
+## Non-negotiable research constraints
+
+- No backpropagation, gradients, labels, classification correctness, or global
+  error signal.
+- No pattern-specific wiring, row/column masks, or one inhibitory neuron per
+  pattern.
+- Learning must not read `engine.winner`, `current_pattern`, pattern names,
+  owner assignments, or any equivalent simulator-only result.
+- An arriving L2E spike is valid presynaptic information. The global winner
+  field may be used only for evaluation and visualization.
+- L1E, L1I, L2E, and L2I output polarity must continue to obey Dale's principle.
+- Preserve deterministic behavior for a fixed seed and input sequence.
+- Keep functional model positions separate from frontend-only display spacing.
+- Do not silently tune until a one-to-one mapping appears. Use declared metrics
+  and report negative results.
+
+## Current implementation: treat these as facts
+
+Read the referenced code before editing, but do not rediscover or contradict the
+following current state.
+
+### Topology
+
+The active network contains:
 
 ```text
-Input → L1E
-
-L1E → L2E
-dense feedforward connectivity
-
-L2E → L2I
-L2I → L2E
-shared L2 competition
-
-L2E → L1I
-dense feedback connectivity
-
-L1I → paired L1E
-local inhibition
-```
-
-Each L1I neuron is paired with one L1E neuron.
-
-Conceptually:
-
-```text
-L1I_i ─| L1E_i
-```
-
-The existing dense L2E-to-L1I connectivity should remain available. It represents candidate feedback connectivity. Functional selectivity should emerge through synaptic weights and plasticity rather than manually defined topology.
-
----
-
-# 4. Problem Statement
-
-## 4.1 L1I lacks sufficient local information
-
-At present, L1I neurons primarily receive a shared or highly similar L2E feedback stream.
-
-This creates a locality problem.
-
-An L1I neuron may know:
-
-```text
-an L2 hypothesis fired
-```
-
-but not reliably know:
-
-```text
-my paired L1E feature was active
-```
-
-Because the L1I neurons receive similar higher-level feedback, they can form arbitrary phase groups or synchronized behavior based on random initialization rather than meaningful feature-specific statistics.
-
-The system needs a local input path:
-
-```text
-L1E_i → L1I_i
-```
-
-This gives every L1I neuron access to the activity of its paired excitatory feature.
-
----
-
-## 4.2 Inhibition currently wipes membrane charge
-
-The current inhibitory behavior reportedly sends the target neuron directly to resting potential.
-
-Conceptually:
-
-```text
-on inhibitory spike:
-    V_target = V_rest
-```
-
-This is too coarse.
-
-It acts as an unconditional reset rather than a synaptic interaction with a learnable strength.
-
-It cannot represent:
-
-* weak prediction;
-* moderate prediction;
-* strong prediction;
-* partial charge removal;
-* uncertainty;
-* gradual learning;
-* different suppression strengths for different contexts.
-
-The inhibitory gate behavior must be restored.
-
-An inhibitory event should remove an amount of membrane charge determined by a synaptic weight.
-
-Conceptually:
-
-```text
-V_target = max(V_rest, V_target - inhibitory_weight)
-```
-
-The exact implementation should remain consistent with the existing neuron and synapse abstractions.
-
-If the simulator uses conductances, currents, or signed postsynaptic potentials rather than direct voltage updates, implement the equivalent bounded inhibitory effect through the existing mechanism.
-
-Do not introduce a detached special-case operation if the current synapse model can support this behavior.
-
----
-
-## 4.3 One-spike integration can make feedback causally irrelevant
-
-Predictive inhibition can only affect evidence that has not already irreversibly determined an L2 winner.
-
-If a single L1E spike immediately causes an L2E neuron to cross threshold, then later L2E feedback through L1I cannot retract that spike.
-
-This specification does not require a complete redesign of L2 integration, but the implementation must preserve a regime in which inhibitory feedback can influence subsequent evidence accumulation.
-
-At minimum, the system should support one or more of the following:
-
-* L2E requires evidence from multiple afferents;
-* L2E requires multiple spikes;
-* L2E integrates across a short temporal window;
-* winner selection remains provisional for a short period;
-* inhibition reduces later spikes during the same presentation;
-* predictive state persists briefly;
-* predictable L1E output is attenuated before it contributes additional charge to L2E.
-
-Do not solve this by hard-coding pattern-specific delays or manually selecting winners.
-
----
-
-# 5. Intended Predictive Computation
-
-Consider a learned row pattern represented by L2E neuron A.
-
-After training:
-
-```text
-row1 activates L1E features
-→
-L2E_A learns the row1 combination
-→
-L2E_A feeds back into the L1I population
-→
-the L1I neurons paired with row1 features become active
-→
-those L1E features have their continued firing reduced
-```
-
-The inhibition is not meant to remove the first evidence required to recognize the pattern.
-
-It is meant to reduce repeated or continued evidence once it has become predictable.
-
-The desired sequence is approximately:
-
-```text
-1. L1E transmits initial bottom-up evidence.
-2. One or more L2E hypotheses begin integrating that evidence.
-3. An L2E hypothesis becomes active.
-4. L2E feedback reaches L1I.
-5. L1I combines feedback with paired L1E activity.
-6. Predictable L1E activity is partially suppressed.
-7. Unpredicted L1E activity continues contributing evidence.
-8. Competing L2E hypotheses may then overtake an incorrect initial hypothesis.
-```
-
-For example:
-
-```text
-row1 trained by neuron A
-col1 later presented
-```
-
-If neuron A activates initially because of a shared feature such as the center pixel, A's feedback should suppress only the local activity that A predicts and that is actually active.
-
-The remaining col1-specific features should continue transmitting evidence, allowing neuron B to become dominant.
-
-The circuit should therefore support iterative hypothesis correction rather than irreversible first-spike commitment.
-
----
-
-# 6. Required Topology Changes
-
-Do not replace the existing architecture.
-
-Make the smallest topology repair necessary.
-
-## 6.1 Add paired local excitation
-
-Add:
-
-```text
-L1E_i → L1I_i
-```
-
-for all nine L1 pairs.
-
-This should be one-to-one.
-
-```text
-L1E_0 → L1I_0
-L1E_1 → L1I_1
-...
-L1E_8 → L1I_8
-```
-
-This connection provides local feature evidence.
-
-It should not encode a pattern.
-
-Initial recommendation:
-
-* make this connection fixed or very slowly plastic;
-* keep its weight identical across all L1 pairs by default;
-* make the weight configurable through one shared parameter;
-* do not expose nine individual weights in the normal dashboard.
-
-The connection should be implemented using the existing synapse system.
-
----
-
-## 6.2 Preserve dense L2E-to-L1I feedback
-
-Keep:
-
-```text
-all L2E_j → all L1I_i
-```
-
-The dense connectivity represents a pool of possible contextual predictions.
-
-The weights should determine which L2E neurons functionally predict which L1E columns.
-
-Do not manually preassign:
-
-```text
-L2E_A → only row pixels
-L2E_B → only column pixels
-```
-
-Instead, allow those relationships to emerge through learning.
-
----
-
-## 6.3 Preserve paired L1I-to-L1E inhibition
-
-Keep:
-
-```text
-L1I_i ─| L1E_i
-```
-
-Do not add one inhibitory neuron per pattern.
-
-Each L1I remains the local inhibitory controller for one abstract L1 column.
-
-The identity of the higher-level predictor should be represented in the incoming L2E-to-L1I synaptic weights.
-
-For example, one L1I can receive predictive feedback from several L2E neurons:
-
-```text
-L2E_A ─┐
-L2E_B ─┼→ L1I_center ─| L1E_center
-L2E_C ─┘
-```
-
-This is intentional.
-
-Different L2 contexts may predict the same lower-level feature.
-
----
-
-# 7. Inhibitory Gate Requirements
-
-## 7.1 Replace unconditional reset behavior
-
-Remove or disable the behavior in which an inhibitory event always performs:
-
-```text
-V = V_rest
-```
-
-Replace it with a bounded weighted inhibitory operation.
-
-Preferred conceptual behavior:
-
-```text
-available_charge = max(0, V - V_rest)
-removed_charge = min(available_charge, w_inhibitory)
-V_new = V - removed_charge
-```
-
-Equivalent simplified form:
-
-```text
-V_new = max(V_rest, V - w_inhibitory)
-```
-
-The implementation must not push the neuron below rest unless the existing biological neuron model explicitly supports inhibitory reversal potentials and conductance dynamics.
-
----
-
-## 7.2 Weight bounds
-
-The inhibitory weight must be bounded.
-
-Default maximum:
-
-```text
-max_inhibitory_weight = V_threshold - V_rest
-```
-
-This allows a sufficiently strong inhibitory event to remove all charge accumulated above rest, while preventing arbitrary negative membrane values.
-
-If the simulator uses normalized membrane potential, adapt the bound accordingly.
-
-If inhibitory conductance is used, derive an equivalent cap that ensures stable behavior and document it.
-
-Required constraints:
-
-```text
-0 <= inhibitory_weight <= inhibitory_weight_cap
-```
-
-Weights must be clamped after every update.
-
----
-
-## 7.3 Preserve gate semantics
-
-The previous inhibitory gate behavior should be restored conceptually.
-
-The gate is a weighted local effect, not a Boolean switch.
-
-The gate should support:
-
-```text
-weight = 0
-no inhibition
-
-small weight
-minor charge reduction
-
-medium weight
-partial suppression
-
-weight near cap
-return approximately to rest
-```
-
-Avoid multiplying arbitrary activation values through a nonbiological software gate if a synaptic voltage, current, or conductance effect can express the same behavior.
-
----
-
-# 8. Plasticity Responsibilities
-
-The code should clearly distinguish the roles of the different connections.
-
-## 8.1 L1E-to-L1I
-
-Purpose:
-
-```text
-provide local evidence that the paired column is active
-```
-
-Initial implementation:
-
-* fixed weight by default;
-* optionally configurable as slowly plastic through an advanced flag;
-* no pattern-specific initialization;
-* no per-pair manual setup.
-
-This connection is primarily an information path, not the main prediction memory.
-
----
-
-## 8.2 L2E-to-L1I
-
-Purpose:
-
-```text
-learn which higher-level contexts predict which lower-level columns
-```
-
-This is the primary location for context-specific predictive learning.
-
-A weight:
-
-```text
-w_feedback[j, i]
-```
-
-should represent approximately:
-
-```text
-how strongly L2E_j predicts activity in L1E_i
-```
-
-Strengthening condition should rely only on locally available signals or traces, such as:
-
-* presynaptic L2E activity;
-* postsynaptic L1I activity;
-* paired L1E activity exposed to L1I;
-* eligibility traces;
-* local timing relationships.
-
-The rule must not inspect global pattern labels.
-
-The rule must not be given row or column identities.
-
-The rule must not use classification correctness.
-
-Where supported by the existing framework, the connection should also weaken when an L2 context repeatedly occurs without the paired L1 feature.
-
-This can be implemented using local traces and a delayed learning window.
-
----
-
-## 8.3 L1I-to-L1E
-
-Purpose:
-
-```text
-control how strongly predicted activity is suppressed locally
-```
-
-Recommended phased implementation:
-
-### Phase 1
-
-Keep L1I-to-L1E weights fixed but weighted and bounded.
-
-Use L2E-to-L1I plasticity to learn prediction identity.
-
-This makes debugging easier because only one side of the feedback path is learning.
-
-### Phase 2
-
-Allow L1I-to-L1E inhibitory efficacy to adapt slowly.
-
-This weight may then encode:
-
-```text
-how much suppression this lower-level column requires
-```
-
-Do not enable both new plasticity mechanisms simultaneously without configuration flags and clear logging.
-
----
-
-# 9. L1I Activation Requirements
-
-L1I should integrate:
-
-```text
-paired local L1E input
-+
-L2E contextual feedback
-```
-
-The desired default behavior is coincidence-sensitive.
-
-Conceptually:
-
-```text
-L1E alone:
-weak or insufficient activation
-
-L2E feedback alone:
-weak or insufficient activation
-
-L1E + relevant L2E feedback:
-reliable L1I firing
-```
-
-This does not need to be literal multiplication.
-
-It can arise from ordinary membrane integration and thresholds.
-
-The implementation should provide defaults that allow local and contextual input to combine within a short temporal window.
-
-Avoid immediate same-timestep feedback that creates ambiguous update-order behavior.
-
-Preferred event sequence:
-
-```text
-t:
-L1E spikes
-
-t + feedforward delay:
-L2E integrates or spikes
-
-t + feedback delay:
-L1I receives L2 context
-
-t + local inhibitory delay:
-L1I suppresses later L1E activity
-```
-
-All delays should use the existing synaptic delay mechanism.
-
----
-
-# 10. Timing and Update Order
-
-Claude must inspect the existing simulator update order before modifying behavior.
-
-Document whether the current loop performs:
-
-```text
-input update
-synaptic delivery
-membrane integration
-spike detection
-reset
-plasticity
-```
-
-or another order.
-
-The new recurrent path must not depend on accidental iteration order in an array.
-
-Requirements:
-
-* L1E-to-L1I events use explicit delays;
-* L2E-to-L1I feedback uses explicit delays;
-* L1I-to-L1E inhibition uses explicit delays;
-* no connection should have magical same-call effects outside the event system;
-* simulation behavior must remain deterministic under a fixed random seed.
-
-If the existing engine has a zero-delay mode, do not use zero-delay recurrence as the default.
-
----
-
-# 11. L2 Competition
-
-Preserve the current L2 topology:
-
-```text
+9 L1E
+9 L1I
 8 L2E
-1 L2I
-
-L2E → L2I
-L2I ─| L2E
+1 shared L2I
 ```
 
-Do not replace the shared L2I neuron as part of this task unless required to fix a direct bug.
-
-The L2I circuit remains responsible for competition among L2E hypotheses.
-
-The L1I circuit is responsible for predictive suppression of lower-level evidence.
-
-These roles should remain distinct.
+Current connections are:
 
 ```text
-L2I:
-which L2 hypothesis dominates?
-
-L1I:
-which lower-level evidence is expected under the current hypothesis?
+external -> L1E
+L1I_i ----| paired L1E_i
+all L1E --> all L2E
+all L2E --> shared L2I
+shared L2I -- competitive reset --> all L2E
+all L2E --> all L1I
 ```
 
----
+There is currently no `L1E_i -> L1I_i` connection.
 
-# 12. One-Spike Integration Safeguard
+### L1 predictive-feedback path
 
-Inspect whether an ordinary single L1E spike can currently cause an L2E neuron to cross threshold immediately.
+- Every L1I currently has an eight-element positive afferent vector, one input
+  from every L2E.
+- The same task-independent initial feedback vector is copied to all nine L1I
+  neurons. They therefore receive the same L2E spike vector and lack a local
+  signal that could make their learned predictions feature-specific.
+- `l1i_immediate_relay` is false in the active dashboard. L1I is a trainable
+  threshold accumulator.
+- L2E feedback is delivered to L1I after L2 competition in the same outer
+  timestep.
+- An L1I spike is stored in `l1i_feedback_delay` and inhibits its paired L1E on
+  the next outer timestep.
+- The simulator has no general synaptic event queue or reusable delay system.
+  The one-step L1 inhibition register is explicit in `SimulationEngine.step()`.
 
-If so, add a configurable safeguard using the smallest code change consistent with the current architecture.
+### L1 inhibition is already weighted
 
-Acceptable approaches include:
+Do not reimplement weighted L1 inhibition.
 
-* reduce default L1E-to-L2E synaptic strength;
-* increase the L2E threshold;
-* require multiple afferent contributions;
-* introduce a short competition or evidence window;
-* delay winner finalization;
-* make a single afferent incapable of contributing the entire threshold under normal defaults.
-
-Do not permanently prohibit single-spike activation. It may be useful in future experiments.
-
-Instead, expose one high-level preset or parameter controlling evidence accumulation.
-
-Recommended high-level modes:
+`Neuron.apply_inhibition()` already performs a bounded weighted subtraction:
 
 ```text
-multi_evidence
-single_spike_sensitive
+V_after = max(V_rest, V_before - |w_inhibitory|)
 ```
 
-Default to:
+The active L1E inhibitory gate is initialized to a magnitude equal to the L1E
+threshold, so one L1I event currently cancels one complete external input pulse.
+Its learning equilibrium is arranged so that this gate is effectively fixed.
+
+For this experiment, reuse `apply_inhibition()`. The initial predictive preset
+may set the gate to a configurable fraction of the L1E threshold and must set
+its inhibitory learning rate to zero unless output-gate plasticity is being
+tested in a later, separate phase.
+
+Be careful with units: the existing `inhibitory_weight_cap` is used as the
+quadratic saturation denominator, whose equilibrium magnitude is its square
+root. It is not simply a linear magnitude cap.
+
+### L2 competition is a different mechanism
+
+Current L2 competition uses:
 
 ```text
-multi_evidence
+L2E spike -> L2I recruitment -> unweighted competitive-reset event to all L2E
 ```
 
-for predictive-inhibition experiments.
+`Neuron.apply_competitive_reset()` resets membrane/current traces and applies
+the selected loser update. The active loser update is conservative ON-to-OFF
+redistribution, with refractory state protecting the current firing neuron from
+the loser weight update.
 
----
+Do not replace this with a learned L2I-to-L2E gate in this experiment. L1
+predictive inhibition and L2 competition are independent research variables.
+Changing both would make the result uninterpretable.
 
-# 13. Biological Fidelity Constraints
+### L2 evidence accumulation is already constrained
 
-The implementation should preserve the following principles.
-
-## Required
-
-* Dale's principle remains enforced.
-* L1E neurons produce excitatory outputs.
-* L1I neurons produce inhibitory outputs.
-* L2E neurons produce excitatory outputs.
-* L2I produces inhibitory outputs.
-* Plasticity uses local synaptic or neuronal information.
-* Feedback is transmitted through spikes and synapses.
-* Synaptic delays are explicit.
-* Inhibition is graded and bounded.
-* No task labels enter the learning rules.
-* No pattern-specific neurons are created.
-* No manually defined row or column masks are added.
-* The same L1 column motif is used for all nine L1 features.
-
-## Acceptable abstractions
-
-Because current units are cortical-column surrogates, it is acceptable for one abstract inhibitory event to approximate a population-level inhibitory effect.
-
-The abstraction should remain replaceable.
-
-A future internal population should be able to replace:
+The dashboard uses:
 
 ```text
-L1E_i
-L1I_i
+l2e_weight_cap_frac = 1/3
+l2_charge_chunks = 20
+distance_weighting = true
 ```
 
-without changing the external interfaces:
+One L1E afferent can therefore contribute at most one third of the L2E threshold
+before distance attenuation. Do not add a new “multi-evidence mode” unless a
+focused test demonstrates that one ordinary afferent can still determine a
+winner under the active preset.
+
+### Configuration and dashboard
+
+- `SimulationEngine.params` is the runtime source of truth.
+- `backend/dashboard_config.py` contains the active experiment overrides and the
+  small declarative browser-control schema.
+- The browser currently exposes 15 active controls in one flat list.
+- Advanced mechanisms remain callable from Python and the headless experiment
+  runner; they do not need to be restored to the primary UI.
+- There is no dashboard config-import/export system to preserve.
+
+Keep the dashboard lean. Do not build a nested configuration framework or a
+large Basic/Advanced/Diagnostics settings system for this experiment.
+
+## Required topology repair
+
+Add exactly nine paired excitatory projections:
 
 ```text
-bottom-up input
-feedforward output
-top-down context
-local inhibitory modulation
+L1E_0 -> L1I_0
+L1E_1 -> L1I_1
+...
+L1E_8 -> L1I_8
 ```
 
----
+Do not add all-to-all L1E-to-L1I connectivity.
 
-# 14. Tiling Requirements
-
-The resulting motif must be reusable at higher layers.
-
-The generic layer-to-layer pattern should be:
+The preferred L1I afferent layout is explicit and consistent:
 
 ```text
-Layer N E
-    → feedforward
-Layer N+1 E
-
-Layer N+1 E
-    → feedback
-Layer N I
-
-Layer N E
-    → paired local evidence
-Layer N I
-
-Layer N I
-    ─| Layer N E
+index 0: paired local L1E input
+index 1..8: feedback from L2E_0..L2E_7
 ```
 
-The implementation should avoid names or assumptions that make the new behavior L1-specific where possible.
+Update every offset-dependent path together:
 
-Prefer abstractions such as:
+- construction and weight initialization;
+- input delivery;
+- topology serialization;
+- `_all_weights()` and weight-delta tracking;
+- inspector/weight labels if needed;
+- tests that directly manipulate L1I weight arrays.
+
+Serialize the local edge with a stable ID such as `local{i}` and a distinct kind
+such as `local_evidence`.
+
+### Local projection behavior
+
+- Use one shared configurable initial magnitude for all nine local projections.
+- Keep the local projection fixed in the first experiment.
+- Do not initialize it from task structure.
+- If it shares a `SynapseBank` with plastic feedback afferents, prevent the normal
+  postsynaptic learning rule from modifying it. Prefer a per-afferent plasticity
+  mask or a comparably explicit mechanism over index checks scattered through
+  learning code.
+
+## Predictive feedback learning
+
+The feedback matrix should learn an estimate of:
 
 ```text
-PredictiveLayer
-ColumnPair
-ExcitatoryPopulation
-InhibitoryPopulation
-FeedbackProjection
-LocalEvidenceProjection
+how reliably L2E_j predicts recent activity in L1E_i
 ```
 
-over hard-coded logic such as:
+Use a bounded event-local rule. A suitable first rule is defined below and
+should be used unless an existing abstraction requires an algebraically
+equivalent form.
+
+For L1I `i`, let:
 
 ```text
-if layer == 1
+x_i        paired L1E eligibility trace in [0, 1]
+y_j        arriving spike from L2E_j (0 or 1)
+G          linear feedback-weight cap, normally L1I threshold
+u_ji       normalized feedback weight w_ji / G in [0, 1]
+eta_up     prediction acquisition rate
+eta_down   false-prediction turnover rate
 ```
 
-It is acceptable to wire the current experiment explicitly, but the underlying components should support reuse.
-
----
-
-# 15. Dashboard Simplification
-
-The current dashboard exposes too many configuration options at once.
-
-The dashboard should be restructured around a small number of experiment-level controls.
-
-Do not delete advanced parameters from the underlying configuration system.
-
-Instead, separate the interface into:
+On an arriving L2E spike (`y_j = 1`):
 
 ```text
-Basic
-Advanced
-Diagnostics
+u_ji <- clip(
+    u_ji
+    + eta_up   * x_i       * (1 - u_ji)
+    - eta_down * (1 - x_i) * u_ji,
+    0,
+    1
+)
+
+w_ji <- G * u_ji
 ```
 
-## 15.1 Basic panel
+Properties of this rule:
 
-The default view should expose only the controls required for common experiments.
+- context plus recent local activity strengthens the prediction;
+- context without recent local activity weakens the prediction;
+- unrelated feedback afferents are unchanged;
+- weights remain bounded;
+- every required variable is locally available at the target L1I neuron;
+- learning does not require the L1I neuron to spike, avoiding a cold-start
+  deadlock.
 
-Recommended controls:
+The local trace must be generated only from paired L1E spikes and must have a
+short configurable decay/window. It must not read the input vector directly.
 
-### Experiment
+In predictive mode, this rule must be the sole learning rule for L2E-to-L1I
+feedback afferents. Do not also run the generic postsynaptic excitatory update on
+those same weights. With predictive mode disabled, preserve legacy feedback
+learning exactly.
 
-* pattern set;
-* training pattern;
-* number of presentations or epochs;
-* random seed;
-* start;
-* pause;
-* reset;
-* load preset.
+## L1I activation and timing
 
-### Learning
-
-* learning enabled;
-* excitatory learning rate;
-* feedback prediction learning rate;
-* inhibitory learning enabled;
-* homeostasis enabled.
-
-### Predictive inhibition
-
-* predictive inhibition enabled;
-* local L1E-to-L1I input enabled;
-* inhibitory gate strength or initial weight;
-* inhibitory weight cap;
-* feedback delay;
-* local inhibitory delay.
-
-### Neuron dynamics
-
-* simulation timestep;
-* membrane threshold;
-* membrane leak;
-* refractory period;
-* noise level.
-
-Where possible, several detailed parameters should be represented by a preset rather than individual controls.
-
----
-
-## 15.2 Presets
-
-Add experiment presets.
-
-At minimum:
-
-### Baseline
-
-Current or nearest reproducible behavior without the new local predictive repair.
+Use the current explicit phase order rather than building a general event queue.
+The minimal intended outer-timestep sequence is:
 
 ```text
-local L1E → L1I disabled
-legacy inhibitory behavior selectable for comparison
+1. Apply the prior step's queued L1I inhibition to L1E.
+2. Deliver external input and resolve L1E spikes.
+3. Deliver L1E spikes to L2 and resolve the existing L2 competition.
+4. Build one L1I input vector per neuron:
+       [paired L1E spike, L2E_0 spike, ..., L2E_7 spike]
+5. Deliver that vector once to L1I and update the predictive feedback rule.
+6. Resolve L1I spikes.
+7. Queue L1I spikes for paired L1E inhibition on the next step.
 ```
 
-### Predictive Inhibition
+This order is deterministic and ensures that recurrent inhibition never cancels
+the initial evidence in the same timestep. It suppresses only continued or
+repeated evidence.
 
-Recommended new defaults.
+The predictive preset should be coincidence-sensitive through ordinary
+integration, threshold, leak, and trace timing:
 
 ```text
-paired L1E → L1I enabled
-weighted inhibitory gates enabled
-L2 feedback plasticity enabled
-multi-evidence L2 integration
+isolated local input:                 normally subthreshold
+isolated untrained feedback input:    normally subthreshold
+local + sufficiently learned context: more likely to cross threshold
 ```
 
-### No Feedback
+Do not add a software Boolean AND gate. Use the existing L1I leak switch and
+choose documented initial weights/thresholds that satisfy these constraints over
+the declared coincidence window. Add tests for repeated isolated input as well
+as a single isolated event so slow accumulation cannot masquerade as
+coincidence.
 
-Ablation.
+## Implementation phases
+
+Work in these phases and run relevant tests after each one.
+
+### Phase 0: Preserve the baseline
+
+1. Run all retained regression scripts and the golden equivalence test.
+2. Record the active dashboard parameters and a deterministic baseline trace.
+3. Add no behavior before the baseline is reproducible.
+
+### Phase 1: Add the disabled topology path
+
+1. Add the paired afferent and serialization support behind a default-off flag.
+2. Keep its weight fixed.
+3. With the flag off, require exact legacy behavior and golden equivalence.
+4. Add topology, indexing, weight-delta, and paired-locality tests.
+
+### Phase 2: Add local evidence and predictor learning
+
+1. Add the paired L1 trace.
+2. Implement the bounded predictor rule as its own focused strategy/function.
+3. Ensure the fixed local afferent is excluded from plasticity.
+4. Ensure generic feedback plasticity does not run simultaneously.
+5. Add isolated rule tests before network-level tuning.
+
+### Phase 3: Add a predictive preset and ablations
+
+Add named backend/headless presets for:
 
 ```text
-L2E → L1I disabled
+baseline
+    local L1E -> L1I disabled
+    predictive feedback rule disabled
+
+feedback_only
+    local projection disabled
+    legacy feedback behavior retained
+
+local_only
+    local projection enabled
+    L2E -> L1I input disabled
+
+local_plus_feedback
+    local projection enabled
+    predictive feedback enabled
+
+time_shuffled_feedback
+    same local path and feedback firing-rate statistics
+    feedback events decoupled from their true presentation/context in time
 ```
 
-### Local Only
+Do not use a fixed permutation of L2E identities as the main shuffled control.
+L2E identities are exchangeable, so the network can simply relearn a permuted
+mapping. Break the temporal context-feature relationship while preserving rates.
 
-Ablation.
+### Phase 4: Instrument and evaluate
+
+Use the headless experiment runner for sweeps and durable results. The browser is
+for inspection, not the primary batch-experiment controller.
+
+Only after the fixed-output-gate experiment is understood may a separate phase
+test slow `L1I -> L1E` gate plasticity. Do not change L2 hard-reset competition as
+part of this brief.
+
+## Required tests
+
+### Regression
+
+- Every existing retained root regression script passes when the new feature is
+  disabled.
+- `tests/golden/test_golden_equiv.py` remains exact in disabled/baseline mode.
+- Same seed, configuration, and input sequence produce identical histories.
+
+### Topology and indexing
+
+- Exactly nine `L1E_i -> L1I_i` local edges exist when enabled.
+- No cross-paired local edges exist.
+- Every L1I retains all eight candidate L2E feedback afferents.
+- Weight serialization uses the correct local/feedback offsets.
+
+### Predictor rule
+
+- Context spike plus active local trace increases only `w_ji`.
+- The same context spike with no local trace decreases only `w_ji`.
+- Weight updates clamp to `[0, G]`.
+- A disabled predictor is behaviorally identical to the current feedback rule.
+- The fixed local afferent never changes.
+
+### Activation and inhibition
+
+- Isolated local events do not cause broad repeated L1I firing under the
+  predictive preset.
+- Untrained feedback alone does not cause all nine L1I neurons to fire.
+- Paired local evidence plus a learned context produces more L1I response than
+  either input alone.
+- An L1I spike affects only its paired L1E on the next outer timestep.
+- `L1I -> L1E` charge removal remains graded, bounded at rest, and uses the
+  existing `apply_inhibition()` path.
+- L2 competition remains the existing unweighted hard-reset mechanism.
+
+### Recovery
+
+- After reversing a context-feature contingency, the old prediction weight
+  declines and the new one grows.
+- No L1E feature becomes permanently silent after the context disappears.
+
+## Experimental design
+
+Run every ablation with matched:
+
+- seed;
+- initial L2 feedforward weights;
+- pattern order;
+- dwell length;
+- number of presentations;
+- active L2 competition parameters.
+
+The four center-crossing patterns alone cannot prove contextual prediction:
+frequency-only local inhibition can learn that the center pixel is common.
+
+Therefore report both:
+
+1. performance on the existing four-pattern task; and
+2. a context test where feature marginal frequencies are matched but the
+   context-feature relationship is broken by time-shuffled feedback.
+
+Compare `local_only` with `local_plus_feedback` at matched or reported total
+L1I spike count and inhibitory charge. Otherwise additional inhibition could be
+mistaken for contextual prediction.
+
+## Metrics
+
+Record per presentation or fixed reporting window:
+
+- L1E, L1I, L2E, and L2I spike counts;
+- L2 spike/winner history for evaluation only;
+- L2E-to-L1I predictor-weight matrix;
+- fixed local L1E-to-L1I weights;
+- L1I-to-L1E gate magnitudes;
+- L1I events classified as local-only, feedback-only, or coincident;
+- membrane value before and after L1 inhibition;
+- inhibitory charge removed;
+- pattern owner, visit-level owner consistency, owner collisions, and dead L2E
+  count;
+- recovery time after a contingency reversal.
+
+Define a contextual suppression contrast such as:
 
 ```text
-L1E → L1I enabled
-L2E → L1I disabled
+suppression(feature i | learned context j)
+- suppression(feature i | rate-matched wrong/shuffled context)
 ```
 
-### Shuffled Feedback
+The primary research questions are:
 
-Optional diagnostic ablation.
+1. Does local-plus-feedback suppress a feature more selectively than local-only?
+2. Does that selectivity improve stable L2 specialization or merely reduce total
+   firing?
+3. Does the circuit recover when a learned prediction stops being true?
 
-Use a fixed shuffled mapping or shuffled feedback activity while preserving firing-rate statistics.
+Stable one-to-one ownership is an outcome metric, not a software acceptance
+test. Report failure rather than changing unrelated mechanisms until it passes.
 
-Presets should write into the existing configuration object rather than bypassing it.
+## Dashboard scope
 
----
+Do not rebuild the dashboard.
 
-## 15.3 Advanced panel
+If browser controls are needed, add at most:
 
-Move detailed controls here.
+- a predictive-inhibition preset selector;
+- enable/disable paired local evidence;
+- enable/disable predictor learning;
+- one shared local-weight or output-gate-strength control.
 
-Examples:
+Keep detailed rates, trace decay, and ablation parameters in Python/headless
+configuration. Reuse `backend/dashboard_config.py`; do not duplicate defaults in
+frontend JavaScript.
 
-* individual learning-rule constants;
-* STDP windows;
-* eligibility trace decay;
-* synaptic scaling constants;
-* heterosynaptic pruning thresholds;
-* per-projection delays;
-* adaptation constants;
-* conductance decay;
-* refractory details;
-* maximum and minimum weights;
-* normalization frequency;
-* pruning cadence;
-* per-layer noise;
-* initialization distributions.
+Add read-only diagnostics only where existing inspector/chart components can
+display them with a small change. Prefer the headless artifacts for matrices and
+long-run comparisons.
 
-Use collapsible sections.
+## Likely files to inspect
 
-Recommended sections:
+- `backend/simulation.py`: construction, phase ordering, serialization, params.
+- `backend/dashboard_config.py`: active preset and small browser schema.
+- `neuron_flexible.py`: existing weighted inhibition and learning dispatch.
+- `snn/synapses.py`: aligned afferent state and any plasticity mask.
+- `snn/rules/`: focused local learning strategies.
+- `layers.py`: current L1 E/I construction.
+- `backend/serializer.py`: topology/dynamic envelopes.
+- `frontend/inspector.js` and focused chart modules: optional diagnostics.
+- `experiments/runner.py`: matched-seed ablations and metrics.
+- existing L1 feedback, inhibition, competition, and golden tests.
+
+Do not create a second simulator or a parallel configuration system.
+
+## Deliverables
+
+1. A short pre-edit architecture map naming exact methods and current array
+   layouts.
+2. Baseline test/metric results.
+3. Small, phased commits or clearly separated diffs.
+4. New local-path and predictor-rule tests.
+5. Matched-seed ablation support.
+6. A concise result report containing parameters, traces, predictor matrices,
+   contextual suppression contrasts, specialization metrics, and failures.
+7. A list of limitations and the next single experiment justified by the data.
+
+## Final principle
+
+The reusable tile is:
 
 ```text
-Neuron Dynamics
-Synapse Dynamics
-Feedforward Plasticity
-Feedback Plasticity
-Inhibitory Plasticity
-Homeostasis
-Pruning and Scaling
-Timing and Delays
-Initialization
+receive initial bottom-up evidence
+transmit it upward
+receive contextual spikes
+combine context with paired local evidence
+suppress only continued predictable activity
+preserve relatively surprising activity
+unlearn predictions that stop being true
 ```
 
----
-
-## 15.4 Diagnostics panel
-
-Provide read-only visualizations and logging controls.
-
-Recommended diagnostics:
-
-* L1E spike counts per feature;
-* L1I spike counts per feature;
-* L2E spike counts;
-* L2 winner over time;
-* L2I activity;
-* L2E-to-L1I weight matrix;
-* L1I-to-L1E inhibitory weights;
-* L1E-to-L1I local weights;
-* membrane traces for selected neurons;
-* delivered inhibitory charge;
-* predicted versus unpredicted feature activity;
-* active preset;
-* random seed;
-* simulation step.
-
-Do not put diagnostic plot configuration in the Basic panel.
-
----
-
-# 16. Dashboard Usability Requirements
-
-The dashboard should:
-
-* open in a usable default state;
-* fit the main controls without excessive scrolling;
-* avoid exposing every neuron or synapse parameter individually;
-* show units for numeric parameters;
-* provide concise tooltips;
-* group related options;
-* hide dependent controls when a feature is disabled;
-* mark modified values that differ from the selected preset;
-* provide a reset-to-preset action;
-* preserve configuration import and export if currently supported.
-
-Avoid a complete dashboard rewrite unless the current structure makes incremental simplification impossible.
-
-Use the existing UI framework and components.
-
----
-
-# 17. Configuration Refactor
-
-Create or maintain one authoritative configuration object.
-
-The UI should not directly mutate neuron or synapse instances.
-
-Recommended structure:
-
-```text
-config:
-    experiment
-    topology
-    neuron
-    synapse
-    learning
-    predictive_inhibition
-    timing
-    diagnostics
-    dashboard
-```
-
-Example:
-
-```yaml
-predictive_inhibition:
-  enabled: true
-  local_e_to_i_enabled: true
-  local_e_to_i_weight: 0.25
-  feedback_plasticity_enabled: true
-  inhibitory_gate_mode: weighted_charge_removal
-  inhibitory_weight_initial: 0.2
-  inhibitory_weight_min: 0.0
-  inhibitory_weight_max: threshold_distance
-  require_local_context_coincidence: true
-  feedback_delay_steps: 1
-  inhibitory_delay_steps: 1
-```
-
-Do not hard-code physical values from this example without adapting them to the existing simulator's units.
-
-Configuration migration must preserve old saved configs where practical.
-
-If old fields are renamed, provide compatibility aliases or a migration function.
-
----
-
-# 18. Legacy Comparison Mode
-
-For research reproducibility, retain the old reset behavior behind an explicit legacy flag.
-
-Example:
-
-```text
-inhibitory_effect_mode:
-    legacy_reset
-    weighted_charge_removal
-```
-
-Default new experiments to:
-
-```text
-weighted_charge_removal
-```
-
-Use `legacy_reset` only for comparisons.
-
-The dashboard may place this option under Advanced or inside a comparison preset.
-
-Do not silently change old saved experiment results when loading an old configuration.
-
----
-
-# 19. Required Instrumentation
-
-Add enough instrumentation to determine whether the new circuit is learning predictability rather than frequency alone.
-
-For every presentation or configurable reporting window, record:
-
-```text
-L1E spike count by neuron
-L1I spike count by neuron
-L2E spike count by neuron
-L2 winner identity
-L2E → L1I weights
-L1I → L1E weights
-L1E → L1I weights
-inhibitory events delivered
-inhibitory charge removed
-membrane value before inhibition
-membrane value after inhibition
-```
-
-Where practical, also record:
-
-```text
-L1I events with local input only
-L1I events with feedback only
-L1I events with both local and feedback traces
-```
-
-This will help verify whether L1I acts as a coincidence-sensitive predictive unit.
-
-Logging should be optional and configurable to avoid excessive runtime cost.
-
----
-
-# 20. Required Experiments
-
-Implement or preserve a way to run the following ablations with the same random seed and initial conditions.
-
-## Experiment A: Current feedback only
-
-```text
-L2E → L1I enabled
-L1E → L1I disabled
-weighted inhibition enabled
-```
-
-Purpose:
-
-Measure whether arbitrary shared or phase-based L1I behavior remains.
-
----
-
-## Experiment B: Local only
-
-```text
-L1E → L1I enabled
-L2E → L1I disabled
-```
-
-Purpose:
-
-Measure whether L1I learns or tracks local firing frequency without context.
-
----
-
-## Experiment C: Local plus feedback
-
-```text
-L1E → L1I enabled
-L2E → L1I enabled
-```
-
-Purpose:
-
-Test the full predictive mechanism.
-
----
-
-## Experiment D: Shuffled feedback
-
-```text
-L1E → L1I enabled
-L2E feedback shuffled
-```
-
-Purpose:
-
-Determine whether useful suppression depends on correct contextual relationships rather than additional excitation alone.
-
----
-
-## Experiment E: Legacy reset versus weighted gate
-
-Compare:
-
-```text
-legacy_reset
-weighted_charge_removal
-```
-
-Use identical seeds and training sequences.
-
-Measure:
-
-* stability;
-* L1E spike reduction;
-* L2 winner behavior;
-* recovery after context changes;
-* frequency of permanent silencing;
-* oscillatory behavior;
-* learned feedback selectivity.
-
----
-
-# 21. Behavioral Acceptance Tests
-
-## 21.1 Weighted inhibitory gate
-
-Given:
-
-```text
-V_rest = 0
-V_threshold = 1
-V = 0.8
-w_inhibitory = 0.3
-```
-
-Expected:
-
-```text
-V_after = 0.5
-```
-
-Given:
-
-```text
-V = 0.2
-w_inhibitory = 0.8
-```
-
-Expected:
-
-```text
-V_after = V_rest
-```
-
-The result must not go below rest under the default model.
-
----
-
-## 21.2 Weight cap
-
-An attempted update above the cap must clamp to the cap.
-
-An attempted update below zero must clamp to zero.
-
----
-
-## 21.3 Paired locality
-
-Activity from `L1E_i` must directly affect only its paired local-evidence projection into `L1I_i`.
-
-Do not accidentally create all-to-all L1E-to-L1I connectivity.
-
----
-
-## 21.4 Feedback remains dense
-
-Every L2E must retain a candidate connection to every L1I unless a configuration explicitly enables sparse initialization.
-
----
-
-## 21.5 Context-sensitive suppression
-
-After training a higher-level context that reliably includes feature `i`:
-
-```text
-context active + feature i active
-```
-
-should cause more suppression of `L1E_i` than:
-
-```text
-feature i active without that context
-```
-
----
-
-## 21.6 No suppression from inactive local feature
-
-An L2E context alone should not cause strong repeated L1I firing across all nine L1I units under recommended defaults.
-
-Inactive local columns should remain mostly unaffected.
-
----
-
-## 21.7 Recovery
-
-If a previously predictive context-feature relationship stops occurring, the associated predictive influence should eventually weaken or cease dominating.
-
-Permanent silencing is a failure.
-
----
-
-## 21.8 Reproducibility
-
-Two runs with the same:
-
-* seed;
-* preset;
-* pattern sequence;
-* configuration;
-
-must produce the same spike and weight histories, subject to existing deterministic guarantees.
-
----
-
-# 22. Performance Requirements
-
-The new topology adds only nine paired L1E-to-L1I connections.
-
-The implementation should not materially change asymptotic cost.
-
-Avoid:
-
-* per-pattern inhibitory neuron allocation;
-* pattern-by-feature circuit expansion;
-* dense history scans on every timestep;
-* global loops over all recorded spikes for every plasticity update.
-
-Use existing traces or bounded rolling state.
-
-Dashboard diagnostics should support downsampling or disabled collection.
-
----
-
-# 23. Code Quality Requirements
-
-Claude should first inspect and identify:
-
-* neuron model classes;
-* synapse model classes;
-* event-delivery system;
-* weight update logic;
-* topology construction;
-* configuration schema;
-* dashboard components;
-* experiment runner;
-* logging and plotting paths;
-* existing tests.
-
-Then provide a brief implementation map before editing.
-
-Changes should:
-
-* reuse existing abstractions;
-* avoid duplicate synapse logic;
-* avoid special-case checks for specific neuron indices;
-* include type annotations where the project uses them;
-* add comments explaining computational intent rather than restating code;
-* add or update tests;
-* preserve current naming conventions;
-* preserve backward compatibility where practical.
-
-Do not create an entirely separate predictive-inhibition simulator.
-
----
-
-# 24. Recommended Implementation Phases
-
-## Phase 1: Inspection and baseline preservation
-
-1. Identify current topology construction.
-2. Locate the unconditional inhibitory reset.
-3. Confirm current simulation update order.
-4. Run the current baseline.
-5. Save baseline metrics and plots.
-6. Add a reproducible baseline preset.
-
-No behavioral modifications should be made before the baseline can be reproduced.
-
----
-
-## Phase 2: Weighted inhibitory gate
-
-1. Add the weighted inhibitory mode.
-2. Add weight bounds.
-3. Retain legacy reset mode.
-4. Add unit tests.
-5. Expose one high-level dashboard control.
-6. Compare legacy and weighted modes.
-
-Do not enable new L1E-to-L1I connections yet in this phase.
-
----
-
-## Phase 3: Local L1E-to-L1I path
-
-1. Add nine paired local projections.
-2. Use fixed shared initial weight.
-3. Add delays through the normal event system.
-4. Add topology tests.
-5. Add local-only ablation.
-6. Add diagnostics for local and contextual contributions.
-
----
-
-## Phase 4: Predictive feedback plasticity
-
-1. Review existing L2E-to-L1I plasticity.
-2. Modify only as necessary to use local L1 activity or traces.
-3. Ensure learning remains local.
-4. Add bounds and decay or depression as supported.
-5. Add the full local-plus-feedback experiment.
-6. Add shuffled-feedback controls.
-
----
-
-## Phase 5: Dashboard simplification
-
-1. Add presets.
-2. Build Basic, Advanced, and Diagnostics sections.
-3. Move low-level controls out of the default view.
-4. Preserve config import and export.
-5. Add reset-to-preset.
-6. Ensure experiments remain reproducible.
-
----
-
-## Phase 6: Validation
-
-Run all required experiments with matched seeds.
-
-Produce a concise report containing:
-
-* topology used;
-* preset;
-* relevant parameters;
-* spike-count comparisons;
-* weight matrices;
-* membrane traces;
-* L2 winner histories;
-* evidence of context-sensitive suppression;
-* evidence of stability or failure;
-* remaining open issues.
-
----
-
-# 25. Non-Goals
-
-Do not include the following in this task unless required for compatibility:
-
-* replacing each abstract neuron with a full neural population;
-* adding multiple inhibitory interneuron classes;
-* adding one inhibitory unit per pattern;
-* implementing a full predictive-coding loss;
-* calculating explicit prediction errors;
-* adding backpropagation;
-* adding supervised labels;
-* redesigning the entire L2 competition circuit;
-* creating a robotics controller;
-* scaling beyond the current two-layer experiment;
-* rewriting the entire dashboard from scratch;
-* introducing pattern-specific masks or hand-coded row/column knowledge.
-
----
-
-# 26. Open Design Choices
-
-Where the current code does not already determine the answer, prefer the simplest biologically coherent implementation.
-
-Claude may choose implementation details for:
-
-* exact local L1E-to-L1I delay;
-* exact feedback delay;
-* initial inhibitory weight;
-* coincidence window;
-* trace decay;
-* whether the first version keeps L1I-to-L1E weights fixed;
-* whether conductance-based or direct charge subtraction better matches the current simulator.
-
-For each choice:
-
-1. explain the existing code constraint;
-2. choose the smallest compatible change;
-3. make it configurable;
-4. provide a reasonable default;
-5. add a test.
-
-Do not introduce new complexity merely because it is more biologically detailed.
-
----
-
-# 27. Deliverables
-
-Claude should produce:
-
-1. A short codebase architecture summary.
-2. A list of files to modify.
-3. The implementation changes.
-4. Configuration migration or compatibility handling.
-5. Dashboard simplification.
-6. Unit and integration tests.
-7. Presets for baseline and predictive inhibition.
-8. Ablation experiment support.
-9. A concise validation report.
-10. A list of remaining limitations and recommended next experiments.
-
----
-
-# 28. Final Design Principle
-
-The implementation should treat the current E and I units as abstract cortical-column components.
-
-The goal is not to make the toy network anatomically complete.
-
-The goal is to create a minimal, reusable, biologically grounded computational tile with the following external behavior:
-
-```text
-receive bottom-up evidence
-transmit initial evidence upward
-receive higher-level contextual feedback
-combine feedback with local activity
-reduce predictable continued activity
-preserve novel evidence
-recover when predictions change
-```
-
-Every change should support that reusable fabric.
-
-Do not solve the present row and column task by embedding its structure into the topology. The row and column behavior must emerge from the existing dense candidate connectivity, local activity, synaptic weights, and plasticity.
+The row/column behavior must emerge from local traces, dense candidate feedback,
+bounded synaptic weights, and spike timing. Never encode the answer in topology,
+labels, simulator-owned winner updates, or task-specific rules.
