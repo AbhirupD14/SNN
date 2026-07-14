@@ -1,4 +1,4 @@
-"""Inhibitory-gate learning rules (REFACTOR_PLAN.md, Phase 3b).
+"""Inhibitory-gate local learning rules.
 
 The three per-discharge gate-magnitude rules from `Neuron.apply_inhibition`, moved
 verbatim into strategy objects and selected by `select_inhibitory_rule`:

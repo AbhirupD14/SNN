@@ -83,21 +83,7 @@ export class Controls {
       return item;
     };
 
-    // Primary (active-experiment) controls render directly; everything else goes
-    // into a collapsed "Advanced" disclosure to cut clutter. Both groups still
-    // register their getters, so apply/reset send every parameter unchanged.
-    const main = cfg.spec.filter(s => !s.advanced);
-    const advanced = cfg.spec.filter(s => s.advanced);
-    for (const s of main) box.appendChild(makeItem(s));
-    if (advanced.length) {
-      const details = document.createElement('details');
-      details.className = 'config-advanced';
-      const summary = document.createElement('summary');
-      summary.textContent = `Advanced / archived (${advanced.length})`;
-      details.appendChild(summary);
-      for (const s of advanced) details.appendChild(makeItem(s));
-      box.appendChild(details);
-    }
+    for (const spec of cfg.spec) box.appendChild(makeItem(spec));
 
     document.getElementById('config-apply')?.addEventListener('click', () => {
       const overrides = {};

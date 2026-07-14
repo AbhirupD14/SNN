@@ -1,4 +1,4 @@
-"""Membrane -- the neuron's membrane scalars (REFACTOR_PLAN.md, Phase 1).
+"""The neuron's membrane scalar state and operations.
 
 Owns potential, resting potential, threshold, the refractory timer/period, the
 integer leak numerator, the saturation ceiling v_sat, and the spike bookkeeping.

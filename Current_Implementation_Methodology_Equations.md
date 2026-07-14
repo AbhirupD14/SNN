@@ -1,18 +1,17 @@
 # Current Implementation Methodology and Equations
 
 This document describes the **currently implemented default dashboard configuration only** — the model
-the frontend actually runs (`backend/api.py` engine construction). Mechanisms that
+the frontend actually runs (`backend/dashboard_config.py`). Mechanisms that
 exist in the code but are **off by default** (flow-rate accumulation, confidence
 consolidation, the legacy `signed_depression` add-on, learned inhibitory-gate plasticity,
 homeostasis, weight budget, lasting inhibition, balanced init, membrane
 saturation, immediate-relay L1I, subtractive reset) have been removed from this
 sheet; they remain in the source as reversible experiments. Every equation below is
 cross-checked against `neuron_flexible.py`, `snn/rules/`, `backend/simulation.py`,
-and `backend/api.py` as of 2026-07-13. The default loser rule on the L2 competitive
+and `backend/dashboard_config.py` as of 2026-07-14. The default loser rule on the L2 competitive
 reset is now the refractory-protected, conserved ON→OFF **redistribution** rule
-(`Inhibitory_Off_Weight_Recruitment_Spec.md`); the earlier one-sided competitive
-depression is retained as the `depression` A/B baseline and `none` as a hard-reset-only
-control.
+implemented by `Neuron.apply_competitive_reset`; the earlier one-sided competitive
+depression remains as the `depression` A/B baseline and `none` as a hard-reset-only control.
 
 ## Network Topology
 
@@ -56,7 +55,8 @@ l2_charge_chunks      = 20           (chunked WTA race)
 l2e_lr_frac           = 0.02         -> L2E eta = 0.02 * cap
 ei_sat_mult           = 4.0          (push E->I saturation past the clip)
 leak_enabled          = False        (L2E/L2I/L1I are pure integrators)
-distance_weighting    = True   (power 2, ref 7.472, min 1)
+distance_weighting    = True   (L1E->L2E delivered-charge factor 1/d^2, power 2)
+layout_scatter_enabled= True   (seeded local functional geometry)
 signed_spike_learning = True   (L2E feedforward rule)
 structural_free_energy= True   (eta_floor 0.02; replaces the voltage term)
 competitive_weight_update = redistribution   (loser rule; A/B: depression | none)
@@ -153,20 +153,35 @@ $$
 
 A refractory neuron's `receive_input()` is a no-op.
 
-### Distance attenuation (`distance_weighting = True`)
+### Distance attenuation of delivered charge (`distance_weighting = True`)
 
-The delivered drive is scaled per afferent by a fixed geometric attenuation
-(delivery only — it never changes the stored weight):
+The final physical/display coordinates are generated as seeded, bounded local
+scatter. L1 retains loose retinotopy with 3.8-unit anchors; L2 is an irregular cloud
+roughly 12 units wide and about 8 units above L1. Pair-aware minimum center distances
+are enforced both in 3D and in the canonical camera's projected view plane. The
+renderer keeps these backend coordinates as `functionalPos`, then creates separate
+view-only coordinates by scaling within-layer offsets by 4.0 and layer-center offsets
+by 4.0. Synapses and camera framing use the view-only positions; distance/charge math
+continues to use the untouched backend positions. An orbitable orthographic camera
+prevents depth foreshortening from stacking neurons visually.
+
+For L1E-to-L2E delivery, physical euclidean distances are divided by the global
+nearest feedforward distance. This creates a separate dimensionless model-distance
+matrix with $d_{ji}\ge 1$ while preserving all relative geometric variation. The
+delivered effective weight is
 
 $$
-\mathrm{factor}_{ni}
-= \left(\frac{\mathrm{distance\_ref}}{\max(d_{ni},\,\mathrm{distance\_min})}\right)^{\mathrm{distance\_power}} .
+w^{\mathrm{eff}}_{ji}
+=w_{ji}\left(\frac{\mathrm{distance\_ref}}
+{\max(d_{ji},\,\mathrm{distance\_min})}\right)^{\mathrm{distance\_power}}.
 $$
 
-For L2E the per-afferent distances $d_{ni}$ are the euclidean L2E-to-pixel
-distances from the 3D layout (`distance_ref = 7.472` is the farthest such distance,
-so every factor is $\ge 1$: nearest pixel ~3.5x, farthest 1.0x). All other
-populations keep $d = 1$ (no attenuation).
+With the defaults `distance_ref=distance_min=1` and power 2, the nearest feedforward
+connection has factor 1 and every farther connection has a factor in $(0,1)$. Thus
+equal stored weights can deposit different amounts of membrane charge solely because
+their source-target distances differ. Distance weighting never mutates stored weights
+and does not rescale learning-rule deltas. L1I and L2I pathways are not distance-
+attenuated by this feature.
 
 ## Threshold and Firing
 
@@ -363,7 +378,7 @@ V_j \leftarrow R_j,\qquad \text{exc\_trace}_j \leftarrow 0,\qquad \text{inh\_tra
 $$
 
 There is **no learned inhibitory magnitude** anywhere on this path; the reset is
-binary and complete. See `Inhibitory_Off_Weight_Recruitment_Spec.md`.
+binary and complete.
 
 ## Inhibitory Delivery (L1I -> L1E feedback)
 
@@ -432,8 +447,8 @@ slow resolution is **load-bearing**: it gives rivals the free firing windows the
 need to specialize on other patterns. Clearing rivals faster (resetting every
 winner's non-winners immediately) resolves competition perfectly but collapses to a
 single global tyrant that owns all four patterns — the recruitment-vs-consolidation
-frontier. See `L2_Hard_Reset_Competitive_Depression_Report.md` and
-`Inhibition_And_Consolidation_State.md`.
+frontier. This is an observed limitation of the current model, not a separate
+runtime mechanism.
 
 ### 3. Cold start on pattern switch
 

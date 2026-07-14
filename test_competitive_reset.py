@@ -1,7 +1,6 @@
-"""Focused tests for the L2 hard-reset competitive-depression architecture
-(L2_Hard_Reset_Competitive_Depression_Spec.md).
+"""Focused tests for the L2 hard-reset competitive-depression architecture.
 
-Covers the spec's Section 10 test list:
+Covers the low-level rule, topology, and integration contract:
   - the shared bounded weight kernel (H_up / reflected H_down);
   - Neuron.apply_competitive_reset (unweighted reset + local depression);
   - engine topology / serialization (no learned L2I->L2E gate; reset edges);
@@ -160,7 +159,7 @@ def test_no_reset_when_l2i_does_not_fire():
 
 
 def test_winner_receives_reset_but_is_protected():
-    # New contract (Inhibitory_Off_Weight_Recruitment_Spec): the reset is broadcast
+    # Current contract: the reset is broadcast
     # to EVERY L2E, winner included. The winner fired this step and is in refractory,
     # so it receives the reset event but skips the loser weight update (protection is
     # the refractory timer, not a one-hot winner check). It is still not counted as

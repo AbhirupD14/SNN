@@ -218,51 +218,45 @@ def test_chunking_still_toggleable_when_flow_off():
 # 5. Distance attenuation of delivered drive
 # ---------------------------------------------------------------------------
 def test_flow_rate_distance_delivers_w_over_d2():
-    """flow-rate + distance: the TOTAL charge one spike delivers over time is
-    ~ w/d^2 (distance_power=2, d_ref=1, d_min=1), not raw w -- and the stored
-    weight is unchanged (distance is delivery, not learning)."""
-    d_decay, W = 0.8, 0.9
+    """Flow-rate and instantaneous delivery use the same effective weight."""
+    W = 0.9
     for d in (1.0, 2.0, 3.0):
         n = Neuron(n_inputs=1)
         n.weights = np.array([W])
         n.excitatory_flow_rate = True
-        n.exc_trace_decay = d_decay
+        n.exc_trace_decay = 0.8
         n.exc_trace_normalized = True
         n.distance_weighting = True
         n.distance_power, n.distance_ref, n.distance_min = 2.0, 1.0, 1.0
         n.distance = np.array([d])
         n.potential = 0.0
         n.receive_input(np.array([1.0]), t=1)
-        n.advance_trace(5000)                     # flush the residual current
-        assert _close(n.potential, W / d ** 2, 1e-3), (d, n.potential, W / d ** 2)
-        assert n.weights[0] == W, "distance must not change the stored weight"
-    print("PASS: flow-rate + distance delivers ~ w/d^2 total charge; stored weight unchanged")
+        n.advance_trace(5000)
+        assert _close(n.potential, W / d ** 2, 1e-3), (d, n.potential)
+        assert n.weights[0] == W
+    print("PASS: flow-rate distance delivers w/d^2; stored weight unchanged")
 
 
 def test_distance_off_is_full_weight_and_instantaneous_matches():
     W, d = 0.9, 2.0
-    # OFF: distance set but weighting off -> full weight delivered (baseline intact).
     n = Neuron(n_inputs=1); n.weights = np.array([W]); n.distance = np.array([d])
-    n.receive_input(np.array([1.0]))              # instantaneous, distance off
-    assert _close(n.potential, W), n.potential
-    # Instantaneous + distance ON -> w/d^2 deposited immediately (same effective drive).
+    n.receive_input(np.array([1.0]))
+    assert _close(n.potential, W)
     m = Neuron(n_inputs=1); m.weights = np.array([W]); m.distance = np.array([d])
     m.distance_weighting = True
     m.distance_power, m.distance_ref, m.distance_min = 2.0, 1.0, 1.0
     m.receive_input(np.array([1.0]))
-    assert _close(m.potential, W / d ** 2), m.potential
-    print("PASS: distance OFF = full weight; instantaneous + distance ON = w/d^2 immediately")
+    assert _close(m.potential, W / d ** 2)
+    print("PASS: distance OFF is full weight; distance ON attenuates charge")
 
 
 def test_distance_min_floors_close_synapses():
-    """d below distance_min is clamped, so it cannot over-boost the drive."""
-    W = 0.5
-    n = Neuron(n_inputs=1); n.weights = np.array([W]); n.distance = np.array([0.25])
+    n = Neuron(n_inputs=1); n.weights = np.array([0.5]); n.distance = np.array([0.25])
     n.distance_weighting = True
     n.distance_power, n.distance_ref, n.distance_min = 2.0, 1.0, 1.0
     n.receive_input(np.array([1.0]))
-    assert _close(n.potential, W), n.potential   # max(0.25,1)=1 -> factor 1, not 16x
-    print("PASS: distance_min floors very-close synapses (no over-boost)")
+    assert _close(n.potential, 0.5)
+    print("PASS: distance_min prevents close-synapse over-boost")
 
 
 def main():

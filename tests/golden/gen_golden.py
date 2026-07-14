@@ -1,4 +1,4 @@
-"""Generate the golden baseline `.npz` for the refactor (REFACTOR_PLAN Phase 0).
+"""Generate the golden behavioral baseline `.npz`.
 
     PYTHONPATH=. .venv/bin/python tests/golden/gen_golden.py
 

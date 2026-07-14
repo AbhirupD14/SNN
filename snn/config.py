@@ -1,4 +1,4 @@
-"""NeuronConfig -- structured neuron configuration (REFACTOR_PLAN.md, Phase 3d).
+"""Structured configuration shared by the neuron populations.
 
 SimulationEngine is the SOURCE OF TRUTH for configs and defaults: its __init__
 signature defines the defaults, `self.params` is the resolved config, and the
@@ -69,12 +69,9 @@ class NeuronConfig:
           (everything except L1E).
         - The inhibitory-gate rule applies uniformly (frozen/never-inhibited neurons
           are inert under it, so uniform setting is safe).
-        - Distance weighting applies ONLY to L2E. L2E is the only population with real
-          per-synapse source->target geometry (its distance array is set from the 3D
-          layout); every other neuron keeps distance = 1.0, and with distance_ref != 1
-          a uniform flag would scale their delivered charge by (distance_ref)^power
-          (e.g. ~55x at ref=7.472) -- which silently amplifies L1E pixel drive and
-          breaks L1I->L1E inhibition. So gate it to L2E.
+        - Distance weighting applies only to L2E feedforward charge delivery. This is
+          the population whose source/target geometry is modeled by _apply_distances;
+          enabling it on L1E/L1I/L2I would attenuate unrelated pathways.
         """
         is_l2e = not (is_l1e or is_l1i or is_l2i)
         if is_l1e:

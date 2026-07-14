@@ -1,5 +1,4 @@
-"""
-Tests for hard-reset inhibition (Hard_Reset_Inhibition_Plan.md).
+"""Tests for hard-reset inhibition.
 
 The idea: once L2I declares a winner, each losing L2E's accumulated membrane
 charge is first CONSUMED by the local inhibitory-plasticity rule (which reads the

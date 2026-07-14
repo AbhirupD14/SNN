@@ -1,4 +1,4 @@
-"""Bit-exact equivalence gate for the SNN refactor (REFACTOR_PLAN Phase 0).
+"""Bit-exact equivalence gate for low-level neuron behavior.
 
     PYTHONPATH=. .venv/bin/python tests/golden/test_golden_equiv.py
 

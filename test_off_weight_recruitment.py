@@ -1,7 +1,6 @@
-"""Focused tests for the inhibitory OFF-weight redistribution / recruitment rule
-(Inhibitory_Off_Weight_Recruitment_Spec).
+"""Focused tests for the inhibitory OFF-weight redistribution/recruitment rule.
 
-Covers the spec's Section 11 groups for the "redistribution" competitive
+Covers the core behavior groups for the "redistribution" competitive
 weight-update mode and its A/B isolation against the retained "depression" baseline
 and the "none" hard-reset-only control:
 
@@ -120,8 +119,8 @@ def test_membrane_charge_does_not_affect_redistribution():
 
 
 def test_distance_factor_affects_p_match_like_delivery():
-    # distance_weighting scales the effective (delivered) weight, so it must scale
-    # p_match exactly as it scales charge delivery.
+    # The structural support signal must use the same effective weights that deliver
+    # membrane charge, while the learning kernel itself remains unchanged.
     r_plain = _l2e([2.0, 2.0, 0.2, 0.1])
     r_plain.potential = 0.5 * r_plain.threshold
     rec_plain = r_plain.apply_competitive_reset(_mask(1, 1, 0, 0), "redistribution")
@@ -132,9 +131,8 @@ def test_distance_factor_affects_p_match_like_delivery():
     r_dist.distance_power = 1.0
     r_dist.distance_ref = 1.0
     r_dist.distance_min = 1.0
-    r_dist._distance = np.array([2.0, 2.0, 1.0, 1.0])   # active gates delivered at 1/2
+    r_dist._distance = np.array([2.0, 2.0, 1.0, 1.0])
     rec_dist = r_dist.apply_competitive_reset(_mask(1, 1, 0, 0), "redistribution")
-    # active effective sum halved -> p_match halved (both below 1 here)
     assert np.isclose(rec_dist['p_match'], 0.5 * rec_plain['p_match']), \
         (rec_dist['p_match'], rec_plain['p_match'])
     print("PASS match: distance factor scales p_match exactly like charge delivery")
@@ -282,9 +280,11 @@ def test_identical_reset_across_modes():
 # Recruitment behaviour (engine level)
 # ======================================================================
 def _canonical_engine(seed, mode):
+    # Distance weighting is off here so these tests isolate redistribution itself;
+    # charge attenuation is covered separately above.
     return SimulationEngine(
         seed=seed, signed_spike_learning=True, structural_free_energy=True,
-        structural_fe_eta_floor=0.02, distance_weighting=True, distance_ref=7.472,
+        structural_fe_eta_floor=0.02, distance_weighting=False,
         l2e_init_mode='legacy_wide', competitive_weight_update=mode, refractory=1,
         l2_charge_chunks=20, l2e_weight_cap_frac=1 / 3, pos_weight_floor=1,
         l2i_threshold_frac=1 / 3, l2e_lr_frac=0.02, ei_sat_mult=4.0)

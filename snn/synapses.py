@@ -1,4 +1,4 @@
-"""SynapseBank -- the vectorized afferent bank (REFACTOR_PLAN.md, Phase 1).
+"""Vectorized afferent storage and synapse operations.
 
 The "synapse as a real object" win from Paul's design, made VECTORIZED: one object
 owns all N afferents as parallel numpy arrays (weights, eligibility trace,

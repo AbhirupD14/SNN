@@ -5,7 +5,7 @@ Covers the charge-based weight-update rule shared by both signs of synapse:
 positive (excitatory) synapses update on this neuron's own fire, negative
 (inhibitory) synapses update event-driven via apply_inhibition -- same
 algorithm (capture charge, discharge, dw = eta*p*(1-w^2/w_max)), different
-trigger and an inverted p. See Weight_Update_Unification.md.
+trigger and an inverted p.
 
 The previous trace-gated/sign-preserving "activity" rule and the
 confidence-weighted credit-splitting "confidence" rule are ARCHIVED -- see git

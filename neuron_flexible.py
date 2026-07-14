@@ -67,8 +67,8 @@ def _concentration(x):
     return float((p * p).sum())
 
 
-# Object decomposition (REFACTOR_PLAN.md). Imported AFTER the fixed-point constants
-# above so snn.membrane can read LEAK_SCALE / leak_num without a circular-import
+# Smaller neuron components are imported after the fixed-point constants so
+# snn.membrane can read LEAK_SCALE / leak_num without a circular-import
 # failure. Neuron composes these and forwards to them via properties below.
 from snn.entity import NeuralEntity      # noqa: E402
 from snn.synapses import SynapseBank    # noqa: E402
@@ -136,8 +136,7 @@ class Neuron(NeuralEntity):
         self.confidence_init = float(confidence_init)
         self._bank = SynapseBank(self)
         self.last_excitatory_event = {}
-        # Confidence-gated consolidation (opt-in; see
-        # Claude_Confidence_Consolidation_Plan.md). All flags off by default so
+        # Confidence-gated consolidation (opt-in). All flags off by default so
         # bare neurons / L1 / inhibitory neurons are unaffected.
         self.confidence_consolidation = False  # revive confidence, gate eta, decay
         self.loser_depression = False          # depress active gates on inhibitory loss
@@ -169,8 +168,7 @@ class Neuron(NeuralEntity):
         self.signed_depression = False         # enable OFF-gate depression on fire
         self.eta_off = 0.0                     # depression rate for inactive gates
         self.signed_depression_events = 0      # diagnostic counter
-        # Minimal SIGNED-SPIKE feedforward learning (opt-in; see
-        # Claude_Minimal_Signed_Spike_Learning_Prompt.md and _update_weights).
+        # Minimal signed-spike feedforward learning (opt-in; see _update_weights).
         # On fire, every POSITIVE feedforward synapse gets one local signed update
         # -- active inputs (+1) potentiate, inactive inputs (-1) depress -- with no
         # global weight budget. Replaces the whole potentiation / OFF-depression /
@@ -197,8 +195,7 @@ class Neuron(NeuralEntity):
         # the discharge asymmetry vs partially-inhibited losers (a fully-reset
         # winner would otherwise be overtaken by losers that ratcheted charge up).
         self.subtractive_reset = False
-        # Hard-reset inhibition (opt-in; see apply_inhibition and
-        # Hard_Reset_Inhibition_Plan.md). Default OFF reproduces the small
+        # Hard-reset inhibition (opt-in; see apply_inhibition). Default OFF reproduces the small
         # subtractive/flow gate. When ON, a real inhibitory discharge (events
         # non-empty) clamps the loser's membrane back to rest AFTER the inhibitory
         # plasticity rule has read its pre-reset charge -- so the loser's
@@ -238,11 +235,8 @@ class Neuron(NeuralEntity):
         # Membrane saturation ceiling (absolute, in the same units as potential;
         # None = unbounded, the baseline). A finite driving force / reversal
         # potential: charge accumulation cannot push the membrane above this, so
-        # the potential can't ratchet far past threshold between cycles. That is
-        # what lets the (small, capped) inhibitory gate actually regulate firing
-        # frequency -- against a membrane pinned near threshold a ~0.15*theta
-        # discharge is meaningful; against a 3*theta pile-up it is not. Local and
-        # per-neuron; see receive_input. Off by default so the baseline is intact
+        # the potential cannot ratchet far past threshold between cycles. Local
+        # and per-neuron; see receive_input. Off by default so the baseline is intact
         # (seeded to None on the Membrane in __init__; forwards there).
         # Sparse excitatory FLOW-RATE accumulation (opt-in; see receive_input,
         # advance_trace, and Current_Implementation_Methodology_Equations.md).
@@ -570,8 +564,7 @@ class Neuron(NeuralEntity):
         return events
 
     def _depress_losers(self, v_pre_loss):
-        """Depress the ACTIVE positive feedforward gates of a neuron that was just
-        suppressed by an L2I->L2E discharge (see Claude_Confidence_Consolidation_Plan.md).
+        """Depress the active positive feedforward gates after an L2I discharge.
         Nonlinear protect-small / punish-large, confidence-protected, and scaled by
         how close the neuron was to firing (p_loss). Inactive and mature gates are
         spared; the negative gate is never touched (positive weights only)."""
@@ -599,8 +592,9 @@ class Neuron(NeuralEntity):
 
     def apply_competitive_reset(self, current_input=None,
                                 competitive_weight_update="depression"):
-        """Unweighted L2I competitive-reset event, broadcast to EVERY L2E neuron
-        (Inhibitory_Off_Weight_Recruitment_Spec). There is no learned L2I->L2E gate,
+        """Unweighted L2I competitive-reset event broadcast to every L2E neuron.
+
+        There is no learned L2I->L2E gate,
         no inhibitory magnitude, and no negative afferent involved. The event has
         two parts:
 
@@ -965,7 +959,7 @@ class Neuron(NeuralEntity):
         """Local instantaneous maturity m in [0,1] of positive gate weights w:
         (w - w_min) / (w_conf_cap - w_min), clamped. w_min is min_positive_weight
         (or 0), w_conf_cap is conf_cap (the effective reachable mature value; falls
-        back to weight_cap). See Claude_Confidence_Consolidation_Plan.md."""
+        back to weight_cap)."""
         w_min = self.min_positive_weight if self.min_positive_weight is not None else 0.0
         cap = self.conf_cap if self.conf_cap is not None else self.weight_cap
         if cap <= w_min:

@@ -1,4 +1,4 @@
-"""Charge-delivery modes (REFACTOR_PLAN.md, Phase 3c).
+"""Charge-delivery modes used by neurons.
 
 The two branches of `Neuron.receive_input` -- how a volley's charge reaches the
 membrane -- become strategy objects selected by `select_delivery`:
@@ -7,19 +7,24 @@ membrane -- become strategy objects selected by `select_delivery`:
         current trace, integrate into V over time)
     otherwise                              -> InstantaneousDelivery (V += dot(w, s))
 
-Distance attenuation is a shared pre-step (`effective_weights`): it scales the
-DELIVERED amplitude only, for both modes, and never the stored weight. Bodies are
-byte-for-byte the originals; they operate on the neuron passed in (its Membrane,
-exc_trace, eligibility trace, participation mask).
+Distance attenuation is a shared pre-step (`effective_weights`): it scales delivered
+amplitude in both modes and never changes the stored weight. Learning rules remain
+unchanged. Bodies operate on the neuron passed in (its Membrane, exc_trace,
+eligibility trace, participation mask).
 """
 
 import numpy as np
 
 
 def effective_weights(n):
-    """Distance-attenuated delivery weights (opt-in). factor_i =
-    (distance_ref/max(d_i, distance_min))^distance_power. OFF returns the stored
-    weight array itself (no copy), so the instantaneous baseline is byte-identical."""
+    """Return delivery-effective weights. With distance weighting enabled, each
+    afferent is multiplied by
+
+        (distance_ref / max(distance, distance_min)) ** distance_power.
+
+    The returned array may be scaled, but the neuron's stored weights are untouched.
+    OFF returns the stored array itself so the baseline path stays allocation-free.
+    """
     if n.distance_weighting and n._distance is not None:
         factor = (n.distance_ref / np.maximum(n._distance, n.distance_min)) ** n.distance_power
         return n._weights_array * factor

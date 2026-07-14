@@ -1,4 +1,4 @@
-"""Golden behavioral contract for the SNN refactor (REFACTOR_PLAN.md, Phase 0).
+"""Golden behavioral contract for low-level neuron operations.
 
 `collect()` deterministically constructs a representative matrix of neurons and
 engines, drives each through a fixed input schedule, and returns a flat dict of
@@ -65,7 +65,7 @@ def _rep(*steps):
 # ------------------------------------------------------------------ the matrix
 def _neuron_cases():
     """Yield (name, neuron, schedule). Weights are set explicitly for determinism.
-    Each case isolates one mode from REFACTOR_PLAN Phase 0's list."""
+    Each case isolates one low-level neuron behavior."""
 
     # 1. bare fixed-fan-in neuron, default (charge-based) rule.
     n = Neuron(n_inputs=4, threshold=1.0, leak_rate=0.01, learning_rate=0.1)

@@ -3,8 +3,11 @@ SimulationEngine -- steppable wrapper around the spiking network.
 
 Spikes are delivered immediately except for L1I feedback, which is held in a
 one-step register so a spike at t suppresses its paired L1E at t+1. Every neuron
-has a 3D position for display; the L2 positions in L2_HOMES remain so the layout
-is meaningful in the viewport, but they do not imply a conduction delay.
+has a 3D position generated once per build as seeded local scatter in
+`backend.layout`. The same coordinates are shown in the viewport and used to
+derive dimensionless L1E->L2E distances. Those distances attenuate delivered
+feedforward charge without changing stored weights. Positions do not imply a
+conduction delay.
 
 Learning architecture:
   - L1E neurons are treated as pre-trained pixel encoders: weights are fixed
@@ -25,10 +28,10 @@ Learning architecture:
     prevents consecutive feedback pulses. With constant input this converges to
     a synchronized fire/suppress rhythm that halves active L1E frequency.
 
-L2I supplies learned lateral inhibition to the competing L2E pool. L1I supplies
-paired feedback inhibition to L1E through the delayed register. Membrane leak is
-independently configurable for L2E, L2I, and L1I and is off for all three by
-default.
+L2E spikes train the positive recruitment weights into L2I. When L2I fires, it
+broadcasts an unweighted hard-reset event to the L2E pool; there is no learned
+L2I-to-L2E gate on this path. L1I supplies weighted feedback inhibition to L1E
+through the delayed register.
 """
 
 from __future__ import annotations
@@ -45,6 +48,7 @@ from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
 from neuron_flexible import UNIT, LEAK_SCALE         # noqa: E402  fixed-point convention
 from snn import NeuronConfig                          # noqa: E402  engine-sourced neuron config
+from .layout import generate_layout
 
 
 PATTERNS = {
@@ -64,21 +68,9 @@ PATTERNS = {
 N_PIX = 9
 N_OUT = 8
 
-# 3D layout for the L2 output neurons -- evenly spaced ring in the XY plane.
-import math as _math
-_R, _Z = 3.2, 4.0
-L2_HOMES = [
-    (round(_R * _math.cos(k * 2 * _math.pi / N_OUT), 4),
-     round(_R * _math.sin(k * 2 * _math.pi / N_OUT), 4),
-     _Z)
-    for k in range(N_OUT)
-]
-
-GRID = 2.2
 # Active L2E fan-in: exactly N_PIX pixel afferents. There is NO index-0 local-I
 # placeholder and no negative L2I->L2E gate -- L2 competition is now an unweighted
-# hard reset plus local competitive depression (see Neuron.apply_competitive_reset
-# and L2_Hard_Reset_Competitive_Depression_Spec.md).
+# hard reset plus a local loser update in Neuron.apply_competitive_reset.
 L2E_FANIN = N_PIX
 FREQ_WINDOW = 40
 WEIGHT_EPS = 1e-6
@@ -91,30 +83,6 @@ LOG_MAX = 400
 # end conditions; neither touches learning, WTA, or membrane dynamics.
 EPISODE_QUIET_K = 5    # Condition A: end after this many consecutive L2-silent steps (spec: 3-5)
 EPISODE_MAX_LEN = 12   # Condition B: hard cap on episode length in steps (spec: 8-12)
-
-# L2 lateral inhibition ("adaptive gate") parameters. Competition in L2 is
-# produced by the shared inhibitory neuron L2I suppressing near-winners through
-# the L2I->L2E synapse, NOT by a procedural hard reset. Each L2E owns one gate
-# from L2I whose strength is learned by the inhibitory-plasticity rule
-# (Neuron.apply_inhibition): it grows when it suppresses a neuron that was close
-# to firing and saturates at L2_GATE_WMAX. These values were chosen by a
-# parameter sweep (see the competition investigation) as the point giving the
-# broadest participation with the most per-pattern differentiation; crucially
-# L2_GATE_WMAX < thr_l2 so a saturated gate can't fully reset the membrane.
-#
-# FIXED-POINT SCALE (see neuron_flexible.py): the model runs at the
-# UNIT-scaled fixed-point scale, so thresholds are the integers 1000 / 8000 and
-# all charge-like magnitudes are scaled by UNIT. Scaling rules by role:
-#   - LINEAR magnitudes (gate init, potentials, weights, clips) scale by UNIT.
-#   - the learning rate eta scales by UNIT (dw must scale with w).
-#   - the QUADRATIC saturation denominator w_max in dw = eta*p*(1 - w^2/w_max)
-#     scales by UNIT**2, because w^2 scales by UNIT**2. The gate MAGNITUDE still
-#     settles at its natural equilibrium sqrt(w_max) = UNIT*sqrt(1.5) ~= 1225,
-#     which is still well below thr_l2 = 8000 -- the "< threshold, partial
-#     discharge" property is preserved; only the numeric denominator is large.
-L2_GATE_INIT = -500          # initial gate magnitude 500 == 0.5 * UNIT (linear)
-L2_GATE_WMAX = 1500 * UNIT   # quadratic w_max == 1.5 * UNIT**2; equilibrium sqrt ~= 1225 (< thr_l2)
-L2_GATE_ETA = 100            # inhibitory-plasticity eta == 0.1 * UNIT (scales with charge)
 
 # L2E->L2I "assembly evidence" synapses.
 #
@@ -137,8 +105,7 @@ L2_GATE_ETA = 100            # inhibitory-plasticity eta == 0.1 * UNIT (scales w
 #   from many-volley LIF accumulation to single-volley pattern-integrator
 #   firing (see the module docstring). The temporal-integration REQUIREMENT
 #   (multiple contributors) is therefore a property of an undertrained
-#   synapse, not a permanent structural ceiling -- see L2I_Temporal_Integration.md
-#   for the original (now superseded) design that made it permanent.
+#   synapse, not a permanent structural ceiling.
 # L2I_LEAK_RATE is still much faster than leak_l2 (L2E's slow, many-volley
 # accumulator): L2I needs a SHORT retention window so that only spikes from
 # roughly the same "burst" of population activity sum together while the
@@ -158,8 +125,8 @@ L2_GATE_ETA = 100            # inhibitory-plasticity eta == 0.1 * UNIT (scales w
 # round-robin route -- and since L2I's own E->I weights only update on ITS
 # OWN fire, it would then never learn either (a silently dead network, not
 # merely a slow one). [0.25, 0.5] * threshold_l2 keeps the same relative
-# dynamics validated in L2I_Temporal_Integration.md (a single contribution at
-# ~37.5% of threshold; 4 volley-spaced contributions needed to cross) at
+# dynamics: one contribution starts near 37.5% of threshold and roughly four
+# volley-spaced contributions are needed to cross, at
 # whatever threshold_l2 is actually configured to.
 # Init fractions as integer rationals (1/4, 1/2) per the fixed-point convention.
 L2_EI_WEIGHT_INIT_LOW_FRAC = 1 / 4   # low end of the random E->I init range,
@@ -214,8 +181,7 @@ L1I_FEEDBACK_REFRACTORY = 2
 # f_{n+1} = f_n + ETA_FRAC*p*(1-f_n^2) (f = w/w_max) from the init-range
 # midpoint (f=0.375) with a representative p~=0.6: it takes ~180 events for a
 # habitually-participating synapse to reach 90% of its own cap -- a genuinely
-# long "gatling gun" round-robin phase, not a handful of volleys. See
-# Weight_Update_Unification.md for the full derivation and validation.
+# long round-robin phase rather than a handful of volleys.
 ETA_FRAC = 0.01
 
 # Floor for L2E's feedforward (positive) weights after budget renormalization
@@ -320,15 +286,14 @@ class SimulationEngine:
                  l2e_lr_frac: float | None = None,
                  l2i_lr_frac: float | None = None,
                  l1i_lr_frac: float | None = None,
-                 l2_gate_eta: float | None = None,
                  l2i_threshold_frac: float = 1,   # unit multiplier (1 == unchanged)
                  # L1I threshold as a fraction of L2I's resolved threshold.
                  # 1.0 makes the two inhibitory populations match exactly.
                  l1i_threshold_frac: float = 1,
                  ei_sat_mult: float = 1,          # unit multiplier (1 == unchanged)
                  l1i_ei_init_frac: float | None = None,
-                 # Confidence-gated consolidation (see Claude_Confidence_Consolidation_Plan.md
-                 # and neuron_flexible.Neuron). Enabled on L2E by default: a local, label-free
+                 # Confidence-gated consolidation in neuron_flexible.Neuron.
+                 # Enabled on L2E by default: a local, label-free
                  # consolidation rule that protects mature specialists, depresses
                  # losing near-winners, and keeps stale neurons reusable. All the
                  # numeric knobs below are DIMENSIONLESS (scale-invariant) except
@@ -336,8 +301,7 @@ class SimulationEngine:
                  confidence_consolidation: bool = True,
                  loser_depression: bool = True,
                  # Loser weight-update rule for the L2I competitive-reset event
-                 # (Inhibitory_Off_Weight_Recruitment_Spec). One canonical flag with
-                 # three mutually-exclusive modes:
+                 # after the unweighted competitive-reset event. Three modes:
                  #   "redistribution" -- conservative ON->OFF gate recruitment (new default);
                  #   "depression"     -- retained one-sided charge-scaled loser depression (A/B baseline);
                  #   "none"           -- hard-reset-only control (no loser weight update).
@@ -456,19 +420,30 @@ class SimulationEngine:
                  inhibitory_p_max: float = 1.0,         # turnover cap on p_t = v_pre/theta
                  inhibitory_margin_frac: float = 0.5,   # margin mode: target_post = frac*theta
                  inhibitory_delta_eta: float = 0.05,    # margin mode: EMA rate
-                 # Distance attenuation of DELIVERED excitatory drive (opt-in; see
-                 # Neuron.receive_input and the methodology doc). When on, each
-                 # afferent's delivered amplitude is multiplied by
-                 # (distance_ref/max(d_i, distance_min))^distance_power -- weight =
-                 # learned gate, distance = delivery attenuation, trace = temporal
-                 # flow. It does NOT change stored weights or the trace math, and is
-                 # not entangled with chunking. OFF by default (per-synapse distances
-                 # default to 1.0 = no attenuation until real functional distances
-                 # are provided). Applies in both flow-rate and instantaneous modes.
+                 # Distance attenuation of DELIVERED L1E->L2E charge. Physical layout
+                 # distances are divided by the nearest feedforward distance, producing
+                 # dimensionless d >= 1. Delivery multiplies each stored weight by
+                 # (distance_ref/max(d, distance_min))**distance_power. With the default
+                 # ref=min=1 the nearest feedforward synapse delivers at full strength
+                 # and all farther synapses are attenuated. Stored weights and learning
+                 # deltas are untouched. Engine default OFF; dashboard default ON.
                  distance_weighting: bool = False,
                  distance_power: float = 2.0,
                  distance_ref: float = 1.0,
                  distance_min: float = 1.0,
+                 # Seeded local scatter of the functional 3D layout.
+                 # Default ON: L1 jitters around retinotopic anchors and L2 is sampled
+                 # as a bounded cloud, so no layer is an exact grid, ring, or plane.
+                 # OFF selects the deterministic regular grid/ring geometry.
+                 # The scatter draws from an INDEPENDENT layout RNG spawned from the
+                 # engine seed, so adding it does not shift weight-init draws.
+                 layout_scatter_enabled: bool = True,
+                 l1_xy_jitter: float = 0.9,     # capped below half a retinotopic cell
+                 l1_z_jitter: float = 0.55,     # L1E out-of-plane scatter
+                 l1i_pair_jitter: float = 1.2,  # extra L1I offset around its paired L1E
+                 l2_xy_radius: float = 6.0,     # radius of the irregular L2E cloud
+                 l2_z_jitter: float = 1.8,      # L2E height scatter around its layer center
+                 layout_min_separation: float = 1.2,  # generic final spacing floor
                  # Lasting inhibition: replace the one-shot lateral discharge with a
                  # LEAKY decaying inhibitory field. L2I (a leaky integrator) pumps a
                  # shared field when it fires; the field hyperpolarizes the whole L2E
@@ -484,11 +459,9 @@ class SimulationEngine:
                  # (floored at rest) instead of a full reset to rest. Standard LIF;
                  # leaves the winner its residual overshoot like partially-inhibited
                  # losers keep theirs, directly attacking the discharge asymmetry
-                 # that drives the round-robin (see AGENT_HANDOFF.md sec 5-6). L2E
-                 # only; default off so the baseline is untouched.
+                 # that drives round-robin firing. L2E only; default off.
                  subtractive_reset: bool = False,
-                 # Hard-reset inhibition on losing L2E (see neuron_flexible.Neuron
-                 # and Hard_Reset_Inhibition_Plan.md). When on, a real L2I->L2E
+                 # Hard-reset inhibition on losing L2E. When on, an L2I->L2E
                  # discharge clamps the non-winner's membrane back to rest AFTER the
                  # inhibitory plasticity rule has read its pre-reset charge, so loser
                  # charge carryover (the round-robin's engine) drops to zero. L2E
@@ -504,18 +477,7 @@ class SimulationEngine:
                  # it can actually regulate firing frequency -- inhibition, not a
                  # pile-up, sets who fires. Local finite driving force; L2E only.
                  v_sat_frac: float | None = None,
-                 # Learnable L2I->L2E gate equilibrium, as a fraction of thr_l2
-                 # (None = module default, ~0.15*thr). The gate grows by the
-                 # inhibitory rule and settles at sqrt(w_max); this sets that
-                 # target. Raising it toward/above 1.0 lets a fired owner's L2I
-                 # discharge FLOOR its rivals to rest (they lose all their charge
-                 # and cannot fire) -- the inhibitory winner-take-all lockout that
-                 # makes ongoing plasticity safe (only the owner fires, so only
-                 # the owner learns). Pair with v_sat so a rival's bounded charge
-                 # is within reach of the gate. L2E only.
-                 l2_gate_eq_frac: float | None = None,
-                 # Minimal SIGNED-SPIKE feedforward learning (see
-                 # Claude_Minimal_Signed_Spike_Learning_Prompt.md). Replaces the
+                 # Minimal signed-spike feedforward learning. Replaces the
                  # potentiation + OFF-depression + confidence + budget stack with a
                  # single local signed rule: on fire, active inputs (+1) potentiate
                  # and inactive inputs (-1) depress, dw = eta*p*(1-(w/w_cap)^2)*sig,
@@ -580,7 +542,6 @@ class SimulationEngine:
         l2e_lr_frac = ETA_FRAC if l2e_lr_frac is None else l2e_lr_frac
         l2i_lr_frac = ETA_FRAC if l2i_lr_frac is None else l2i_lr_frac
         l1i_lr_frac = ETA_FRAC if l1i_lr_frac is None else l1i_lr_frac
-        l2_gate_eta = L2_GATE_ETA if l2_gate_eta is None else l2_gate_eta
         # Resolve the competitive-reset loser rule. When absent, fall back to the
         # legacy loser_depression bool (True -> "depression", False -> "none") so old
         # experiment files replay unchanged; otherwise use the canonical mode flag.
@@ -599,7 +560,7 @@ class SimulationEngine:
                            homeostasis=homeostasis, ca_rate=ca_rate, ca_target=ca_target,
                            homeo_up=homeo_up, homeo_down=homeo_down,
                            l2e_lr_frac=l2e_lr_frac, l2i_lr_frac=l2i_lr_frac,
-                           l1i_lr_frac=l1i_lr_frac, l2_gate_eta=l2_gate_eta,
+                           l1i_lr_frac=l1i_lr_frac,
                            l2i_threshold_frac=l2i_threshold_frac,
                            l1i_threshold_frac=l1i_threshold_frac,
                            ei_sat_mult=ei_sat_mult,
@@ -634,13 +595,17 @@ class SimulationEngine:
                            distance_weighting=distance_weighting,
                            distance_power=distance_power,
                            distance_ref=distance_ref, distance_min=distance_min,
+                           layout_scatter_enabled=layout_scatter_enabled,
+                           l1_xy_jitter=l1_xy_jitter, l1_z_jitter=l1_z_jitter,
+                           l1i_pair_jitter=l1i_pair_jitter,
+                           l2_xy_radius=l2_xy_radius, l2_z_jitter=l2_z_jitter,
+                           layout_min_separation=layout_min_separation,
                            lasting_inhibition=lasting_inhibition, inh_decay=inh_decay,
                            inh_boost_frac=inh_boost_frac,
                            subtractive_reset=subtractive_reset,
                            l2i_hard_reset_losers=l2i_hard_reset_losers,
                            hard_reset_clear_traces=hard_reset_clear_traces,
                            v_sat_frac=v_sat_frac,
-                           l2_gate_eq_frac=l2_gate_eq_frac,
                            signed_spike_learning=signed_spike_learning,
                            structural_free_energy=structural_free_energy,
                            structural_fe_eta_floor=structural_fe_eta_floor,
@@ -670,8 +635,16 @@ class SimulationEngine:
         # children). Feedforward, L2E->L2I, and feedback thus no longer share/consume
         # one stream in a fixed order -- each is reproducible from the seed on its own,
         # and reordering or resizing one init cannot shift the others.
-        rng_ff, rng_ei, rng_fb = (np.random.default_rng(s)
-                                  for s in np.random.SeedSequence(p['seed']).spawn(3))
+        # spawn(4): children 0-2 are byte-identical to the previous spawn(3), so
+        # adding the layout stream does NOT shift the feedforward / E->I / feedback
+        # weight draws. Child 3 is the INDEPENDENT layout RNG.
+        rng_ff, rng_ei, rng_fb, rng_layout = (
+            np.random.default_rng(s)
+            for s in np.random.SeedSequence(p['seed']).spawn(4))
+        # One source of truth for geometry: generate every neuron's final physical 3D
+        # position once. _register_neurons exposes it to the renderer; _apply_distances
+        # derives dimensionless feedforward distances without rescaling the positions.
+        self.layout = generate_layout(p, rng_layout, N_PIX, N_OUT)
         thr_l1 = p['threshold']      # L1 neurons fire on a single pixel hit
         thr_l2 = p['threshold_l2']   # L2 neurons must accumulate many volleys
         # Inhibitory-neuron thresholds (Phase 2): each defaults to its excitatory
@@ -730,7 +703,7 @@ class SimulationEngine:
         # Active L2 has NO learned L2I->L2E gate: build the column without the
         # index-0 local-I placeholder so each L2E has exactly N_PIX pixel afferents.
         # Competition is the unweighted hard reset + competitive depression in
-        # _resolve_l2_competition (see L2_Hard_Reset_Competitive_Depression_Spec.md).
+        # _resolve_l2_competition.
         self.l2 = CorticalColumn(n_neurons=N_OUT, threshold=thr_l2,
                                  refractory_period=p['refractory'], learning_rate=p['learning_rate'],
                                  weight_cap=thr_l2, leak_rate=eff_leak_l2,
@@ -814,10 +787,8 @@ class SimulationEngine:
                 # every pixel keeps some baseline responsiveness.
                 n.min_positive_weight = (p['pos_weight_floor'] if p['pos_weight_floor'] is not None
                                          else L2E_MIN_WEIGHT_FLOOR)
-                # No learned L2I->L2E gate on the active path: the inhibitory-gate
-                # cap/eta and l2_gate_eq_frac are inert (they only configured the
-                # removed negative gate). L2 competition is the unweighted hard reset
-                # + competitive depression (Neuron.apply_competitive_reset).
+                # L2 competition is an unweighted hard reset plus the selected
+                # loser update in Neuron.apply_competitive_reset.
                 # Charge-based excitatory rule (see Neuron._update_weights);
                 # eta scaled to this neuron's own weight_cap -- see ETA_FRAC note.
                 # Phase 1: L2E feedforward learning uses its own l2e_lr_frac.
@@ -844,8 +815,8 @@ class SimulationEngine:
                 n.homeo_down = p['homeo_down']
                 n.homeo_budget_min = 500   # 0.5 * UNIT, fixed-point weight resource
                 n.homeo_budget_max = 2 * thr_l2
-                # Confidence-gated consolidation (see neuron_flexible.Neuron and
-                # Claude_Confidence_Consolidation_Plan.md): local, label-free
+                # Confidence-gated consolidation in neuron_flexible.Neuron: local,
+                # label-free
                 # protection of mature specialists + loser depression, on L2E only.
                 # conf_cap is the effective reachable mature per-gate value: the 8
                 # line primitives each have 3 active pixels, so a fully specialized
@@ -933,16 +904,15 @@ class SimulationEngine:
         # config. The engine's params are the SOURCE OF TRUTH; NeuronConfig is a
         # transport built from them (from_engine_params) and applied population-aware
         # to each neuron -- replacing the scattered per-attribute assignments. See
-        # snn/config.py and REFACTOR_PLAN.md Phase 3d.
+        # snn/config.py.
         cfg = NeuronConfig.from_engine_params(p)
         for nid, n in self.neurons.items():
             cfg.apply_to(n, is_l1e=nid.startswith('L1E'), is_l1i=nid.startswith('L1I'),
                          is_l2i=(nid == 'L2I'))
-        # apply_to sets the distance-weighting FLAGS uniformly; now set the actual
-        # per-synapse delivery DISTANCES for L2E from the 3D layout (the only neurons
-        # with non-trivial source geometry). Must run after apply_to and after the
-        # feedforward weights are finalized (set_weights reset distance to ones).
-        self._apply_l2e_distances()
+        # apply_to sets the delivery-distance flag on L2E; now derive its actual
+        # per-synapse model distances from the final physical layout. Must run after
+        # weights are finalized because set_weights resets distance to ones.
+        self._apply_distances()
 
         # One-step feedback delay. L1I spikes produced at t inhibit paired L1E
         # neurons at t+1 only; the register is replaced every step.
@@ -1018,28 +988,27 @@ class SimulationEngine:
                              f'{len(self.neurons)} neurons, {len(self.synapses)} synapses)')
 
     def _register_neurons(self):
+        pos = self.layout
         for i in range(N_PIX):
-            r, c = divmod(i, 3)
             nid = f'L1E{i}'
             self.neurons[nid] = self.l1.excitatory_neurons[i]
             self.meta[nid] = dict(id=nid, label=f'in {i}', layer='L1', type='E',
                                   threshold=self.params['threshold'],
-                                  pos=[(c - 1) * GRID, (1 - r) * GRID, 0.0])
+                                  pos=pos[nid].tolist())
         for i in range(N_PIX):
-            r, c = divmod(i, 3)
             nid = f'L1I{i}'
             self.neurons[nid] = self.l1.inhibitory_neurons[i]
             self.meta[nid] = dict(id=nid, label=f'inh {i}', layer='L1', type='I',
                                   threshold=self.params['threshold'],
-                                  pos=[(c - 1) * GRID, (1 - r) * GRID, -2.0])
+                                  pos=pos[nid].tolist())
         for j in range(N_OUT):
             nid = f'L2E{j}'
             self.neurons[nid] = self.l2.excitatory_neurons[j]
             self.meta[nid] = dict(id=nid, label=f'out {j}', layer='L2', type='E',
-                                  threshold=self.params['threshold_l2'], pos=list(L2_HOMES[j]))
+                                  threshold=self.params['threshold_l2'], pos=pos[nid].tolist())
         self.neurons['L2I'] = self.l2.inhibitory_neuron
         self.meta['L2I'] = dict(id='L2I', label='inhib', layer='L2', type='I',
-                                threshold=self.params['threshold_l2'], pos=[0.0, 0.0, 6.0])
+                                threshold=self.params['threshold_l2'], pos=pos['L2I'].tolist())
 
         self.synapses: list[dict] = []
         for j in range(N_OUT):
@@ -1060,28 +1029,34 @@ class SimulationEngine:
             for i in range(N_PIX):
                 self.synapses.append(dict(id=f'fb{j}->{i}', source=f'L2E{j}', target=f'L1I{i}', kind='feedback'))
 
-    def _apply_l2e_distances(self):
-        """Populate each L2E's per-afferent DELIVERY distance from the 3D layout:
-        euclidean(L2E_home, pixel_pos) for the nine pixel afferents (index i; the
-        active L2E has no index-0 placeholder). With distance_weighting on (ref=1,
-        power=2, min=1) the delivered charge is weight * 1/d^2, so a farther pixel
-        contributes less -- charge dissipates along the 'axon'. Stored weights are
-        untouched; this scales DELIVERY only. Pixel positions match
-        _register_neurons' meta: ((c-1)*GRID, (1-r)*GRID, 0)."""
-        pix = []
-        for i in range(N_PIX):
-            r, c = divmod(i, 3)
-            pix.append(((c - 1) * GRID, (1 - r) * GRID, 0.0))
+    def _apply_distances(self):
+        """Derive L1E->L2E model distances from the final physical/display layout.
+
+        Physical coordinates stay untouched. The physical feedforward matrix is
+        divided by its global minimum, producing dimensionless model distances >= 1.
+        With distance_ref=distance_min=1, effective delivery factors are therefore in
+        (0, 1]: the nearest feedforward connection is neutral and farther connections
+        deliver less charge. One global unit preserves both within- and between-neuron
+        geometric variation. Stored weights are never modified.
+        """
+        l1e_pos = [self.layout[f'L1E{i}'] for i in range(N_PIX)]
+        l2e_pos = [self.layout[f'L2E{j}'] for j in range(N_OUT)]
+        physical = np.array([
+            [float(np.linalg.norm(l2e_pos[j] - l1e_pos[i])) for i in range(N_PIX)]
+            for j in range(N_OUT)
+        ])
+        dmin = float(physical.min())
+        if not np.isfinite(dmin) or dmin <= 1e-9:
+            raise ValueError('feedforward layout contains a zero or invalid distance')
+        self.feedforward_distance_unit = dmin
+        self.physical_ff_distances = physical
+        model = physical / dmin
+
         for j in range(N_OUT):
             n = self.l2.excitatory_neurons[j]
-            if n._weights_array is None or len(n._weights_array) == 0:
+            if n._weights_array is None or len(n._weights_array) != N_PIX:
                 continue
-            d = np.ones(len(n._weights_array))
-            hx, hy, hz = L2_HOMES[j]
-            for i in range(N_PIX):
-                px, py, pz = pix[i]
-                d[i] = float(np.sqrt((hx - px) ** 2 + (hy - py) ** 2 + (hz - pz) ** 2))
-            n.distance = d
+            n.distance = model[j]
 
     # --------------------------------------------------------------- controls
     def reset(self):
@@ -1115,6 +1090,9 @@ class SimulationEngine:
                'inhibitory_eta_up', 'inhibitory_eta_down', 'inhibitory_p_max',
                'inhibitory_margin_frac', 'inhibitory_delta_eta',
                'distance_weighting', 'distance_power', 'distance_ref', 'distance_min',
+               'layout_scatter_enabled', 'l1_xy_jitter',
+               'l1_z_jitter', 'l1i_pair_jitter', 'l2_xy_radius', 'l2_z_jitter',
+               'layout_min_separation',
                'assembly_flow_credit', 'assembly_decay_frac',
                'l2e_init_mode', 'l2e_init_jitter', 'leak_enabled',
                'l2i_leak_enabled', 'l1i_leak_enabled')
@@ -1138,6 +1116,7 @@ class SimulationEngine:
                      'exc_trace_normalized',
                      'inhibitory_flow_rate', 'inh_trace_normalized',
                      'inhibitory_delta_rule', 'distance_weighting',
+                     'layout_scatter_enabled',
                      'assembly_flow_credit', 'leak_enabled', 'l2i_leak_enabled',
                      'l1i_leak_enabled'):
                 v = bool(v)
@@ -1315,7 +1294,7 @@ class SimulationEngine:
         """Attempt one standard argmax WTA resolution on the CURRENT L2E membrane
         state. If any L2E crossed threshold, the max-charge crosser fires, drives
         L2I, and (if L2I fires) the unweighted competitive-reset event is broadcast
-        to EVERY L2E -- including the winner (Inhibitory_Off_Weight_Recruitment_Spec).
+        to every L2E, including the winner.
         Each neuron unconditionally hard-resets its membrane/current traces; the
         loser weight update runs ONLY for the non-refractory neurons (the winner
         fired this step and is in refractory, so it is protected -- winner protection
@@ -1394,16 +1373,10 @@ class SimulationEngine:
                 e.fire()
 
         # 2b/2c. Deliver L1E->L2E feedforward charge and resolve L2 competition.
-        #     When the winner fires, the shared inhibitory neuron L2I discharges the
-        #     ENTIRE rest of the pool through its learned L2I->L2E gate -- not just
-        #     the co-threshold-crossers. The sub-threshold rivals sitting JUST below
-        #     threshold are the real cause of winner rotation; discharging the whole
-        #     pool subtracts each rival's own learned gate magnitude so the race
-        #     restarts closer to even and the best-matched integrator can win
-        #     repeatedly (the precondition for consolidation). The gate stays below
-        #     threshold_l2 (L2_GATE_WMAX < thr_l2), a PARTIAL discharge that
-        #     preserves cross-volley evidence, not a hard reset. See
-        #     _resolve_l2_competition for the argmax WTA body.
+        #     A threshold-crossing winner drives L2I. If L2I fires, it broadcasts an
+        #     unweighted hard reset to the entire L2E pool. The refractory winner is
+        #     protected from the loser weight update, but its transient charge is
+        #     reset like every other L2E. See _resolve_l2_competition.
         #
         #     Chunked charge (l2_charge_chunks = K): this step's feedforward drive
         #     can arrive in K equal chunks (weight_ji/K per active synapse) WITHIN

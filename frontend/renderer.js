@@ -22,6 +22,11 @@ const COLORS = {
 };
 const WEAK = 0.25;
 const RESET_OPACITY = 0.22;   // fixed opacity for the unweighted reset fanout edges
+// View-only spacing. Backend topology coordinates remain the functional geometry
+// used for distance/charge calculations. The renderer expands offsets inside each
+// layer much more aggressively, then separates layer centers as a second step.
+const WITHIN_LAYER_SPACING = 4.0;
+const BETWEEN_LAYER_SPACING = 4.0;
 
 export class NeuronRenderer {
   constructor(container, { onSelect }) {
@@ -37,8 +42,15 @@ export class NeuronRenderer {
     const scene = new THREE.Scene();
     this.scene = scene;
 
-    const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
-    cam.position.set(11, -9, 16);
+    // Orthographic projection keeps neurons that are separated in the view plane
+    // from collapsing back together through perspective/depth foreshortening. The
+    // network is still fully 3D and orbitable; only the projection is non-perspective.
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+    // Oblique side view: enough elevation to read each local cloud, but not so much
+    // z-depth that L1, L2, and their inhibitory partners stack on top of one another.
+    // backend/simulation.py uses this same camera-target vector for projected-spacing
+    // rejection when it generates the seeded layout.
+    cam.position.set(14, -18, 9);
     this.camera = cam;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -83,9 +95,31 @@ export class NeuronRenderer {
     for (const { line } of this.edges.values()) this.scene.remove(line);
     this.neurons.clear(); this.edges.clear();
     this.pos = new Map();
+    this.functionalPos = new Map();
 
+    const layerSums = new Map(), layerCounts = new Map();
+    const networkCenter = new THREE.Vector3();
     for (const m of topology.neurons) {
-      this.pos.set(m.id, new THREE.Vector3(m.pos[0], m.pos[1], m.pos[2]));
+      const raw = new THREE.Vector3(m.pos[0], m.pos[1], m.pos[2]);
+      this.functionalPos.set(m.id, raw);
+      networkCenter.add(raw);
+      if (!layerSums.has(m.layer)) layerSums.set(m.layer, new THREE.Vector3());
+      layerSums.get(m.layer).add(raw);
+      layerCounts.set(m.layer, (layerCounts.get(m.layer) || 0) + 1);
+    }
+    networkCenter.multiplyScalar(1 / Math.max(topology.neurons.length, 1));
+    const layerCenters = new Map();
+    for (const [layer, sum] of layerSums) {
+      layerCenters.set(layer, sum.multiplyScalar(1 / layerCounts.get(layer)));
+    }
+    for (const m of topology.neurons) {
+      const raw = this.functionalPos.get(m.id);
+      const layerCenter = layerCenters.get(m.layer);
+      const visualLayerCenter = networkCenter.clone().add(
+        layerCenter.clone().sub(networkCenter).multiplyScalar(BETWEEN_LAYER_SPACING));
+      const visual = visualLayerCenter.add(
+        raw.clone().sub(layerCenter).multiplyScalar(WITHIN_LAYER_SPACING));
+      this.pos.set(m.id, visual);
     }
 
     for (const m of topology.neurons) {
@@ -126,6 +160,37 @@ export class NeuronRenderer {
       this.edges.set(s.id, { line, mat, syn: s, weight: s.weight ?? 0, pulse: 0 });
     }
     this._applyEdgeWeights();
+    this._fitCameraToTopology();
+  }
+
+  _fitCameraToTopology() {
+    // Layout dimensions are backend-owned and can change with the seed/config.
+    // Fit the camera to the actual topology instead of assuming the old compact
+    // 3x3/ring coordinates. The padding includes neuron spheres, charge rings,
+    // selection growth, and the winner halo.
+    const points = [...this.pos.values()];
+    if (!points.length) return;
+    const box = new THREE.Box3().setFromPoints(points).expandByScalar(1.6);
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const aspect = this.container.clientWidth / Math.max(this.container.clientHeight, 1);
+    const halfHeight = sphere.radius * 1.18 / Math.min(Math.max(aspect, 0.1), 1);
+    const halfWidth = halfHeight * aspect;
+    const distance = Math.max(20, sphere.radius * 3);
+
+    const direction = this.camera.position.clone().sub(this.controls.target);
+    if (direction.lengthSq() < 1e-9) direction.set(1, -1, 1);
+    direction.normalize();
+    this.controls.target.copy(sphere.center);
+    this.camera.position.copy(sphere.center).addScaledVector(direction, distance);
+    this.camera.left = -halfWidth;
+    this.camera.right = halfWidth;
+    this.camera.top = halfHeight;
+    this.camera.bottom = -halfHeight;
+    this.camera.near = Math.max(0.1, distance - sphere.radius * 2);
+    this.camera.far = distance + sphere.radius * 4;
+    this.camera.zoom = 1;
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
   }
 
   // ------------------------------------------------------------- update
@@ -226,8 +291,8 @@ export class NeuronRenderer {
   _onResize() {
     const w = this.container.clientWidth, h = this.container.clientHeight;
     this.renderer.setSize(w, h);
-    this.camera.aspect = w / Math.max(h, 1);
-    this.camera.updateProjectionMatrix();
+    if (this.pos?.size) this._fitCameraToTopology();
+    else this.camera.updateProjectionMatrix();
   }
 
   _loop() {

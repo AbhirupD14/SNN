@@ -1,4 +1,4 @@
-"""Excitatory learning rules (REFACTOR_PLAN.md, Phase 3a).
+"""Excitatory local learning rules.
 
 The three mutually-exclusive branches of the old `Neuron._update_weights`, moved
 verbatim into strategy objects and selected by `select_excitatory_rule`:
@@ -28,7 +28,7 @@ def _closeness(n, v_pre):
 
 
 def bounded_signed_update(w, w_min, w_cap, gain, signal):
-    """Shared direction-aware bounded weight kernel (L2_Hard_Reset spec Section 6).
+    """Shared direction-aware bounded weight kernel.
 
     For a positive weight w with lower/upper bounds w_min, w_cap, let
         q = clamp((w - w_min) / (w_cap - w_min), 0, 1).

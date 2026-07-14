@@ -1,4 +1,4 @@
-"""snn/ -- object decomposition of the SNN (see REFACTOR_PLAN.md).
+"""Reusable neuron components extracted from the original neuron implementation.
 
 Strangler-fig migration: these types incrementally take ownership of state and
 behavior that currently lives in the ~1000-line `neuron_flexible.Neuron` monolith,

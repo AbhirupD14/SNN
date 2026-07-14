@@ -127,14 +127,6 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .config-item { padding: 7px 0; border-top: 1px solid var(--line); }
 .config-item:first-child { border-top: none; }
 .config-desc { font-size: 10.5px; color: var(--txt-2); margin: 5px 0 0; line-height: 1.45; }
-.config-advanced { margin-top: 8px; border-top: 1px solid var(--line); }
-.config-advanced > summary {
-  cursor: pointer; padding: 8px 0 2px; font-size: 11px; letter-spacing: .04em;
-  text-transform: uppercase; color: var(--txt-2); user-select: none;
-}
-.config-advanced > summary:hover { color: var(--txt-0); }
-.config-advanced[open] > summary { color: var(--txt-1); }
-
 /* --------------------------------------------------------------- auto-cycle */
 .autocycle { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
              display: flex; flex-direction: column; gap: 9px; }

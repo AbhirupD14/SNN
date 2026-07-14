@@ -1,4 +1,4 @@
-"""NeuralEntity -- the shared base contract (REFACTOR_PLAN.md, Phase 1).
+"""Shared base contract for neural entities.
 
 A direct analogue of the `cipp-learning` (Paul) base type: anything that lives on
 the simulation timeline has a stable identity and advances one step via `update`.

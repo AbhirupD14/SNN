@@ -3,8 +3,8 @@ Regression test for L2 competition driven by the unweighted competitive reset.
 
 Background: L2 competition is resolved by the shared inhibitory neuron L2I. When an
 L2E crosses threshold it fires and drives L2I; if L2I crosses ITS threshold it
-issues an unweighted competitive-reset event to every non-winner (see
-Neuron.apply_competitive_reset and L2_Hard_Reset_Competitive_Depression_Spec.md).
+issues an unweighted competitive-reset event to the pool through
+Neuron.apply_competitive_reset.
 There is NO learned L2I->L2E gate: the reset is binary (clamp the loser to rest and
 clear its current traces) plus local competitive depression of the participating
 positive feedforward weights.

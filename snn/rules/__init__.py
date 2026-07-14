@@ -1,4 +1,4 @@
-"""snn/rules/ -- learning strategies (REFACTOR_PLAN.md, Phase 3).
+"""Charge-delivery and local learning strategies.
 
 The boolean-flag + inline-branch stacks in `Neuron._update_weights` (excitatory)
 and `Neuron.apply_inhibition` (inhibitory) become swappable Strategy objects here.
