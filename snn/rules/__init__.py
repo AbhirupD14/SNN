@@ -11,6 +11,9 @@ state), so they can be shared singletons.
 from snn.rules.excitatory import select_excitatory_rule, bounded_signed_update
 from snn.rules.inhibitory import select_inhibitory_rule
 from snn.rules.delivery import select_delivery, effective_weights
+from snn.rules.predictive import (trace_lambda, decay_and_set_trace,
+                                  predictor_update)
 
 __all__ = ["select_excitatory_rule", "bounded_signed_update",
-           "select_inhibitory_rule", "select_delivery", "effective_weights"]
+           "select_inhibitory_rule", "select_delivery", "effective_weights",
+           "trace_lambda", "decay_and_set_trace", "predictor_update"]

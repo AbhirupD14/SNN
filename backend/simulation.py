@@ -48,6 +48,8 @@ from layers import InputLayer                       # noqa: E402
 from cortical_column_flexible import CorticalColumn  # noqa: E402
 from neuron_flexible import UNIT, LEAK_SCALE         # noqa: E402  fixed-point convention
 from snn import NeuronConfig                          # noqa: E402  engine-sourced neuron config
+from snn.rules import (trace_lambda, decay_and_set_trace,  # noqa: E402
+                       predictor_update)                   # local predictive inhibition
 from .layout import generate_layout
 
 
@@ -748,6 +750,11 @@ class SimulationEngine:
         self._l1i_fb_offset = 1 if self._l1i_paired else 0
         v_rest_l1i = self.l1.inhibitory_neurons[0].resting_potential
         self._l1i_G = thr_l1i - v_rest_l1i     # predictor threshold distance G
+        # The Section 6 predictor runs only when paired AND feedback learning is on
+        # (local_plus_feedback / time_shuffled). local_only is paired with the
+        # predictor off. Legacy modes are not paired.
+        self._predictive = self._l1i_paired and bool(p['predictive_feedback_enabled'])
+        self._trace_lambda = trace_lambda(p['predictive_trace_tau_steps'])
         if self._l1i_paired:
             local_w = p['predictive_local_weight_frac'] * self._l1i_G
             fb_init = np.full(N_OUT, p['predictive_feedback_init_frac'] * self._l1i_G)
@@ -1003,6 +1010,18 @@ class SimulationEngine:
         # One-step feedback delay. L1I spikes produced at t inhibit paired L1E
         # neurons at t+1 only; the register is replaced every step.
         self.l1i_feedback_delay = np.zeros(N_PIX)
+        # Local predictive-inhibition step state. l1i_trace is the per-L1I local
+        # trace x_i (reset only on rebuild -> decays across presentation boundaries).
+        # delivered_feedback is the vector actually delivered to L1I this step
+        # (live, replayed, or none); actual_l2e is the live L2E spike vector, kept
+        # separate so replay never masquerades as an actual L2 spike.
+        # _feedback_override is the replay hook (Phase 3): the experiment driver sets
+        # it to the replayed vector before a measured step (time-shuffled mode) and
+        # clears it otherwise, so the engine consumes it in place of the live winner.
+        self.l1i_trace = np.zeros(N_PIX)
+        self.delivered_feedback = np.zeros(N_OUT)
+        self.actual_l2e = np.zeros(N_OUT)
+        self._feedback_override = None
         initial_pattern = next(iter(PATTERNS))
         self.input_vec = np.array(PATTERNS[initial_pattern], dtype=float)
         self.timestep = 0
@@ -1423,6 +1442,24 @@ class SimulationEngine:
                     inhibited.append(j)
         return l2i, inhibited, winner
 
+    def _select_delivered_feedback(self, l2e):
+        """STEP 7 (Local Predictive Inhibition): choose the L2E->L1I feedback vector
+        delivered to L1I this timestep. Precedence:
+
+          1. an explicit per-step override (`_feedback_override`) set by the replay
+             driver -- this is the time-shuffled tape vector; it is consumed once and
+             never treated as an actual L2 spike (actual_l2e stays the live vector);
+          2. the live winner vector `l2e` when l2_to_l1i_delivery_enabled;
+          3. zeros -- the baseline / local_only no-feedback controls.
+
+        Only reached when paired; the legacy path delivers the live vector directly.
+        """
+        if self._feedback_override is not None:
+            return np.asarray(self._feedback_override, dtype=float).reshape(N_OUT)
+        if self.params['l2_to_l1i_delivery_enabled']:
+            return l2e.copy()
+        return np.zeros(N_OUT)
+
     # ------------------------------------------------------------------- step
     def step(self) -> dict:
         l1, l2 = self.l1, self.l2
@@ -1463,6 +1500,14 @@ class SimulationEngine:
         for k, e in enumerate(l1.excitatory_neurons):
             if l1e[k]:
                 e.fire()
+
+        # STEP 5 (Local Predictive Inhibition): decay each local trace, then set it
+        # to 1 for any L1I whose paired L1E spiked this outer timestep. Ordered here
+        # -- after L1E resolves, before L2 competition -- so the trace reflects THIS
+        # step's L1E activity when the predictor consumes it below. Only meaningful
+        # when paired; otherwise the trace stays zero and is unused.
+        if self._l1i_paired:
+            self.l1i_trace = decay_and_set_trace(self.l1i_trace, l1e, self._trace_lambda)
 
         # 2b/2c. Deliver L1E->L2E feedforward charge and resolve L2 competition.
         #     A threshold-crossing winner drives L2I. If L2I fires, it broadcasts an
@@ -1563,20 +1608,41 @@ class SimulationEngine:
         # mutate any neuron; dynamic_state() reports the later live membrane phase.
         self.l2_charge = {f'L2E{j}': float(e.potential) for j, e in enumerate(l2.excitatory_neurons)}
 
-        # 2d. Deliver L2E feedback to L1I.
-        #     Legacy: the shared length-N_OUT winner vector goes to every L1I; t
-        #     carries the flow-rate current trace when L1I is a trainable integrator
-        #     (ignored in immediate-relay mode, where L1I's flow flag is off).
-        #     Paired (Local Predictive Inhibition): one vector PER target,
-        #     [paired L1E_i spike, delivered L2E0..L2E{N_OUT-1}]. The feedback block is
-        #     the live winner vector when l2_to_l1i_delivery_enabled, else zeros
-        #     (the baseline / local_only no-feedback controls). Phase 2 inserts the
-        #     local-trace update, weight snapshot, and Section 6 predictor here.
+        # 2d. Deliver L2E feedback to L1I (STEPS 7-10, Local Predictive Inhibition).
+        #     Legacy (not paired): the shared length-N_OUT winner vector goes to
+        #     every L1I; t carries the flow-rate current trace when L1I is a trainable
+        #     integrator (ignored in immediate-relay mode, where L1I's flow flag is
+        #     off). This path is byte-identical to the pre-experiment engine.
+        #
+        #     Paired: STEP 7 selects the delivered feedback vector -- live winner
+        #     (l2_to_l1i_delivery_enabled), a replayed tape vector (time-shuffled
+        #     mode), or none. STEP 8/9 builds one vector per target,
+        #     [paired L1E_i spike, delivered L2E0..L2E{N_OUT-1}], and delivers it once
+        #     using the CURRENT (pre-update) weights. STEP 10 applies the Section 6
+        #     predictor to the feedback afferents -- runs even if the target L1I is
+        #     refractory (receive_input may skip the membrane deposit, but the
+        #     arriving presynaptic event must still teach the predictor). Delivery
+        #     precedes the update, so a spike never benefits from its own new weight
+        #     in the same event (Section 6.3 causality). The fixed local afferent
+        #     (index 0) never enters the predictor.
+        actual_l2e = l2e.copy()
         if self._l1i_paired:
-            deliver_fb = l2e if self.params['l2_to_l1i_delivery_enabled'] else np.zeros(N_OUT)
+            deliver_fb = self._select_delivered_feedback(l2e)
+            self.delivered_feedback = deliver_fb.copy()
+            self.actual_l2e = actual_l2e
+            off = self._l1i_fb_offset
+            eta_up = self.params['predictive_feedback_eta_up']
+            eta_down = self.params['predictive_feedback_eta_down']
             for i, inh in enumerate(l1.inhibitory_neurons):
                 inh.receive_input(np.concatenate([[l1e[i]], deliver_fb]), t=t)
+                if self._predictive:
+                    wfb = inh._weights_array[off:off + N_OUT]
+                    inh._weights_array[off:off + N_OUT] = predictor_update(
+                        wfb, float(self.l1i_trace[i]), deliver_fb,
+                        self._l1i_G, eta_up, eta_down)
         else:
+            self.delivered_feedback = actual_l2e
+            self.actual_l2e = actual_l2e
             for inh in l1.inhibitory_neurons:
                 inh.receive_input(l2e, t=t)
 
