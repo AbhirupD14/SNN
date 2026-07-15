@@ -1641,10 +1641,14 @@ class SimulationEngine:
                         wfb, float(self.l1i_trace[i]), deliver_fb,
                         self._l1i_G, eta_up, eta_down)
         else:
-            self.delivered_feedback = actual_l2e
+            # Legacy (not paired) delivery. Respect l2_to_l1i_delivery_enabled so the
+            # `baseline` mode (delivery off) is a true no-L1-feedback-loop control;
+            # the default True keeps the golden path byte-identical (deliver is l2e).
+            deliver = l2e if self.params['l2_to_l1i_delivery_enabled'] else np.zeros(N_OUT)
+            self.delivered_feedback = deliver.copy()
             self.actual_l2e = actual_l2e
             for inh in l1.inhibitory_neurons:
-                inh.receive_input(l2e, t=t)
+                inh.receive_input(deliver, t=t)
 
         # 2e. L1I fires after receiving L2E feedback.
         if self.l1i_immediate_relay:
