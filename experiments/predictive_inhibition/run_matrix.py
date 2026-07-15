@@ -121,8 +121,8 @@ def run_seed_task(run: MatrixRun, seed, task):
                                              build_tape=build_tape)
             if build_tape and not reused:
                 tape_arrays = tape.arrays()
-            m = compute_all(History.load(npz))
-            run.metric(dict(seed=seed, task=task, mode=mode, reused=reused, **m))
+            m = compute_all(History.load(npz))   # already carries mode/seed/task
+            run.metric({**m, "reused": reused})
             run.done += 1
             run.event("run_done", seed=seed, task=task, mode=mode, reused=reused)
         except Exception:
@@ -148,8 +148,8 @@ def run_seed_task(run: MatrixRun, seed, task):
         npz = rd / f"{mode}.npz"
         try:
             _load_or_run(mode, seed, task, sched, warmup, npz, permuted_tape=permuted)
-            m = compute_all(History.load(npz))
-            run.metric(dict(seed=seed, task=task, mode=mode, **m))
+            m = compute_all(History.load(npz))   # already carries mode/seed/task
+            run.metric(m)
             run.done += 1
             run.event("run_done", seed=seed, task=task, mode=mode)
         except Exception:
