@@ -168,3 +168,7 @@ The machine-readable measurements are written to
 `experiments/frequency_results.json`. The implemented topology, timestep order,
 equations, and current negative result are also recorded in
 `Current_Implementation_Methodology_Equations.md`.
+
+The separate problem of an established L2E winner that crosses threshold in one
+volley, before frequency modulation can act, and the proposed intrinsic-adaptation
+experiment are documented in `docs/INTRINSIC_ADAPTATION_DESIGN.md`.

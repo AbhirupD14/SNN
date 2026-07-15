@@ -56,6 +56,9 @@ The browser protocol and view boundary are in
 [`docs/DASHBOARD.md`](docs/DASHBOARD.md).
 The unresolved temporal-AND and winner-turnover limitation is isolated in
 [`docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md`](docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md).
+A proposed L2E intrinsic-adaptation mechanism for one-volley winner tyranny is
+recorded separately in
+[`docs/INTRINSIC_ADAPTATION_DESIGN.md`](docs/INTRINSIC_ADAPTATION_DESIGN.md).
 
 ## Architecture summary
 
