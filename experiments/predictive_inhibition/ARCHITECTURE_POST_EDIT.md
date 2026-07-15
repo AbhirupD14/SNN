@@ -11,8 +11,9 @@ feedforward learning, the fixed-point units, or the shared `SimulationEngine`.
   and delivers, but `_update_weights` returns immediately (generic excitatory
   learning disabled). Set False on predictive L1I.
 - `inhibitory_plastic` (default True) — when False, `apply_inhibition` still performs
-  the graded, rest-floored discharge but skips the gate-magnitude rule. Set False on
-  the fixed L1I→L1E gate. Both defaults keep the golden baseline bit-exact.
+  the graded, rest-floored discharge but skips the gate-magnitude rule. Left True on
+  the paired L1I→L1E gate so it LEARNS (see below); the non-paired legacy gate stays
+  frozen-at-saturation instead. Defaults keep the golden baseline bit-exact.
 
 ### `snn/rules/predictive.py` (the only predictive learning rule)
 - `trace_lambda(tau)` = exp(-1/tau); `decay_and_set_trace(x, spiked, lam)` — the
@@ -27,7 +28,9 @@ feedforward learning, the fixed-point units, or the shared `SimulationEngine`.
   `predictive_local_weight_frac`, `predictive_feedback_init_frac`,
   `predictive_feedback_eta_up`, `predictive_feedback_eta_down`,
   `predictive_trace_tau_steps`, `predictive_l1i_leak_rate`,
-  `predictive_output_gate_frac`.
+  `predictive_output_gate_frac` (learned-gate CAP ×θ_L1E),
+  `predictive_output_gate_init_frac` (weak init ×θ_L1E),
+  `predictive_output_gate_eta` (gate learning rate).
 - New state: `_l1i_paired`, `_l1i_fb_offset` (0 legacy / 1 paired), `_l1i_G`,
   `_predictive`, `_trace_lambda`, `l1i_trace` (N_PIX), `delivered_feedback` (N_OUT),
   `actual_l2e` (N_OUT), `_feedback_override` (replay hook).
@@ -40,9 +43,12 @@ feedforward learning, the fixed-point units, or the shared `SimulationEngine`.
 
 ## Final array layouts
 
-- **L1E afferents** `[local_gate, external]`. Legacy gate = −UNIT; paired gate =
-  −`predictive_output_gate_frac`·θ_L1E (= −500 at the dashboard scale), frozen
-  (`inhibitory_plastic=False`).
+- **L1E afferents** `[local_gate, external]`. Legacy gate = −UNIT (frozen at
+  saturation). Paired gate is LEARNED: starts weak at
+  −`predictive_output_gate_init_frac`·θ_L1E, matures via real paired inhibitory
+  events (margin rule, margin_frac 0, `predictive_output_gate_eta`) up to the cap
+  `predictive_output_gate_frac`·θ_L1E; at cap 1.0 a mature gate floors the pixel to
+  rest (effective reset). `inhibitory_plastic=True`.
 - **L1I afferents**: legacy `[L2E0..L2E7]` (8); paired
   `[local L1E_i, L2E0..L2E7]` (9) — index 0 fixed at 0.40·G (never plastic),
   indices 1..8 = feedback (predictor-plastic). θ_L1I = G = 2666.67; feedback init

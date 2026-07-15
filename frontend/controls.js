@@ -168,19 +168,6 @@ export class Controls {
     document.getElementById('p-random').addEventListener('click', () => { this.activePattern = null; this.api.post('/api/random'); });
     document.getElementById('p-clear').addEventListener('click', () => { this.activePattern = null; this.api.post('/api/clear'); });
     document.getElementById('p-noise').addEventListener('click', () => { this.activePattern = null; this.api.post('/api/noise/0.15'); });
-    this._wireAutoCycle();
-  }
-
-  _wireAutoCycle() {
-    const enable = document.getElementById('ac-enable');
-    const streak = document.getElementById('ac-streak');
-    const streakVal = document.getElementById('ac-streak-val');
-    if (!enable || !streak) return;
-    streak.addEventListener('input', () => { streakVal.textContent = streak.value; });
-    const send = () => this.api.post('/api/autocycle',
-      { enabled: enable.checked, streak: +streak.value });
-    enable.addEventListener('change', send);
-    streak.addEventListener('change', () => { if (enable.checked) send(); });
   }
 
   buildPatternButtons(patterns) {
@@ -279,25 +266,5 @@ export class Controls {
       }
       for (const [name, b] of Object.entries(this.patBtns)) b.classList.toggle('active', name === match);
     }
-    this._updateAutoCycleStatus(dyn.autocycle);
-  }
-
-  _updateAutoCycleStatus(ac) {
-    const el = document.getElementById('ac-status');
-    const enable = document.getElementById('ac-enable');
-    if (!el || !ac) return;
-    // keep the checkbox in sync (e.g. after the cycle auto-disables on completion)
-    if (enable && enable.checked !== ac.enabled) enable.checked = ac.enabled;
-    if (!ac.enabled) {
-      el.textContent = ac.trained >= ac.total && ac.total > 0
-        ? `complete — ${ac.trained}/${ac.total} patterns trained`
-        : 'idle';
-      el.classList.toggle('done', ac.trained >= ac.total && ac.total > 0);
-      return;
-    }
-    el.classList.remove('done');
-    const w = ac.last_winner == null ? '—' : `L2E${ac.last_winner}`;
-    el.textContent =
-      `${ac.trained}/${ac.total} trained · "${ac.pattern}" ${ac.streak}/${ac.target} stable (→ ${w})`;
   }
 }

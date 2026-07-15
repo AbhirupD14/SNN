@@ -170,6 +170,7 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .ln { width: 16px; height: 2px; border-radius: 2px; }
 .ln.ff { background: var(--ff); } .ln.in { background: var(--in); } .ln.ex { background: var(--ex); }
 .ln.fb { background: #c084fc; }
+.ln.cl { background: #9be15d; }
 .view-hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
   color: var(--txt-2); font-size: 11px; background: rgba(13,17,25,.6); padding: 4px 12px; border-radius: 20px; }
 

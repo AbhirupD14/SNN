@@ -1,0 +1,323 @@
+{
+  "part_a": [
+    {
+      "leak": 0.1,
+      "N": 1,
+      "Q_lo": 99.99999999999997,
+      "Q_hi": 189.99999999999994,
+      "Q_mid": 144.99999999999994,
+      "full": 12,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.1,
+      "N": 2,
+      "Q_lo": 99.99999999999997,
+      "Q_hi": 189.99999999999994,
+      "Q_mid": 144.99999999999994,
+      "full": 12,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.1,
+      "N": 3,
+      "Q_lo": 99.99999999999997,
+      "Q_hi": 189.99999999999994,
+      "Q_mid": 144.99999999999994,
+      "full": 12,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.2,
+      "N": 1,
+      "Q_lo": 199.99999999999994,
+      "Q_hi": 359.9999999999999,
+      "Q_mid": 279.9999999999999,
+      "full": 6,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.2,
+      "N": 2,
+      "Q_lo": 199.99999999999994,
+      "Q_hi": 359.9999999999999,
+      "Q_mid": 279.9999999999999,
+      "full": 6,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.2,
+      "N": 3,
+      "Q_lo": 199.99999999999994,
+      "Q_hi": 359.9999999999999,
+      "Q_mid": 279.9999999999999,
+      "full": 6,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.3,
+      "N": 1,
+      "Q_lo": 300.00000000000006,
+      "Q_hi": 510.0,
+      "Q_mid": 405.0,
+      "full": 4,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.3,
+      "N": 2,
+      "Q_lo": 300.00000000000006,
+      "Q_hi": 510.0,
+      "Q_mid": 405.0,
+      "full": 4,
+      "half": null,
+      "selective": true
+    },
+    {
+      "leak": 0.3,
+      "N": 3,
+      "Q_lo": 300.00000000000006,
+      "Q_hi": 510.0,
+      "Q_mid": 405.0,
+      "full": 4,
+      "half": null,
+      "selective": true
+    }
+  ],
+  "part_b": [
+    {
+      "leak": 0.0,
+      "T": 3,
+      "lone_sensory": 6,
+      "lone_winner": 6,
+      "coincident": 3,
+      "rejects_lone": false
+    },
+    {
+      "leak": 0.0,
+      "T": 5,
+      "lone_sensory": 10,
+      "lone_winner": 10,
+      "coincident": 5,
+      "rejects_lone": false
+    },
+    {
+      "leak": 0.05,
+      "T": 3,
+      "lone_sensory": 9,
+      "lone_winner": 9,
+      "coincident": 3,
+      "rejects_lone": false
+    },
+    {
+      "leak": 0.05,
+      "T": 5,
+      "lone_sensory": 15,
+      "lone_winner": 15,
+      "coincident": 5,
+      "rejects_lone": false
+    },
+    {
+      "leak": 0.16,
+      "T": 3,
+      "lone_sensory": 12,
+      "lone_winner": 12,
+      "coincident": 3,
+      "rejects_lone": false
+    },
+    {
+      "leak": 0.16,
+      "T": 5,
+      "lone_sensory": null,
+      "lone_winner": null,
+      "coincident": 5,
+      "rejects_lone": true
+    },
+    {
+      "leak": 0.2,
+      "T": 3,
+      "lone_sensory": 18,
+      "lone_winner": 18,
+      "coincident": 3,
+      "rejects_lone": false
+    },
+    {
+      "leak": 0.2,
+      "T": 5,
+      "lone_sensory": null,
+      "lone_winner": null,
+      "coincident": 5,
+      "rejects_lone": true
+    },
+    {
+      "leak": 0.25,
+      "T": 3,
+      "lone_sensory": null,
+      "lone_winner": null,
+      "coincident": 3,
+      "rejects_lone": true
+    },
+    {
+      "leak": 0.25,
+      "T": 5,
+      "lone_sensory": null,
+      "lone_winner": null,
+      "coincident": 5,
+      "rejects_lone": true
+    }
+  ],
+  "part_c": [
+    {
+      "leak": 0.0,
+      "l2_spikes": 186,
+      "winners": [
+        5
+      ],
+      "enew_active": 597,
+      "enew_inactive": 63,
+      "src_cadence": 3.46
+    },
+    {
+      "leak": 0.02,
+      "l2_spikes": 86,
+      "winners": [
+        5
+      ],
+      "enew_active": 354,
+      "enew_inactive": 0,
+      "src_cadence": 4.34
+    },
+    {
+      "leak": 0.03,
+      "l2_spikes": 128,
+      "winners": [
+        5
+      ],
+      "enew_active": 345,
+      "enew_inactive": 0,
+      "src_cadence": 4.34
+    },
+    {
+      "leak": 0.04,
+      "l2_spikes": 117,
+      "winners": [
+        5
+      ],
+      "enew_active": 345,
+      "enew_inactive": 0,
+      "src_cadence": 4.34
+    },
+    {
+      "leak": 0.05,
+      "l2_spikes": 0,
+      "winners": [],
+      "enew_active": 345,
+      "enew_inactive": 0,
+      "src_cadence": 4.34
+    },
+    {
+      "leak": 0.08,
+      "l2_spikes": 0,
+      "winners": [],
+      "enew_active": 345,
+      "enew_inactive": 0,
+      "src_cadence": 4.34
+    },
+    {
+      "leak": 0.12,
+      "l2_spikes": 0,
+      "winners": [],
+      "enew_active": 264,
+      "enew_inactive": 0,
+      "src_cadence": 4.25
+    },
+    {
+      "leak": 0.16,
+      "l2_spikes": 0,
+      "winners": [],
+      "enew_active": 0,
+      "enew_inactive": 0,
+      "src_cadence": 4.0
+    },
+    {
+      "leak": 0.2,
+      "l2_spikes": 0,
+      "winners": [],
+      "enew_active": 0,
+      "enew_inactive": 0,
+      "src_cadence": 5.0
+    }
+  ],
+  "part_d": {
+    "leak": 0.03,
+    "inhibition_events": 90,
+    "total_charge_removed": 30000.0,
+    "same_step_wipes": 0,
+    "active_src_cadence": 4.35
+  },
+  "part_e": {
+    "row_winner": 5,
+    "row_spikes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      128,
+      0,
+      0
+    ],
+    "col_winner": 5,
+    "col_spikes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      84,
+      0,
+      0
+    ],
+    "col_inh_by_pixel": [
+      0,
+      115,
+      0,
+      0,
+      115,
+      0,
+      0,
+      115,
+      0
+    ],
+    "row_recover_winner": 5,
+    "row_recover_spikes": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      214,
+      0,
+      0
+    ]
+  },
+  "bootstrap_leaks": [
+    0.0,
+    0.02,
+    0.03,
+    0.04
+  ],
+  "strict_reject_leaks": [
+    0.16,
+    0.2,
+    0.25
+  ],
+  "shared_window": []
+}

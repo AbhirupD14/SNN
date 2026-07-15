@@ -65,6 +65,11 @@ export class Inspector {
       </div>
       <div class="insp-cards">
         ${card('Threshold', meta.threshold.toFixed(2))}
+        ${state.sensory_weight != null ? card('Sensory weight', `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-variant-numeric:tabular-nums">${state.sensory_weight.toFixed(1)}</span>
+            <span style="color:var(--txt-2);font-size:11px">learned S→L1E (grows with training)</span>
+          </div>`) : ''}
         ${state.budget != null ? card('Budget usage', `
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-variant-numeric:tabular-nums">${state.budget_used.toFixed(3)} / ${state.budget.toFixed(2)}</span>
@@ -106,13 +111,28 @@ function synCard(title, list, self) {
   // cards pass the full set and their titles show the true count, so the rows
   // shown must match that count rather than being capped here.
   const rows = list.map(sy => {
-    // Structural L2I->L2E competitive reset: unweighted event, no learned
-    // magnitude -- show a fixed "reset" chip instead of a weight bar/value.
-    if (sy.kind === 'reset_inhibition') {
+    // Structural E->I relay-excitation edge: a +1 event with no learned weight.
+    if (sy.kind === 'relay_excitation') {
       return `<div class="syn-row">
         <span class="name">${sy.other}</span>
         <span class="wbar"></span>
-        <span class="wv" style="color:var(--in)" title="unweighted hard-reset event">reset</span></div>`;
+        <span class="wv" style="color:var(--ex)" title="structural +1 relay event (no learned weight)">relay</span></div>`;
+    }
+    // Paired local sensory afferent L1E_s->L1E_new (coincidence input): a learned
+    // excitatory weight; label it so it reads distinctly from dense L2 feedback.
+    if (sy.kind === 'coincidence_local') {
+      return `<div class="syn-row">
+        <span class="name">${sy.other}</span>
+        <span class="wbar"><i style="left:50%;width:${(Math.min(1, Math.abs(sy.w) / 500) * 50).toFixed(0)}%;background:#9be15d"></i></span>
+        <span class="wv" title="paired local sensory afferent (coincidence input)">local ${sy.w.toFixed(0)}</span></div>`;
+    }
+    // Frozen subtractive gate (I->E): a positive stored magnitude that acts under a
+    // negative sign as a hard wipe. Render it as inhibitory, never as excitatory.
+    if (sy.kind === 'inhibition') {
+      return `<div class="syn-row">
+        <span class="name">${sy.other}</span>
+        <span class="wbar"></span>
+        <span class="wv" style="color:var(--in)" title="frozen subtractive gate = target threshold; hard-wipes charge to rest">−gate ${sy.w.toFixed(0)}</span></div>`;
     }
     const mag = Math.min(1, Math.abs(sy.w));
     const pos = sy.w >= 0;

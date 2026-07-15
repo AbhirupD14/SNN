@@ -33,9 +33,11 @@ from the same origin. Three.js is loaded from a CDN; all project code is local.
 | `serializer.py` | Wrap engine state in protocol envelopes. |
 | `simulation.py` | Own all model state and behavior. |
 
-`api.py` creates the engine from `DASHBOARD_OVERRIDES`. `CONFIG_SPEC` is the
-only list of controls shown in the browser. Applying configuration rebuilds the
-engine, so it also clears learned state.
+`api.py` creates the engine from `DASHBOARD_OVERRIDES` (empty — plain defaults).
+`CONFIG_SPEC` is the only list of controls shown in the browser: `leak_rate`,
+`refractory_steps`, `eta`, and `e_weight_cap`. Applying configuration validates
+against a small allowlist (`EDITABLE_KEYS`), rejects any other key, and rebuilds
+the engine, so it also clears learned state.
 
 ## REST API
 
@@ -50,10 +52,9 @@ engine, so it also clears learned state.
 | POST | `/api/input` | Set the full nine-pixel vector. |
 | POST | `/api/pixel/{i}` | Toggle one input pixel. |
 | POST | `/api/clear`, `/api/random`, `/api/noise/{prob}` | Modify input. |
-| POST | `/api/weight` | Edit one L1E→L2E feedforward weight. |
+| POST | `/api/weight` | Edit one L1E_s→L2E feedforward weight. |
 | POST | `/api/stimulate` | Stimulate one neuron. |
-| POST | `/api/config` | Apply exposed configuration overrides and rebuild. |
-| POST | `/api/autocycle` | Configure automatic pattern visits. |
+| POST | `/api/config` | Apply allowlisted configuration overrides and rebuild. |
 
 ## WebSocket protocol
 
@@ -66,20 +67,29 @@ the server streams dynamic state after each timestep.
 Topology contains stable identities and structure:
 
 ```text
-neurons           id, label, layer, type, threshold, functional pos
-synapses          id, source, target, kind, current weight/confidence
+neurons           id, label, layer, type, role, threshold, functional pos
+synapses          id, source, target, kind, weight (null for structural relays),
+                  sign (-1 on inhibition gates)
 patterns          names and input vectors
 grid              input rows and columns
-params            complete engine parameter snapshot
+params            engine parameter snapshot (incl. threshold_l2, l2e_weight_cap_frac
+                  used by the receptive-field / weights charts)
 ```
+
+Synapse kinds: `feedforward`, `feedback`, `coincidence_local` (paired
+L1E_s[i]→L1E_new[i] sensory afferent), `relay_excitation` (structural E→I,
+`weight: null`), `inhibition` (frozen I→E subtractive gate, positive magnitude +
+`sign: -1`; the L1I→L1E_s wipe is delivered one step after the relay fires).
 
 Dynamic state contains changing values:
 
 ```text
 timestep, running, speed
-neurons           potential, activation, spike, frequency, refractory state
-changed_synapses  sparse weight deltas
-input, winner, episode, autocycle
+neurons            potential, activation, spiked, freq, refractory, assembly
+changed_synapses   sparse weight deltas {id, weight}
+emitted            synapse ids that carried a spike this step (edge flashes)
+applied_inhibition hard-wipe events {target, v_pre, charge_removed, reached_rest}
+input, winner
 stats, log
 ```
 
@@ -99,17 +109,19 @@ synapse values and applies sparse deltas from dynamic messages.
 
 The renderer stores backend coordinates as `functionalPos`. It derives a
 separate `pos` by expanding within-layer and between-layer offsets. Synapse lines
-use the expanded display positions, but distance attenuation continues to use
-only the backend's functional coordinates.
+use the expanded display positions; the backend's functional coordinates are used
+only to set per-synapse learning rates (they never scale delivered charge).
 
 The orthographic camera is refit after topology changes. Neuron meshes and
 synapse lines are created once per topology, then mutated for each dynamic frame.
 
 ## Adding a control
 
-1. Confirm the parameter is accepted by `SimulationEngine.apply_config()`.
-2. Add its default experiment value to `DASHBOARD_OVERRIDES` if needed.
-3. Add one range, toggle, or select entry to `CONFIG_SPEC`.
+1. Add the key to `DEFAULTS` and `EDITABLE_KEYS` in `backend/simulation.py` so
+   `apply_config()` accepts it.
+2. Add one range, toggle, or select entry to `CONFIG_SPEC` in
+   `backend/dashboard_config.py`.
 
-`frontend/controls.js` generates the element automatically. Keep mechanisms that
-are only useful for scripted ablations out of `CONFIG_SPEC`.
+`frontend/controls.js` generates the element automatically. The configuration
+surface is intentionally small; do not reintroduce topology sizes, per-layer
+thresholds, or ablation switches.

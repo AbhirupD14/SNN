@@ -1,20 +1,29 @@
-"""Reusable neuron components extracted from the original neuron implementation.
+"""The minimal SNN model: two neuron types and their shared constants.
 
-Strangler-fig migration: these types incrementally take ownership of state and
-behavior that currently lives in the ~1000-line `neuron_flexible.Neuron` monolith,
-under the bit-exact golden contract in tests/golden/. Nothing here changes any
-equation or default; it relocates state so the God object can be decomposed.
-
-Phase 1 introduces:
-  - NeuralEntity : Paul-style base contract (entity_id + update()).
-  - SynapseBank  : owns the vectorized afferent arrays + construction path.
-  - Membrane     : owns the membrane scalars (potential, threshold, refractory,
-                   leak, v_sat).
+``ExcitatoryNeuron`` and ``InhibitoryNeuron`` are the only neuron implementations.
+Topology, causal event order, and serialization live in ``backend.simulation``.
 """
 
-from snn.entity import NeuralEntity
-from snn.membrane import Membrane
-from snn.synapses import SynapseBank
-from snn.config import NeuronConfig
+from snn.neurons import (
+    ExcitatoryNeuron,
+    InhibitoryNeuron,
+    E_THRESHOLD,
+    I_THRESHOLD,
+    E_WEIGHT_CAP,
+    SUBTRACTIVE_SIGN,
+    DEFAULT_ETA,
+    DEFAULT_LEAK,
+    DEFAULT_REFRACTORY,
+)
 
-__all__ = ["NeuralEntity", "Membrane", "SynapseBank", "NeuronConfig"]
+__all__ = [
+    "ExcitatoryNeuron",
+    "InhibitoryNeuron",
+    "E_THRESHOLD",
+    "I_THRESHOLD",
+    "E_WEIGHT_CAP",
+    "SUBTRACTIVE_SIGN",
+    "DEFAULT_ETA",
+    "DEFAULT_LEAK",
+    "DEFAULT_REFRACTORY",
+]

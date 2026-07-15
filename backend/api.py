@@ -20,7 +20,6 @@ from pydantic import BaseModel
 
 from .dashboard_config import CONFIG_SPEC, DASHBOARD_OVERRIDES, config_values
 from .simulation import SimulationEngine
-from neuron_flexible import UNIT   # fixed-point scale (potentials/thresholds run at * UNIT)
 from .serializer import topology_message, full_state
 from .websocket import ConnectionManager, SimulationRunner
 
@@ -68,7 +67,7 @@ async def _startup():
 # --------------------------------------------------------------------- models
 class StimulateBody(BaseModel):
     neuron_id: str
-    magnitude: float = 1 * UNIT   # 1 threshold-unit of charge at the fixed-point scale
+    magnitude: float = 1.0        # charge as a multiple of the E threshold
     continuous: bool = False
 
 
@@ -228,19 +227,6 @@ def _current_config():
 @app.get("/api/config")
 async def get_config():
     return _current_config()
-
-
-class AutoCycleBody(BaseModel):
-    enabled: bool
-    streak: int | None = None
-    visit_steps: int | None = None
-
-
-@app.post("/api/autocycle")
-async def set_autocycle(body: AutoCycleBody):
-    state = engine.set_auto_cycle(body.enabled, body.streak, body.visit_steps)
-    await runner.broadcast_dynamic()
-    return state
 
 
 @app.post("/api/config")

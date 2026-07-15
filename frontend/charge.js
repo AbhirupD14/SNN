@@ -22,7 +22,14 @@ export class ChargeChart {
     this.order = [];
     this.charge = [];      // Float32Array per timestep: activation (V/θ)
     this.spike = [];       // Uint8Array per timestep
-    this.inhibited = [];   // Uint8Array: L2I discharge/hard-reset reached target
+    this.inhibited = [];   // Uint8Array: L2I competitive reset reached this L2E lane
+    // Applied paired L1I->L1E inhibition (distinct from the L2 reset above): the
+    // fraction of the L1E's pre-charge removed by the learned gate this step, and a
+    // flag for a full reset (floored at rest). Sourced from dyn.applied_inhibition,
+    // NOT from emitted:[li{i}] -- so the marker lands at t+1 when inhibition applies,
+    // not at t when the source L1I spikes.
+    this.l1inh = [];       // Float32Array: removed / v_pre in [0,1]
+    this.l1rest = [];      // Uint8Array: 1 if the gate floored the pixel to rest
     this.times = [];
     this.showL1 = true;
     this.colW = 8;
@@ -56,7 +63,8 @@ export class ChargeChart {
   build(topo) {
     this.order = (topo?.neurons ?? []).map(n => ({ id: n.id, type: n.type, group: n.layer + n.type }));
     this.index = new Map(this.order.map((n, i) => [n.id, i]));
-    this.charge = []; this.spike = []; this.inhibited = []; this.times = [];
+    this.charge = []; this.spike = []; this.inhibited = [];
+    this.l1inh = []; this.l1rest = []; this.times = [];
     this.built = true;
   }
 
@@ -64,21 +72,32 @@ export class ChargeChart {
     if (!this.built || !dyn || !dyn.neurons) return;
     const nN = this.order.length;
     const chg = new Float32Array(nN), spk = new Uint8Array(nN), inh = new Uint8Array(nN);
+    const linh = new Float32Array(nN), lrest = new Uint8Array(nN);
     for (const n of dyn.neurons) {
       const i = this.index.get(n.id);
       if (i == null) continue;
       chg[i] = n.activation ?? 0;
       if (n.spiked) spk[i] = 1;
     }
-    for (const edge of dyn.emitted || []) {
-      // Structural L2I->L2E competitive reset (reset->{j}); no learned magnitude.
-      if (!edge.startsWith('reset->')) continue;
-      const i = this.index.get(`L2E${edge.slice(7)}`);
-      if (i != null) inh[i] = 1;
+    // Every hard-wipe this step comes from one engine record. An L2E target is the
+    // L2I competitive reset (red tick); an L1E target is the paired L1I->L1E_s wipe
+    // (violet marker). Both are full wipes to rest.
+    for (const ev of dyn.applied_inhibition || []) {
+      const i = this.index.get(ev.target);
+      if (i == null) continue;
+      if (ev.target.startsWith('L2E')) {
+        inh[i] = 1;
+      } else {
+        const frac = ev.v_pre > 0 ? Math.min(1, ev.charge_removed / ev.v_pre) : 0;
+        linh[i] = ev.reached_rest ? 1 : Math.max(linh[i], frac);
+        lrest[i] = ev.reached_rest ? 1 : lrest[i];
+      }
     }
-    this.charge.push(chg); this.spike.push(spk); this.inhibited.push(inh); this.times.push(dyn.timestep);
+    this.charge.push(chg); this.spike.push(spk); this.inhibited.push(inh);
+    this.l1inh.push(linh); this.l1rest.push(lrest); this.times.push(dyn.timestep);
     while (this.charge.length > HISTORY) {
-      this.charge.shift(); this.spike.shift(); this.inhibited.shift(); this.times.shift();
+      this.charge.shift(); this.spike.shift(); this.inhibited.shift();
+      this.l1inh.shift(); this.l1rest.shift(); this.times.shift();
     }
     this._schedule();
   }
@@ -142,6 +161,9 @@ export class ChargeChart {
     const css = getComputedStyle(document.documentElement);
     const cExc = css.getPropertyValue('--exc').trim() || '#5eead4';
     const cInh = css.getPropertyValue('--inh').trim() || '#f0788c';
+    // Applied paired L1I->L1E inhibition marker: a distinct violet, tying the
+    // feedback->inhibition story together and separating it from the red L2 reset.
+    const cL1inh = css.getPropertyValue('--fb').trim() || '#c084fc';
     const cLine = css.getPropertyValue('--line').trim() || '#242b3a';
     const cTxt = css.getPropertyValue('--txt-1').trim() || '#c7d0e0';
     const cMut = css.getPropertyValue('--txt-2').trim() || '#5f6b82';
@@ -201,6 +223,19 @@ export class ChargeChart {
           ctx.fillRect(xOf(c), laneTop + Math.max(5, laneH * 0.22), barW,
                        Math.max(2, Math.min(4, laneH * 0.18)));
         }
+        // Applied paired L1I->L1E inhibition (L1E lanes): a top-anchored violet
+        // marker whose height/opacity grow with the fraction of charge removed;
+        // a full reset (floored at rest) draws taller and fully opaque, so weak
+        // partial inhibition is visually distinct from a mature effective reset.
+        const li = this.l1inh[c][idx];
+        if (li > 0.001) {
+          const rest = this.l1rest[c][idx];
+          const h = (0.30 + 0.55 * li) * (laneH - 2);
+          ctx.globalAlpha = rest ? 1 : 0.45 + 0.5 * li;
+          ctx.fillStyle = cL1inh;
+          ctx.fillRect(xOf(c), laneTop, barW, h);
+          ctx.globalAlpha = 1;
+        }
       }
     }
 
@@ -215,6 +250,21 @@ export class ChargeChart {
     ctx.strokeStyle = cLine; ctx.beginPath(); ctx.moveTo(MARGIN + .5, 0); ctx.lineTo(MARGIN + .5, vh); ctx.stroke();
     ctx.clearRect(MARGIN, 0, vw - MARGIN, AXIS);
     ctx.fillStyle = cMut; ctx.font = '10px ui-monospace, monospace'; ctx.textBaseline = 'top';
-    if (cols) ctx.fillText(`charge V/theta (bar) · dashed = threshold · spike = full peak · red tick = inhibition/reset · ${cols} steps · ${this.colW.toFixed(0)} px/step · newest ->`, MARGIN + 6, 3);
+    if (cols) {
+      // Legend: three separately-colored event types + the charge/threshold guides.
+      const parts = [
+        ['charge V/θ (bar) · dashed = θ', cMut],
+        ['peak = spike (incl. L1I)', cExc],
+        ['red tick = L2 competitive reset', cInh],
+        ['violet = applied L1I→L1E inhibition (tall = reset)', cL1inh],
+      ];
+      let lx = MARGIN + 6;
+      for (const [txt, col] of parts) {
+        ctx.fillStyle = col; ctx.fillText(txt, lx, 3);
+        lx += ctx.measureText(txt).width + 14;
+      }
+      ctx.fillStyle = cMut;
+      ctx.fillText(`· ${cols} steps · ${this.colW.toFixed(0)} px/step · newest ->`, lx, 3);
+    }
   }
 }

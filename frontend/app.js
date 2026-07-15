@@ -73,7 +73,6 @@ function onMessage(msg) {
     store.dynamic = dyn;
     store.stateById = new Map(dyn.neurons.map(n => [n.id, n]));
     for (const c of dyn.changed_synapses || []) store.weights.set(c.id, c.weight);
-    for (const c of dyn.changed_confidence || []) store.confidence.set(c.id, c.confidence);
     const fps = tickFps();
     renderer.update(dyn);
     charts.update(dyn, fps);

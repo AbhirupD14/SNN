@@ -78,17 +78,6 @@
             <button class="btn sm" id="p-clear">Clear</button>
             <button class="btn sm" id="p-noise">Noise</button>
           </div>
-          <div class="autocycle">
-            <label class="check"><input type="checkbox" id="ac-enable" /> Auto-cycle patterns</label>
-            <label class="field">
-              <span>Trained after <b id="ac-streak-val">3</b> stable rounds</span>
-              <input type="range" id="ac-streak" min="1" max="10" step="1" value="3" />
-            </label>
-            <p class="config-desc">Rotates through all patterns, a short visit each. A pattern is
-              "trained" once the same L2E neuron wins it for N rounds in a row; the cycle stops when
-              all are trained. (Sitting on one pattern can't train — the pool round-robins.)</p>
-            <div class="ac-status" id="ac-status">idle</div>
-          </div>
         </div>
       </section>
 
@@ -143,9 +132,10 @@
         <div><span class="sw inh"></span>inhibitory</div>
         <div><span class="sw win"></span>winner</div>
         <div><span class="ln ff"></span>feedforward</div>
-        <div><span class="ln in"></span>inhibition</div>
-        <div><span class="ln ex"></span>excitation</div>
-        <div><span class="ln fb"></span>feedback (E2→I1)</div>
+        <div><span class="ln fb"></span>feedback (L2E→L1E_new)</div>
+        <div><span class="ln cl"></span>local sensory (L1E_s→L1E_new)</div>
+        <div><span class="ln ex"></span>relay E→I</div>
+        <div><span class="ln in"></span>inhibition I→E</div>
       </div>
       <div class="view-hint">drag to orbit · scroll to zoom · right-drag to pan · click a neuron</div>
     </section>

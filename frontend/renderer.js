@@ -15,18 +15,61 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const COLORS = {
   E: 0x5eead4, I: 0xf0788c, winner: 0xffce5c,
-  feedforward: 0x4cc38a, inhibition: 0xf0788c, excitation: 0x7c9cff, feedback: 0xc084fc,
-  // Structural L2I->L2E competitive-reset fanout: fixed inhibitory styling, no
-  // learned weight (rendered at a constant opacity, independent of the weak filter).
-  reset_inhibition: 0xf0788c,
+  feedforward: 0x4cc38a, inhibition: 0xf0788c, feedback: 0xc084fc,
+  // Paired local sensory afferent L1E_s[i] -> L1E_new[i] (coincidence input): a real
+  // weighted excitatory synapse, distinct green-yellow.
+  coincidence_local: 0x9be15d,
+  // Structural E->I relay-excitation edge: a +1 event edge with no learned weight,
+  // rendered blue at a fixed opacity (independent of the weak-weight filter).
+  relay_excitation: 0x7c9cff,
 };
-const WEAK = 0.25;
-const RESET_OPACITY = 0.22;   // fixed opacity for the unweighted reset fanout edges
+const WEAK = 0.25;            // fraction of the shared cap below which a learned edge is "weak"
+const STRUCTURAL_OPACITY = 0.22;   // fixed opacity for weightless structural relay edges
 // View-only spacing. Backend topology coordinates remain the functional geometry
 // used for distance/charge calculations. The renderer expands offsets inside each
 // layer much more aggressively, then separates layer centers as a second step.
 const WITHIN_LAYER_SPACING = 4.0;
 const BETWEEN_LAYER_SPACING = 4.0;
+
+// --- Frontend-only visual sizing -------------------------------------------
+// The display transform above expands the functional coordinates. When
+// WITHIN_LAYER_SPACING === BETWEEN_LAYER_SPACING that expansion is a *uniform*
+// scale of every neuron position about the network center, so the neuron bodies
+// -- whose radii were tuned for the old compact (1x) layout -- must be enlarged
+// by that same factor to keep their original, legible proportions in the fitted
+// orthographic view. This is purely visual: it never touches backend positions,
+// distances, or simulation behaviour. Tune this single constant to rescale every
+// neuron-derived visual together (spheres, charge rings, selection growth, spike
+// pulse, winner halo); the four BASE_RADII keep the populations intentionally
+// distinct relative to one another.
+const VISUAL_SCALE = WITHIN_LAYER_SPACING;
+const BASE_RADII = { L1E: 0.44, L1I: 0.34, L2E: 0.55, L2I: 0.62 };
+const RING_GAP = 0.18;          // base gap between sphere surface and charge ring
+const HALO_RADIUS = 1.05;       // base winner-halo torus radius (encloses winner)
+const HALO_TUBE = 0.06;         // base winner-halo tube radius
+// Per-frame growth factors baked into the animation loop, mirrored here so the
+// camera-fit padding tracks the largest an object can actually render.
+const SELECTION_GROWTH = 1.35;  // selected-neuron mesh scale (see _loop)
+const SPIKE_PULSE_GROWTH = 1.5; // (1 + pulse*0.5) at pulse == 1
+const RING_MAX_SCALE = 2.0;     // charge(<=1.5) + pulse*0.5 at pulse == 1
+
+// Scaled radius for a neuron given its layer/type metadata.
+function neuronRadius(meta) {
+  return (BASE_RADII[meta.layer + meta.type] ?? BASE_RADII.L1E) * VISUAL_SCALE;
+}
+
+// Largest distance any rendered object reaches from its neuron center, across
+// spheres (with selection + spike growth), charge rings (with charge + pulse
+// bloom), and the winner halo. Used as camera-fit padding so enlarged neurons
+// are never clipped at the viewport edges or after a resize.
+function maxRenderedExtent() {
+  const rMax = Math.max(...Object.values(BASE_RADII)) * VISUAL_SCALE;
+  const tubeMax = 0.055 * VISUAL_SCALE;
+  const neuron = rMax * SELECTION_GROWTH * SPIKE_PULSE_GROWTH;
+  const ring = (rMax + RING_GAP * VISUAL_SCALE + tubeMax) * RING_MAX_SCALE;
+  const halo = (HALO_RADIUS + HALO_TUBE) * VISUAL_SCALE;
+  return Math.max(neuron, ring, halo);
+}
 
 export class NeuronRenderer {
   constructor(container, { onSelect }) {
@@ -69,7 +112,7 @@ export class NeuronRenderer {
     const p2 = new THREE.PointLight(0x5eead4, 0.5, 120); p2.position.set(-16, -12, 6); scene.add(p2);
 
     const halo = new THREE.Mesh(
-      new THREE.TorusGeometry(1.05, 0.06, 12, 40),
+      new THREE.TorusGeometry(HALO_RADIUS * VISUAL_SCALE, HALO_TUBE * VISUAL_SCALE, 12, 40),
       new THREE.MeshBasicMaterial({ color: COLORS.winner, transparent: true, opacity: 0.9 }));
     halo.visible = false;
     scene.add(halo);
@@ -96,6 +139,9 @@ export class NeuronRenderer {
     this.neurons.clear(); this.edges.clear();
     this.pos = new Map();
     this.functionalPos = new Map();
+    // Shared accumulating-weight cap: learned weights arrive on the theta=1000 scale,
+    // so opacity/weak/assembly thresholds are computed as a fraction of this cap.
+    this.weightCap = topology.params?.e_weight_cap || 1;
 
     const layerSums = new Map(), layerCounts = new Map();
     const networkCenter = new THREE.Vector3();
@@ -123,8 +169,10 @@ export class NeuronRenderer {
     }
 
     for (const m of topology.neurons) {
-      // Neuron sphere
-      const r = m.layer === 'L2' ? (m.type === 'I' ? 0.62 : 0.55) : (m.type === 'I' ? 0.34 : 0.44);
+      // Neuron sphere. Geometry is enlarged by VISUAL_SCALE so the per-frame
+      // mesh.scale in _loop (selection/spike growth) still multiplies from the
+      // correct visual base instead of being reset to the compact-layout size.
+      const r = neuronRadius(m);
       const geo = new THREE.SphereGeometry(r, 24, 18);
       const mat = new THREE.MeshStandardMaterial({
         color: 0x2b3446, emissive: COLORS[m.type], emissiveIntensity: 0.08,
@@ -136,8 +184,8 @@ export class NeuronRenderer {
 
       // Charge ring: TorusGeometry around the sphere, starts at scale 0.
       // Inner radius slightly larger than the sphere; thin tube.
-      const ringR = r + 0.18;
-      const tubeR = m.layer === 'L2' ? 0.055 : 0.042;
+      const ringR = r + RING_GAP * VISUAL_SCALE;
+      const tubeR = (m.layer === 'L2' ? 0.055 : 0.042) * VISUAL_SCALE;
       const ringGeo = new THREE.TorusGeometry(ringR, tubeR, 8, 40);
       const ringMat = new THREE.MeshBasicMaterial({
         color: COLORS[m.type], transparent: true, opacity: 0,
@@ -157,7 +205,7 @@ export class NeuronRenderer {
       const mat = new THREE.LineBasicMaterial({ color: COLORS[s.kind], transparent: true, opacity: 0.12 });
       const line = new THREE.Line(geo, mat);
       this.scene.add(line);
-      this.edges.set(s.id, { line, mat, syn: s, weight: s.weight ?? 0, pulse: 0 });
+      this.edges.set(s.id, { line, mat, syn: s, weight: s.weight, pulse: 0 });
     }
     this._applyEdgeWeights();
     this._fitCameraToTopology();
@@ -170,7 +218,9 @@ export class NeuronRenderer {
     // selection growth, and the winner halo.
     const points = [...this.pos.values()];
     if (!points.length) return;
-    const box = new THREE.Box3().setFromPoints(points).expandByScalar(1.6);
+    // Pad by the largest extent any enlarged neuron/ring/halo can reach from its
+    // center so nothing is clipped at the viewport edges on first fit or resize.
+    const box = new THREE.Box3().setFromPoints(points).expandByScalar(maxRenderedExtent());
     const sphere = box.getBoundingSphere(new THREE.Sphere());
     const aspect = this.container.clientWidth / Math.max(this.container.clientHeight, 1);
     const halfHeight = sphere.radius * 1.18 / Math.min(Math.max(aspect, 0.1), 1);
@@ -219,14 +269,16 @@ export class NeuronRenderer {
     }
   }
 
+  _norm(w) { return Math.abs(w) / this.weightCap; }   // learned magnitude as a fraction of cap
+
   _applyEdgeWeights() {
     for (const e of this.edges.values()) {
-      if (e.syn.kind === 'reset_inhibition') {
-        // Unweighted structural fanout: fixed opacity, no weight scaling.
-        e.baseOpacity = RESET_OPACITY;
+      if (e.weight == null) {
+        // Weightless structural relay edge: fixed opacity, no weight scaling.
+        e.baseOpacity = STRUCTURAL_OPACITY;
         continue;
       }
-      const mag = Math.min(1, Math.abs(e.weight));
+      const mag = Math.min(1, this._norm(e.weight));
       e.baseOpacity = 0.04 + 0.32 * mag;
     }
   }
@@ -239,7 +291,7 @@ export class NeuronRenderer {
     if (win) {
       assemblyNeurons.add(win);
       for (const e of this.edges.values())
-        if (e.syn.target === win && e.syn.kind === 'feedforward' && Math.abs(e.weight) > WEAK)
+        if (e.syn.target === win && e.syn.kind === 'feedforward' && this._norm(e.weight) > WEAK)
           assemblyNeurons.add(e.syn.source);
     }
     for (const [id, e] of this.neurons) {
@@ -255,9 +307,9 @@ export class NeuronRenderer {
     }
     for (const e of this.edges.values()) {
       let vis = true;
-      // The structural reset fanout has no weight; it must stay visible regardless
-      // of the weak-weight filter (only neuron-visibility/assembly filters apply).
-      if (e.syn.kind !== 'reset_inhibition' && F.weak && Math.abs(e.weight) < WEAK) vis = false;
+      // Weightless structural relay edges must stay visible regardless of the
+      // weak-weight filter (only neuron-visibility/assembly filters apply).
+      if (e.weight != null && F.weak && this._norm(e.weight) < WEAK) vis = false;
       const sN = this.neurons.get(e.syn.source), tN = this.neurons.get(e.syn.target);
       if (sN && !sN.mesh.visible) vis = false;
       if (tN && !tN.mesh.visible) vis = false;
