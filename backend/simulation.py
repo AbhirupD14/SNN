@@ -1,28 +1,30 @@
-"""The one active SNN model: construction, one deterministic step, and state
+"""Conductance-based predictive-inhibition SNN: construction, a synchronous
+double-buffered timestep with explicit integer synaptic delays, and state
 snapshots for the dashboard.
 
-There is a single scientific model here. No experiment-mode selectors, no legacy
-ablations. Neuron behaviour lives in ``snn.neurons``; this module owns topology,
-the causal event order, and serialization.
+Two topologies share one synchronous engine, selected by ``enew_enabled``:
 
-Topology (36 neurons)::
+``enew_enabled=False`` -- the predictive-inhibition (PI) experiment (default here
+for the scientific question)::
 
-    9 external pixels
-           |                       (sensory, frozen, subthreshold)
-           v
-      9 x L1E_s  ===============>  8 x L2E  ------>  1 x L2I
-           ^        dense acc         |   ^             |
-           |   frozen subtractive     |   +-------------+
-      9 x L1I     hard wipe           |   frozen subtractive hard wipe
-           ^                          |
-           | instant paired relay     |
-      9 x L1E_new  <==================+
-                     dense acc feedback
+        external -> L1E_s[i] ==ff==> L2E[j] --relay--> PI[j]
+                        ^                 |
+                        |     predictive inhibitory conductance (locally plastic)
+                        +-----------------+
+                                          L2E[j] --relay--> L2I_WTA --> all L2E (conductance)
 
-Internal edges: 72 (L1E_s->L2E) + 72 (L2E->L1E_new) + 9 (L1E_new->L1I)
-              + 8 (L2E->L2I) + 9 (L1I->L1E_s) + 8 (L2I->L2E) = 178.
-Sensory pixel->L1E_s afferents are not serialized as edges (their source is not a
-neuron); the pixel grid UI shows the input instead.
+    9 L1E_s, 8 L2E, 8 PI (paired 1:1 with L2E), 1 L2I_WTA  = 26 neurons.
+    Each PI[j] owns 9 candidate inhibitory output synapses onto L1E_s (72 total).
+
+``enew_enabled=True`` -- the retained L1E_new coincidence comparison topology
+(36 neurons). Its inhibition is ALSO conductance now (no hard wipes anywhere).
+
+Timestep semantics (see ``step``): every internal excitatory projection has an
+integer delay of 1; relays (L2I_WTA, PI, L1I) fire in the same boundary as their
+source spike and schedule their inhibitory *conductance* output for the next
+boundary. External input arrives at the current boundary. All targets integrate
+once per boundary from double-buffered arrivals, so no behaviour depends on Python
+neuron-iteration order.
 """
 
 from __future__ import annotations
@@ -38,10 +40,11 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from snn.neurons import (  # noqa: E402
     ExcitatoryNeuron,
     InhibitoryNeuron,
+    PredictiveInterneuron,
     E_THRESHOLD,
     I_THRESHOLD,
     E_WEIGHT_CAP,
-    SUBTRACTIVE_SIGN,
+    INHIBITORY_SIGN,
 )
 from backend.layout import generate_layout  # noqa: E402
 
@@ -56,70 +59,71 @@ PATTERNS = {
 N_PIX = 9
 N_OUT = 8
 
-# --- Projection-specific initialization -------------------------------------
-# One universal per-synapse cap (E_WEIGHT_CAP) is the biological bound. Each
-# learned projection is *initialized* around a documented mean chosen so that the
-# whole afferent vector sums BELOW threshold. That subthreshold total matters for
-# the sign of the learning rule: with p = threshold - sum(acc_weights) > 0, a
-# participating (+1) afferent potentiates and an absent (-1) afferent decays, so a
-# selective receptive field forms; as the participating weights climb, the total
-# approaches threshold and p -> 0, making the rule self-limiting. A uniform init
-# near the mature active weight (theta / N_active) would instead put the *total*
-# well above threshold (p < 0) and invert the rule -- so the init is deliberately
-# a small uniform seed, not the mature target, and the rule sparsifies it.
-#
-#   sensory (L1E_s, 1 afferent, frozen): a subthreshold weight so a held pixel
-#     integrates over three zero-leak steps before its source fires -- and a paired
-#     L1I wipe resets that integration, which is what lets feedback modulate the
-#     source presentation frequency.
-#   feedforward (L1E_s->L2E, 9 afferents, ~3 active): total ~0.55*theta at init, so
-#     an undifferentiated competitor integrates a 3-active volley over several steps
-#     and sparsifies toward the ~3 active pixels as it wins.
-#
-# L1E_new is a local COINCIDENCE detector with nine accumulating afferents:
-#   index 0    -- one paired local sensory afferent from L1E_s[i]
-#   index 1..8 -- dense feedback from L2E[0..7]
-# It should fire only when its paired L1E_s[i] AND an L2E winner spike coincide.
-# With the shared cap at theta/2, exact two-input coincidence is calibrated:
-# a mature paired-sensory weight (~500) plus a mature winning-L2E weight (~500)
-# sums to theta on a coincident step, while either branch alone (~500) stays
-# below theta. Init keeps the total below theta so p = theta - sum(acc_weights)
-# starts positive (Hebbian): a strong-but-subthreshold paired sensory seed and a
-# small nonzero seed on each feedback afferent.
-SENSORY_WEIGHT = E_THRESHOLD / 3.0                 # frozen, subthreshold; ~3 steps/source spike
+# --- Excitatory initialization (unchanged learning rule) --------------------
+SENSORY_WEIGHT = E_THRESHOLD / 3.0                 # frozen sensory afferent weight
 FF_INIT_TOTAL_FRAC = 0.55                          # L2E ff sum(acc_weights) at init, / theta
 FF_INIT_MEAN = FF_INIT_TOTAL_FRAC * E_THRESHOLD / N_PIX   # ~61
-ENEW_SENSORY_INIT_FRAC = 0.49                      # paired local sensory afferent, / theta -> 490
-ENEW_FB_INIT_FRAC = 0.06                           # each L2E feedback afferent, / theta -> 60
+ENEW_SENSORY_INIT_FRAC = 0.49                      # paired local sensory afferent, / theta
+ENEW_FB_INIT_FRAC = 0.06                           # each L2E feedback afferent, / theta
 INIT_JITTER_FRAC = 0.04                            # deterministic narrow seeded jitter
 DISTANCE_POWER = 2.0                               # fixed exponent for the learning-rate factor
 
 FREQ_WINDOW = 40
 LOG_MAX = 400
+SYNAPTIC_DELAY = 1                                 # integer delay on every internal projection
 
-# The shared default excitatory weight cap is theta/2 = 500, which calibrates the
-# two-input L1E_new coincidence (500 + 500 = theta). Zero leak is NOT a valid
-# default for this circuit (two lone-branch events could accumulate and falsely
-# fire L1E_new); the default leak below is the value selected by
-# experiments/frequency_experiment.py. e_threshold is fixed at 1000 (inspectability)
-# and is NOT part of the editable allowlist.
 LEAK_DEFAULT = 0.03
 DEFAULTS = dict(
     seed=1,
     e_threshold=E_THRESHOLD,
-    e_weight_cap=E_THRESHOLD / 2.0,                # 500 (shared)
-    eta=0.01,
-    leak_rate=LEAK_DEFAULT,
+    e_weight_cap=E_THRESHOLD / 2.0,                # 500 (shared accumulating cap)
+    eta=0.01,                                      # excitatory accumulating learning rate
+    leak_rate=LEAK_DEFAULT,                        # -> baseline leak conductance g_L
     refractory_steps=0,
     input_period=1,
+    enew_enabled=True,                             # topology switch (comparison flag)
+
+    # --- conductance / trace (membrane) ---
+    # Inhibitory-conductance retention is deliberately SPLIT by target population so
+    # the two roles have independent timescales (a confound otherwise: a persistent
+    # WTA pulse alone can cause turnover with no predictive inhibition at all):
+    #   alpha_inh    -- decay on L2E (the L2I_WTA target). Kept FAST so WTA is a clean
+    #                   single-winner suppressor that does not itself drive turnover.
+    #   alpha_inh_l1 -- decay on L1E_s / L1E_new (the predictive-PI / legacy-L1I
+    #                   target). This is the symmetry-breaking lever: the overlap
+    #                   experiment shows the shared-feature shunt must persist across
+    #                   the rival's accumulation window. 0.95 gives robust (8/8-seed)
+    #                   PI-driven turnover with recovery; the fast regime never breaks.
+    alpha_inh=0.6,                                 # inhibitory-conductance retention on L2E (WTA)
+    alpha_inh_l1=0.95,                             # retention on L1E_s / L1E_new (predictive)
+    alpha_a=0.85,                                  # activity-trace retention/step
+    beta_v=0.30,                                   # trace gain on sub-threshold depolarization
+    beta_s=1.00,                                   # trace gain on a spike
+    a_max=1.0,                                     # activity-trace bound
+    e_inh=0.0,                                     # inhibitory reversal (<= V_rest); 0 = shunting
+
+    # --- predictive inhibition (PI) ---
+    pi_eta=0.02,                                   # SLOW local inhibitory association rate
+    pi_w_max=1.0,                                  # per-candidate-synapse weight cap
+    pi_lt_decay=0.001,                             # slow passive weight decay (recovery)
+    pi_g_scale=6.0,                                # conductance per unit PI weight (fast expression)
+    pi_conductance_enabled=True,                   # express PI conductance onto L1E_s
+    pi_plasticity_enabled=True,                    # learn PI output synapses
+
+    # --- L2 winner-take-all inhibition ---
+    l2i_g_scale=12.0,                              # global inhibitory conductance pulse magnitude
 )
-# Keys a browser config-apply is allowed to change. Everything else is derived or
-# structural and is rejected.
-EDITABLE_KEYS = {'eta', 'leak_rate', 'refractory_steps', 'e_weight_cap', 'input_period'}
+# Keys a browser/experiment config-apply may change. Everything else is derived.
+EDITABLE_KEYS = {
+    'eta', 'leak_rate', 'refractory_steps', 'e_weight_cap', 'input_period',
+    'enew_enabled', 'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'beta_v', 'beta_s',
+    'a_max', 'e_inh', 'pi_eta', 'pi_w_max', 'pi_lt_decay', 'pi_g_scale',
+    'pi_conductance_enabled', 'pi_plasticity_enabled', 'l2i_g_scale',
+}
 
 
 class SimulationEngine:
-    """Owns the network and advances it one deterministic timestep at a time."""
+    """Owns the network and advances it one synchronous timestep at a time."""
 
     def __init__(self, seed: int = 1, **overrides):
         params = dict(DEFAULTS)
@@ -132,6 +136,17 @@ class SimulationEngine:
         self._build()
 
     # ================================================================ build
+    def _mkE(self, nid, role, acc_weights, acc_distance_factor, *, learn, alpha_inh):
+        p = self.params
+        return ExcitatoryNeuron(
+            nid, role, acc_weights=acc_weights, acc_distance_factor=acc_distance_factor,
+            threshold=float(p['e_threshold']), w_max=float(p['e_weight_cap']),
+            leak_rate=float(p['leak_rate']), refractory_steps=int(p['refractory_steps']),
+            eta=float(p['eta']), learn=learn,
+            e_inh=float(p['e_inh']), alpha_inh=float(alpha_inh),
+            alpha_a=float(p['alpha_a']), beta_v=float(p['beta_v']),
+            beta_s=float(p['beta_s']), a_max=float(p['a_max']))
+
     def _build(self):
         p = self.params
         rng = np.random.default_rng(p['seed'])
@@ -139,60 +154,65 @@ class SimulationEngine:
         self.pos = generate_layout(rng, N_PIX, N_OUT)
         thr = float(p['e_threshold'])
         cap = float(p['e_weight_cap'])
-        leak = float(p['leak_rate'])
-        refr = int(p['refractory_steps'])
-        eta = float(p['eta'])
+        self.enew_enabled = bool(p['enew_enabled'])
 
         def jitter(mean, size):
             j = rng.uniform(1.0 - INIT_JITTER_FRAC, 1.0 + INIT_JITTER_FRAC, size=size)
             return np.clip(mean * j, 0.0, cap)
 
-        # Distance-factor rows (learning-rate multiplier), normalized per projection
-        # so the closest synapse has factor 1.
         ff_factor = self._distance_factors(
             [f'L1E{i}' for i in range(N_PIX)], [f'L2E{j}' for j in range(N_OUT)])
-        fb_factor = self._distance_factors(
-            [f'L2E{j}' for j in range(N_OUT)], [f'L1Enew{i}' for i in range(N_PIX)])
-        # Paired local sensory projection L1E_s[i] -> L1E_new[i], one afferent each,
-        # normalized across the nine pairs.
-        local_factor = self._distance_factors(
-            [f'L1E{i}' for i in range(N_PIX)], [f'L1Enew{i}' for i in range(N_PIX)])
+        alpha_l1 = float(p['alpha_inh_l1'])            # slow, predictive-target decay
+        alpha_l2 = float(p['alpha_inh'])               # fast, WTA-target decay
 
-        # ---- populations ----
+        # ---- shared excitatory populations ----
         self.l1e_s = [
-            ExcitatoryNeuron(
-                f'L1E{i}', 'source',
-                acc_weights=np.array([SENSORY_WEIGHT]), acc_distance_factor=np.array([1.0]),
-                threshold=thr, w_max=cap, leak_rate=leak, refractory_steps=refr,
-                eta=eta, learn=False, subt_magnitude=thr)     # wiped by paired L1I (delayed)
+            self._mkE(f'L1E{i}', 'source', np.array([SENSORY_WEIGHT]), np.array([1.0]),
+                      learn=False, alpha_inh=alpha_l1)
             for i in range(N_PIX)]
-
-        # L1E_new afferent layout: [0] = paired local sensory, [1..8] = L2E feedback.
-        self.l1e_new = [
-            ExcitatoryNeuron(
-                f'L1Enew{i}', 'supervisor',
-                acc_weights=self._enew_init(rng, cap),
-                acc_distance_factor=np.concatenate(([local_factor[i][i]], fb_factor[i])),
-                threshold=thr, w_max=cap, leak_rate=leak, refractory_steps=refr,
-                eta=eta, learn=True, subt_magnitude=0.0)      # not inhibited
-            for i in range(N_PIX)]
-
         self.l2e = [
-            ExcitatoryNeuron(
-                f'L2E{j}', 'competitor',
-                acc_weights=jitter(FF_INIT_MEAN, N_PIX), acc_distance_factor=ff_factor[j],
-                threshold=thr, w_max=cap, leak_rate=leak, refractory_steps=refr,
-                eta=eta, learn=True, subt_magnitude=thr)      # wiped by L2I
+            self._mkE(f'L2E{j}', 'competitor', jitter(FF_INIT_MEAN, N_PIX), ff_factor[j],
+                      learn=True, alpha_inh=alpha_l2)
             for j in range(N_OUT)]
-
-        self.l1i = [InhibitoryNeuron(f'L1I{i}', 'relay', threshold=thr / 3.0) for i in range(N_PIX)]
         self.l2i = InhibitoryNeuron('L2I', 'relay', threshold=thr / 3.0)
 
+        if self.enew_enabled:
+            # Retained L1E_new coincidence comparison topology.
+            fb_factor = self._distance_factors(
+                [f'L2E{j}' for j in range(N_OUT)], [f'L1Enew{i}' for i in range(N_PIX)])
+            local_factor = self._distance_factors(
+                [f'L1E{i}' for i in range(N_PIX)], [f'L1Enew{i}' for i in range(N_PIX)])
+            self.l1e_new = [
+                self._mkE(f'L1Enew{i}', 'supervisor', self._enew_init(rng, cap),
+                          np.concatenate(([local_factor[i][i]], fb_factor[i])), learn=True,
+                          alpha_inh=alpha_l1)
+                for i in range(N_PIX)]
+            self.l1i = [InhibitoryNeuron(f'L1I{i}', 'relay', threshold=thr / 3.0)
+                        for i in range(N_PIX)]
+            self.pi = []
+        else:
+            # Predictive-inhibition experiment topology: one PI per L2E.
+            self.l1e_new = []
+            self.l1i = []
+            self.pi = [
+                PredictiveInterneuron(
+                    f'PI{j}', 'predictor', N_PIX,
+                    w_init=0.0, w_max=float(p['pi_w_max']), eta=float(p['pi_eta']),
+                    lt_decay=float(p['pi_lt_decay']), g_scale=float(p['pi_g_scale']),
+                    threshold=thr / 3.0)
+                for j in range(N_OUT)]
+
         self.exc = {n.id: n for n in (*self.l1e_s, *self.l1e_new, *self.l2e)}
-        self.inh = {n.id: n for n in (*self.l1i, self.l2i)}
+        relays = (*self.l1i, self.l2i, *self.pi)
+        self.inh = {n.id: n for n in relays}
         self.neurons = {**self.exc, **self.inh}
-        self.order = ([n.id for n in self.l1e_s] + [n.id for n in self.l1e_new]
-                      + [n.id for n in self.l1i] + [n.id for n in self.l2e] + ['L2I'])
+        self.order = (
+            [n.id for n in self.l1e_s]
+            + [n.id for n in self.l1e_new]
+            + [n.id for n in self.l1i]
+            + [n.id for n in self.pi]
+            + [n.id for n in self.l2e]
+            + ['L2I'])
 
         self._build_meta_and_edges(thr)
 
@@ -206,15 +226,19 @@ class SimulationEngine:
         self._spike_hist = {nid: deque(maxlen=FREQ_WINDOW) for nid in self.neurons}
         self.changed_synapses = []
         self.emitted = []
-        self.applied_inhibition = []
+        self.inhibitory_pulses = []
         self.event_log = deque(maxlen=LOG_MAX)
         self._log_seq = 0
-        self._pending_charge = {}       # manual single-pulse charge injections
-        self._continuous = {}           # manual continuous charge injections
-        self._force_relay = set()       # manual firing of inhibitory relays
-        # Queued L1I->L1E_s inhibition: set when L1E_new[i] fires, delivered on the
-        # NEXT timestep (the one-step delay lives in the I->E synapse, not the relay).
-        self._pending_inh = np.zeros(N_PIX, dtype=bool)
+        self._continuous = {}
+
+        # ---- delivery double-buffers (arrivals scheduled for the NEXT boundary) ----
+        self._exc_next = {}            # nid -> excitatory charge for next boundary
+        self._inh_next = []            # list of pulse dicts for next boundary
+        self._ff_part_next = np.zeros(N_PIX, dtype=bool)   # which L1E_s fired -> L2E next
+        self._winner_next = None       # winner index this boundary -> feedback/relay next
+        # arrivals landing at the CURRENT boundary (filled from *_next at step start)
+        self._ff_part_now = np.zeros(N_PIX, dtype=bool)
+        self._winner_now = None
 
     def _distance_factors(self, sources, targets):
         ds = np.array([[np.linalg.norm(self.pos[s] - self.pos[t]) for s in sources]
@@ -224,18 +248,14 @@ class SimulationEngine:
         return (d_ref / np.maximum(ds, d_ref)) ** DISTANCE_POWER
 
     def _enew_init(self, rng, cap):
-        """Deterministic seeded init for one L1E_new: a strong-but-subthreshold paired
-        sensory seed at index 0 and a small nonzero seed on each of the eight L2E
-        feedback afferents. The sub-threshold-total invariant (sum < theta) is
-        enforced after jitter so p = theta - sum(acc_weights) starts positive."""
         thr = float(self.params['e_threshold'])
         w = np.empty(1 + N_OUT)
         w[0] = ENEW_SENSORY_INIT_FRAC * thr
         w[1:] = ENEW_FB_INIT_FRAC * thr
         w *= rng.uniform(1.0 - INIT_JITTER_FRAC, 1.0 + INIT_JITTER_FRAC, size=w.shape)
-        np.clip(w, 0.0, 0.98 * cap, out=w)     # paired sensory stays strictly below the cap
+        np.clip(w, 0.0, 0.98 * cap, out=w)
         total = w.sum()
-        if total >= thr:                       # enforce sub-threshold total invariant
+        if total >= thr:
             w *= 0.97 * thr / total
         return w
 
@@ -250,18 +270,19 @@ class SimulationEngine:
 
         for i in range(N_PIX):
             add(f'L1E{i}', f'L1E_s{i}', 'L1', 'E', 'source', thr)
-            add(f'L1Enew{i}', f'L1E_new{i}', 'L1', 'E', 'supervisor', thr)
-            add(f'L1I{i}', f'L1I{i}', 'L1', 'I', 'relay', i_thr)
+            if self.enew_enabled:
+                add(f'L1Enew{i}', f'L1E_new{i}', 'L1', 'E', 'supervisor', thr)
+                add(f'L1I{i}', f'L1I{i}', 'L1', 'I', 'relay', i_thr)
         for j in range(N_OUT):
             add(f'L2E{j}', f'L2E{j}', 'L2', 'E', 'competitor', thr)
+            if not self.enew_enabled:
+                add(f'PI{j}', f'PI{j}', 'L2', 'I', 'predictor', i_thr)
         add('L2I', 'L2I', 'L2', 'I', 'relay', i_thr)
         self.meta = meta
 
-        # Static edge list. Weights are read live from neuron arrays at serialize
-        # time; the ``weight`` here is only a construction seed / kind tag.
         edges = []
 
-        def edge(eid, src, tgt, kind, weight=None, sign=None):
+        def edge(eid, src, tgt, kind, sign=None):
             e = dict(id=eid, source=src, target=tgt, kind=kind)
             if sign is not None:
                 e['sign'] = sign
@@ -270,20 +291,28 @@ class SimulationEngine:
         for j in range(N_OUT):
             for i in range(N_PIX):
                 edge(f'ff{i}->{j}', f'L1E{i}', f'L2E{j}', 'feedforward')
-        for i in range(N_PIX):
-            for j in range(N_OUT):
-                edge(f'fb{j}->{i}', f'L2E{j}', f'L1Enew{i}', 'feedback')
-        for i in range(N_PIX):
-            # Paired local sensory afferent: L1E_s[i] -> L1E_new[i] (coincidence input).
-            edge(f'cl{i}', f'L1E{i}', f'L1Enew{i}', 'coincidence_local')
-        for i in range(N_PIX):
-            edge(f're_l1_{i}', f'L1Enew{i}', f'L1I{i}', 'relay_excitation')
         for j in range(N_OUT):
             edge(f're_l2_{j}', f'L2E{j}', 'L2I', 'relay_excitation')
-        for i in range(N_PIX):
-            edge(f'inh_l1_{i}', f'L1I{i}', f'L1E{i}', 'inhibition', sign=SUBTRACTIVE_SIGN)
         for j in range(N_OUT):
-            edge(f'inh_l2_{j}', 'L2I', f'L2E{j}', 'inhibition', sign=SUBTRACTIVE_SIGN)
+            edge(f'inh_l2_{j}', 'L2I', f'L2E{j}', 'inhibition', sign=INHIBITORY_SIGN)
+
+        if self.enew_enabled:
+            for i in range(N_PIX):
+                for j in range(N_OUT):
+                    edge(f'fb{j}->{i}', f'L2E{j}', f'L1Enew{i}', 'feedback')
+            for i in range(N_PIX):
+                edge(f'cl{i}', f'L1E{i}', f'L1Enew{i}', 'coincidence_local')
+            for i in range(N_PIX):
+                edge(f're_l1_{i}', f'L1Enew{i}', f'L1I{i}', 'relay_excitation')
+            for i in range(N_PIX):
+                edge(f'inh_l1_{i}', f'L1I{i}', f'L1E{i}', 'inhibition', sign=INHIBITORY_SIGN)
+        else:
+            for j in range(N_OUT):
+                edge(f're_pi_{j}', f'L2E{j}', f'PI{j}', 'relay_excitation')   # paired 1:1
+            for j in range(N_OUT):
+                for i in range(N_PIX):
+                    edge(f'pi{j}->{i}', f'PI{j}', f'L1E{i}', 'predictive_inhibition',
+                         sign=INHIBITORY_SIGN)
         self.synapses = edges
 
     # ============================================================== stepping
@@ -296,159 +325,214 @@ class SimulationEngine:
             n.clear()
         self.changed_synapses = []
         self.emitted = []
-        self.applied_inhibition = []
+        self.inhibitory_pulses = []
 
-    def _mark_spike(self, nid):
-        self.spiked[nid] = True
+    def _record_pulse(self, target, dg, source, kind, weight, g_before, g_after):
+        self.inhibitory_pulses.append(dict(
+            source=source, target=target, kind=kind,
+            synaptic_weight=round(float(weight), 6),
+            conductance_increment=round(float(dg), 6),
+            g_inh_before=round(float(g_before), 6),
+            g_inh_after=round(float(g_after), 6),
+            boundary=int(self.timestep)))
 
-    def _record_wipe(self, nid, removed):
-        if removed <= 0:
+    def _deliver_inhibition(self, pulse):
+        n = self.exc.get(pulse['target'])
+        if n is None:
             return
-        self.applied_inhibition.append(dict(target=nid, v_pre=round(float(removed), 4),
-                                            charge_removed=round(float(removed), 4),
-                                            reached_rest=True))
-
-    def _emit_weight_changes(self, neuron, edge_of):
-        for k, w in enumerate(neuron.acc_weights):
-            self.changed_synapses.append(dict(id=edge_of(k), weight=round(float(w), 4)))
-
-    def _emit_enew_weight_changes(self, i, neuron):
-        # L1E_new afferents: [0] -> cl{i} (paired sensory), [1+j] -> fb{j}->{i}.
-        w = neuron.acc_weights
-        self.changed_synapses.append(dict(id=f'cl{i}', weight=round(float(w[0]), 4)))
-        for j in range(N_OUT):
-            self.changed_synapses.append(dict(id=f'fb{j}->{i}', weight=round(float(w[1 + j]), 4)))
+        g_before = n.g_inh
+        n.add_inhibition(pulse['dg'])
+        self._record_pulse(pulse['target'], pulse['dg'], pulse['source'],
+                           pulse['kind'], pulse['weight'], g_before, n.g_inh)
 
     def step(self) -> dict:
         self.timestep += 1
         t = self.timestep
         self._begin_step()
+        p = self.params
 
-        input_arrives = (t % max(1, int(self.params['input_period'])) == 0)
+        # ---- subphase 1: gather scheduled arrivals (emitted at t-1, delay 1) ----
+        exc_now = self._exc_next
+        inh_now = self._inh_next
+        self._ff_part_now = self._ff_part_next
+        self._winner_now = self._winner_next
+        self._exc_next = {}
+        self._inh_next = []
+        self._ff_part_next = np.zeros(N_PIX, dtype=bool)
+        self._winner_next = None
 
-        # 1. deposit external sensory charge (+ manual injections) into L1E_s.
+        # inhibitory conductance arrivals (persistent; added before integration)
+        for pulse in inh_now:
+            self._deliver_inhibition(pulse)
+
+        # excitatory internal arrivals
+        for nid, q in exc_now.items():
+            n = self.exc.get(nid)
+            if n is not None:
+                n.gather_exc(q)
+
+        # external sensory input (delay 0) + manual continuous injections
+        input_arrives = (t % max(1, int(p['input_period'])) == 0)
         for i, n in enumerate(self.l1e_s):
             if input_arrives and self.input_vec[i] > 0.5:
-                n.receive_acc(n.acc_weights[0])
-        self._apply_manual_charge()
+                n.gather_exc(n.acc_weights[0])
+        for nid, mag in self._continuous.items():
+            n = self.exc.get(nid)
+            if n is not None:
+                n.gather_exc(mag)
 
-        # 2. deliver queued inhibition from the previous timestep to L1E_s -- AFTER
-        #    the new sensory deposit and BEFORE the L1E_s threshold check, so it
-        #    removes real accumulating charge and lowers the source cadence.
-        for i in np.nonzero(self._pending_inh)[0]:
-            removed = self.l1e_s[i].hard_wipe()
-            self.emitted.append(f'inh_l1_{i}')
-            self._record_wipe(self.l1e_s[i].id, removed)
-        self._pending_inh = np.zeros(N_PIX, dtype=bool)
+        # ---- subphase 2: integrate every excitatory neuron once ----
+        for n in self.exc.values():
+            n.integrate()
 
-        # 3. resolve L1E_s crossings (frozen sensory -> no weight update).
+        # ---- subphase 3: threshold test + fire ----
+        # L1E_s: every crosser fires (sensory sources).
         l1s_spikes = np.zeros(N_PIX, dtype=bool)
         for i, n in enumerate(self.l1e_s):
             if n.can_fire():
                 n.fire()
                 l1s_spikes[i] = True
-                self._mark_spike(n.id)
+                self.spiked[n.id] = True
 
-        # 4. deliver each L1E_s spike densely to all L2E AND locally to its paired
-        #    L1E_new[i] (afferent index 0). Geometry never scales delivered charge.
-        active_pix = np.nonzero(l1s_spikes)[0]
-        if active_pix.size:
-            for j, n in enumerate(self.l2e):
-                charge = float((n.acc_weights * l1s_spikes).sum())
-                if charge:
-                    n.receive_acc(charge)
-                    for i in active_pix:
-                        self.emitted.append(f'ff{i}->{j}')
-            for i in active_pix:
-                self.l1e_new[i].receive_acc(self.l1e_new[i].acc_weights[0])
-                self.emitted.append(f'cl{i}')
+        # L1E_new (enew branch): every crosser fires + learns.
+        enew_spikes = np.zeros(N_PIX, dtype=bool)
+        if self.enew_enabled:
+            l2_part = np.zeros(N_OUT, dtype=bool)
+            if self._winner_now is not None:
+                l2_part[self._winner_now] = True
+            for i, n in enumerate(self.l1e_new):
+                if n.can_fire():
+                    n.fire()
+                    enew_spikes[i] = True
+                    self.spiked[n.id] = True
+                    part = np.concatenate(([bool(self._ff_part_now[i])], l2_part))
+                    n.update_acc_weights(part)
+                    self._emit_enew_weight_changes(i, n)
 
-        # 5. deterministic L2 competition.
+        # L2E: deterministic single-winner WTA among the crossers (selection, NOT
+        # charge removal). Only the winner fires and learns.
         winner_j = None
         crossers = [j for j, n in enumerate(self.l2e) if n.can_fire()]
         if crossers:
             winner_j = max(crossers, key=lambda j: (self.l2e[j].V, -j))
             wn = self.l2e[winner_j]
             wn.fire()
-            wn.update_acc_weights(l1s_spikes)
+            wn.update_acc_weights(self._ff_part_now)     # causal volley arrived this boundary
             self._emit_weight_changes(wn, lambda i, j=winner_j: f'ff{i}->{j}')
-            self._mark_spike(wn.id)
+            self.spiked[wn.id] = True
             self.winner = wn.id
-            # structural relay -> L2I fires immediately -> hard-wipe every L2E
+
+        # ---- subphase 4: update local activity traces (survive reset) ----
+        for n in self.exc.values():
+            n.update_trace()
+
+        # ---- subphase 5: emit spikes into delay-1 queues; run local relays/plasticity ----
+        # L1E_s spikes -> L2E feedforward (delay 1); enew: paired local sensory too.
+        if l1s_spikes.any():
+            active_pix = np.nonzero(l1s_spikes)[0]
+            for j, n in enumerate(self.l2e):
+                q = float((n.acc_weights * l1s_spikes).sum())
+                if q:
+                    self._sched_exc(n.id, q)
+                    for i in active_pix:
+                        self.emitted.append(f'ff{i}->{j}')
+            self._ff_part_next = l1s_spikes.copy()
+            if self.enew_enabled:
+                for i in active_pix:
+                    self._sched_exc(self.l1e_new[i].id, float(self.l1e_new[i].acc_weights[0]))
+                    self.emitted.append(f'cl{i}')
+
+        # L2 winner -> L2I_WTA relay (same boundary); conductance onto all L2E (delay 1).
+        if winner_j is not None:
             self.l2i.receive()
             if self.l2i.resolve():
-                self._mark_spike('L2I')
+                self.spiked['L2I'] = True
                 self.emitted.append(f're_l2_{winner_j}')
-                for j, n in enumerate(self.l2e):
-                    removed = n.hard_wipe()
-                    self.emitted.append(f'inh_l2_{j}')
-                    self._record_wipe(n.id, removed)
+                g = float(p['l2i_g_scale'])
+                for j in range(N_OUT):
+                    self._sched_inh(f'L2E{j}', g, 'L2I', 'wta', weight=g)
+            self._winner_next = winner_j
 
-        # 6. deliver the winning L2E spike through dense feedback to all L1E_new
-        #    (afferent index 1 + winner_j).
-        if winner_j is not None:
-            for i, n in enumerate(self.l1e_new):
-                n.receive_acc(n.acc_weights[1 + winner_j])
-                self.emitted.append(f'fb{winner_j}->{i}')
+            if self.enew_enabled:
+                # dense feedback L2E[winner] -> L1E_new (delay 1)
+                for i, n in enumerate(self.l1e_new):
+                    self._sched_exc(n.id, float(n.acc_weights[1 + winner_j]))
+                    self.emitted.append(f'fb{winner_j}->{i}')
+            else:
+                # paired PI[winner] relay (same boundary); learns locally now; its
+                # conductance onto L1E_s is scheduled for the next boundary.
+                self._fire_pi(winner_j)
 
-        # 7-9. resolve L1E_new coincidence crossings; each fire learns from its nine
-        #      real afferents ([0]=paired sensory, [1..8]=L2E feedback) and triggers
-        #      its paired L1I, which fires now but QUEUES its wipe for next step.
-        l2_part = np.zeros(N_OUT, dtype=bool)
-        if winner_j is not None:
-            l2_part[winner_j] = True
-        for i, n in enumerate(self.l1e_new):
-            if n.can_fire():
-                n.fire()
-                part = np.concatenate(([bool(l1s_spikes[i])], l2_part))
-                n.update_acc_weights(part)
-                self._emit_enew_weight_changes(i, n)
-                self._mark_spike(n.id)
+        # enew: L1E_new spikes -> paired L1I relay (same boundary); conductance
+        # onto paired L1E_s (delay 1).
+        if self.enew_enabled and enew_spikes.any():
+            for i in np.nonzero(enew_spikes)[0]:
                 relay = self.l1i[i]
                 relay.receive()
                 if relay.resolve():
-                    self._mark_spike(relay.id)
+                    self.spiked[relay.id] = True
                     self.emitted.append(f're_l1_{i}')
-                    self._pending_inh[i] = True          # delayed I->E: delivered next step
+                    g = float(p['l2i_g_scale'])           # legacy L1I uses the same fixed scale
+                    self._sched_inh(f'L1E{i}', g, relay.id, 'legacy_l1i', weight=g)
 
-        self._apply_manual_relays()
-
-        # 10. leak + refractory countdown, once, on excitatory neurons.
+        # ---- subphase 6: decay conductance once; subphase 7: refractory + PI decay ----
         for n in self.exc.values():
-            n.advance()
+            n.decay_conductance()
+            n.advance_refractory()
+        for pi in self.pi:
+            pi.passive_decay()
 
-        # 11. history + frequency
+        # ---- subphase 8: history + serialize ----
         for nid in self.neurons:
             self._spike_hist[nid].append(1 if self.spiked[nid] else 0)
-
         return self.dynamic_state()
 
-    # -------------------------------------------------- manual firing helpers
-    def _apply_manual_charge(self):
-        for nid, mag in list(self._pending_charge.items()):
-            n = self.exc.get(nid)
-            if n is not None:
-                n.receive_acc(mag)
-        self._pending_charge = {}
-        for nid, mag in self._continuous.items():
-            n = self.exc.get(nid)
-            if n is not None:
-                n.receive_acc(mag)
+    # --------------------------------------------------------- emission helpers
+    def _sched_exc(self, nid, q):
+        self._exc_next[nid] = self._exc_next.get(nid, 0.0) + float(q)
 
-    def _apply_manual_relays(self):
-        # Debug-only: force an inhibitory relay to fire and apply its wipe.
-        for nid in list(self._force_relay):
-            if nid == 'L2I':
-                for j, n in enumerate(self.l2e):
-                    self._record_wipe(n.id, n.hard_wipe())
-                    self.emitted.append(f'inh_l2_{j}')
-                self._mark_spike('L2I')
-            elif nid.startswith('L1I'):
-                i = int(nid[3:])
-                self._record_wipe(self.l1e_s[i].id, self.l1e_s[i].hard_wipe())
-                self.emitted.append(f'inh_l1_{i}')
-                self._mark_spike(nid)
-        self._force_relay = set()
+    def _sched_inh(self, target, dg, source, kind, weight):
+        self._inh_next.append(dict(target=target, dg=float(dg), source=source,
+                                   kind=kind, weight=float(weight)))
+
+    def _fire_pi(self, winner_j):
+        """Fire the winner's paired PI relay: emit its (pre-update) inhibitory
+        conductance onto every L1E_s for the next boundary, then update its output
+        synapses STRICTLY LOCALLY from each target's own activity trace."""
+        p = self.params
+        pi = self.pi[winner_j]
+        pi.receive()
+        if not pi.resolve():
+            return
+        self.spiked[pi.id] = True
+        # conductance from PRE-update weights, delivered next boundary
+        if p['pi_conductance_enabled']:
+            pulse = pi.conductance_pulse()               # g_scale * w (pre-update)
+            for i in range(N_PIX):
+                if pulse[i] > 0.0:
+                    self._sched_inh(f'L1E{i}', pulse[i], pi.id, 'predictive',
+                                    weight=float(pi.w[i]))
+                    self.emitted.append(f'pi{winner_j}->{i}')
+        # strictly-local plasticity: each output synapse reads only its own target's
+        # trace and its own weight. Traces were finalized in subphase 4.
+        if p['pi_plasticity_enabled']:
+            traces = np.array([n.a for n in self.l1e_s])
+            pi.learn(traces)
+            self._emit_pi_weight_changes(winner_j, pi)
+
+    def _emit_weight_changes(self, neuron, edge_of):
+        for k, w in enumerate(neuron.acc_weights):
+            self.changed_synapses.append(dict(id=edge_of(k), weight=round(float(w), 4)))
+
+    def _emit_enew_weight_changes(self, i, neuron):
+        w = neuron.acc_weights
+        self.changed_synapses.append(dict(id=f'cl{i}', weight=round(float(w[0]), 4)))
+        for j in range(N_OUT):
+            self.changed_synapses.append(dict(id=f'fb{j}->{i}', weight=round(float(w[1 + j]), 4)))
+
+    def _emit_pi_weight_changes(self, j, pi):
+        for i in range(N_PIX):
+            self.changed_synapses.append(dict(id=f'pi{j}->{i}', weight=round(float(pi.w[i]), 6)))
 
     def firing_freq(self, nid):
         h = self._spike_hist[nid]
@@ -481,9 +565,7 @@ class SimulationEngine:
         if neuron_id not in self.neurons:
             raise KeyError(neuron_id)
         if neuron_id in self.inh:
-            if magnitude > 0:
-                self._force_relay.add(neuron_id)
-            return
+            return                                       # relays are event-driven
         charge = float(magnitude) * self.params['e_threshold']
         if continuous:
             if magnitude <= 0:
@@ -491,7 +573,7 @@ class SimulationEngine:
             else:
                 self._continuous[neuron_id] = charge
         else:
-            self._pending_charge[neuron_id] = charge
+            self._sched_exc(neuron_id, charge)           # lands next boundary
 
     def set_feedforward_weight(self, j: int, i: int, weight: float) -> float:
         if not (0 <= j < N_OUT and 0 <= i < N_PIX):
@@ -501,11 +583,10 @@ class SimulationEngine:
         return w
 
     def apply_config(self, overrides: dict):
-        """Merge editable overrides and rebuild. Unknown/legacy keys are rejected."""
         applied = []
         for k, v in (overrides or {}).items():
             if k not in EDITABLE_KEYS:
-                continue                       # reject deleted/legacy keys silently
+                continue
             self.params[k] = v
             applied.append(k)
         if applied:
@@ -514,12 +595,10 @@ class SimulationEngine:
         return applied
 
     def reset(self):
-        """Rebuild the same network (same seed) -> wipes learned weights."""
         self._build()
         self._log('control', 'reset: network rebuilt from seed')
 
     def reseed(self):
-        """New random seed -> fresh initial weights under the same config."""
         self.params['seed'] = int(np.random.SeedSequence().generate_state(1)[0])
         self._build()
         self._log('control', f'reseed: seed={self.params["seed"]}')
@@ -537,20 +616,21 @@ class SimulationEngine:
             return float(self.l2e[int(j)].acc_weights[int(i)])
         if kind == 'feedback':
             j, i = eid[2:].split('->')
-            return float(self.l1e_new[int(i)].acc_weights[1 + int(j)])   # [0] is local sensory
+            return float(self.l1e_new[int(i)].acc_weights[1 + int(j)])
         if kind == 'coincidence_local':
             i = int(eid[2:])
             return float(self.l1e_new[i].acc_weights[0])
-        if kind == 'inhibition':
-            return float(self.params['e_threshold'])       # frozen subtractive magnitude
-        return None                                          # structural relay: no weight
+        if kind == 'predictive_inhibition':
+            j, i = eid[2:].split('->')
+            return float(self.pi[int(j)].w[int(i)])
+        return None                                       # structural relay / conductance gate
 
     def topology(self) -> dict:
         neurons = [dict(**self.meta[nid]) for nid in self.order]
         synapses = []
         for e in self.synapses:
             w = self._live_weight(e)
-            synapses.append(dict(**e, weight=(None if w is None else round(w, 4))))
+            synapses.append(dict(**e, weight=(None if w is None else round(w, 6))))
         return dict(neurons=neurons, synapses=synapses, layers=['L1', 'L2'],
                     patterns=list(PATTERNS.keys()),
                     pattern_vectors={k: list(map(int, v)) for k, v in PATTERNS.items()},
@@ -559,14 +639,25 @@ class SimulationEngine:
     def _public_params(self):
         p = self.params
         thr = float(p['e_threshold'])
-        return dict(seed=p['seed'], e_threshold=thr, e_weight_cap=float(p['e_weight_cap']),
-                    eta=float(p['eta']), leak_rate=float(p['leak_rate']),
-                    refractory_steps=int(p['refractory_steps']),
-                    input_period=int(p['input_period']),
-                    i_threshold=round(thr / 3.0, 4),
-                    # Fields the receptive-field / weights charts read to scale by cap.
-                    threshold_l2=thr,
-                    l2e_weight_cap_frac=float(p['e_weight_cap']) / thr if thr else 1.0)
+        out = dict(seed=p['seed'], e_threshold=thr, e_weight_cap=float(p['e_weight_cap']),
+                   eta=float(p['eta']), leak_rate=float(p['leak_rate']),
+                   refractory_steps=int(p['refractory_steps']),
+                   input_period=int(p['input_period']),
+                   enew_enabled=bool(p['enew_enabled']),
+                   alpha_inh=float(p['alpha_inh']), alpha_inh_l1=float(p['alpha_inh_l1']),
+                   alpha_a=float(p['alpha_a']),
+                   beta_v=float(p['beta_v']), beta_s=float(p['beta_s']),
+                   a_max=float(p['a_max']), e_inh=float(p['e_inh']),
+                   pi_eta=float(p['pi_eta']), pi_w_max=float(p['pi_w_max']),
+                   pi_lt_decay=float(p['pi_lt_decay']), pi_g_scale=float(p['pi_g_scale']),
+                   pi_conductance_enabled=bool(p['pi_conductance_enabled']),
+                   pi_plasticity_enabled=bool(p['pi_plasticity_enabled']),
+                   l2i_g_scale=float(p['l2i_g_scale']),
+                   synaptic_delay=SYNAPTIC_DELAY,
+                   i_threshold=round(thr / 3.0, 4),
+                   threshold_l2=thr,
+                   l2e_weight_cap_frac=float(p['e_weight_cap']) / thr if thr else 1.0)
+        return out
 
     def dynamic_state(self) -> dict:
         neurons = []
@@ -574,15 +665,20 @@ class SimulationEngine:
             n = self.neurons[nid]
             thr = self.meta[nid]['threshold'] or 1.0
             pot = float(n.potential)
-            neurons.append(dict(
+            rec = dict(
                 id=nid, potential=round(pot, 4), activation=round(pot / thr, 4),
                 spiked=bool(self.spiked[nid]), freq=round(self.firing_freq(nid), 4),
                 refractory=int(n.refractory_timer),
-                assembly=(self.winner if nid == self.winner else None)))
+                assembly=(self.winner if nid == self.winner else None))
+            if isinstance(n, ExcitatoryNeuron):
+                rec['g_inh'] = round(float(n.g_inh), 6)
+                rec['trace'] = round(float(n.a), 6)
+                rec['v_pre_reset'] = round(float(n.v_pre_reset), 4)
+            neurons.append(rec)
         return dict(timestep=self.timestep, running=False, neurons=neurons,
                     changed_synapses=self.changed_synapses,
                     emitted=self.emitted,
-                    applied_inhibition=self.applied_inhibition,
+                    inhibitory_pulses=self.inhibitory_pulses,
                     input=self.input_vec.astype(int).tolist(),
                     winner=self.winner,
                     stats=self.stats(), log=list(self.event_log)[-12:])

@@ -1,269 +1,260 @@
 # Current implementation: methodology and equations
 
-This document describes **only** the model that exists in code today. There is one
-scientific model, no experiment-mode selectors, and no legacy ablations. Neuron
-behaviour lives in `snn/neurons.py`; topology, the causal step, and serialization
-live in `backend/simulation.py`.
+This document describes **only** the model that exists in code today: a
+conductance-based spiking network with **persistent inhibitory conductance**
+(there are no hard wipes anywhere), a local post-synaptic activity trace, and
+**local predictive inhibition** (PI). Neuron behaviour lives in `snn/neurons.py`;
+topology, the synchronous timestep, and serialization live in
+`backend/simulation.py`.
+
+One `enew_enabled` flag selects between two whole topologies (a comparison switch,
+not a scientific-mode multiplier):
+
+* **`enew_enabled=False` — the predictive-inhibition (PI) experiment.** 26 neurons.
+  Eight pattern-specific predictive interneurons `PI[j]`, paired one-to-one with the
+  competitors `L2E[j]`, each owning nine locally-plastic inhibitory output synapses
+  onto the sensory `L1E_s` cells. This is the topology the symmetry-breaking science
+  is about.
+* **`enew_enabled=True` — the retained L1E_new coincidence comparison topology.**
+  36 neurons. Its inhibition is now conductance too (no hard wipes).
 
 ## Populations and topology
 
-36 neurons, in five populations:
-
-| Population | Count | IDs | Type | Threshold |
+| Population | Count | IDs | Type | In topology |
 | --- | --- | --- | --- | --- |
-| L1E_s (sensory source) | 9 | `L1E0..8` | E | 1000 |
-| L1E_new (supervisory) | 9 | `L1Enew0..8` | E | 1000 |
-| L1I (instant relay) | 9 | `L1I0..8` | I | 333.33 |
-| L2E (competitors) | 8 | `L2E0..7` | E | 1000 |
-| L2I (instant relay) | 1 | `L2I` | I | 333.33 |
+| L1E_s (sensory source) | 9 | `L1E0..8` | E | both |
+| L2E (competitors) | 8 | `L2E0..7` | E | both |
+| L2I_WTA (winner-take-all relay) | 1 | `L2I` | I | both |
+| PI (predictive interneurons) | 8 | `PI0..7` | I | direct only |
+| L1E_new (coincidence) | 9 | `L1Enew0..8` | E | enew only |
+| L1I (paired relays) | 9 | `L1I0..8` | I | enew only |
+
+**Direct (PI) edges — 168 total:** 72 feedforward `L1E_s→L2E` · 8
+`relay_excitation L2E[j]→PI[j]` (paired 1:1) · 8 `relay_excitation L2E→L2I` · 72
+`predictive_inhibition PI[j]→L1E_s[i]` (candidate, locally plastic) · 8
+`inhibition L2I→L2E` (WTA conductance).
+
+**Comparison (enew) edges — 187 total:** 72 `ff` · 72 `feedback L2E→L1E_new` · 9
+`coincidence_local L1E_s→L1E_new` · 9 `relay_excitation L1E_new→L1I` · 8
+`relay_excitation L2E→L2I` · 9 `inhibition L1I→L1E_s` · 8 `inhibition L2I→L2E`.
+
+The four center-crossing patterns on the 3×3 surface: `row 1`, `col 1`, `diag \`,
+`diag /`.
+
+## Membrane dynamics: conductance-based joint integration
+
+Every excitatory neuron is a conductance LIF unit. Per boundary it **gathers** all
+excitatory charge `Q_exc` and all inhibitory conductance `g_inh`, then integrates
+**once**, combining leak, inhibition, and excitation *before* the threshold test
+(never leak → threshold-sized jump → test → inhibit). With `C = 1`, `dt = 1`,
+`E_L = V_rest = 0`:
 
 ```text
-9 external pixels
-       |                        (sensory, frozen, subthreshold)
-       v
-  9 x L1E_s  ===============>  8 x L2E  ------>  1 x L2I
-       |  \       dense acc        |   ^             |
-       |   \ paired local          |   +-------------+
-       |    \ coincidence          |   frozen subtractive hard wipe
-       ^     v                     |
-       |  9 x L1E_new  <===========+
-       |     |         dense acc feedback
-       |     | instant paired relay
-       |  9 x L1I
-       +-----+  frozen subtractive hard wipe, DELAYED one step (I->E synapse)
+C dV/dt = -g_L (V - E_L) - g_inh (V - E_inh) + I_exc,     I_exc = Q_exc / dt
+g_total = g_L + g_inh
+g_total == 0:  V <- V + Q_exc                              (pure integrator)
+else:          V_inf = (g_L·E_L + g_inh·E_inh + I_exc) / g_total
+               V     <- V_inf + (V - V_inf)·exp(-g_total·dt)
 ```
 
-L1E_new[i] is a local **coincidence detector** with nine accumulating afferents:
-index 0 is the paired local sensory afferent from L1E_s[i]; indices 1..8 are dense
-L2E feedback.
+* **Baseline leak conductance** `g_L = -ln(1 - leak_rate)` (`leak_to_conductance`),
+  so with no inhibition and no input the update reduces *exactly* to the historical
+  `V ← (1 - leak_rate)·V` — the documented migration path from the old per-step leak.
+* **Inhibitory reversal** `E_inh = 0 ≤ V_rest` (shunting). A real inhibitory event
+  raises `g_total`, pulling `V_inf` down and shunting the excitatory drive.
+* **Persistent conductance.** An inhibitory event adds `g_inh += g_scale · w`;
+  `g_inh` then **decays once per boundary** by a retention factor and **is not
+  cleared by a voltage reset**. Firing resets `V` to rest but leaves `g_inh` and the
+  activity trace intact.
 
-Internal edges (187):
+**Behavioural invariant (measured).** Excitation of `1.5·θ` that crosses threshold
+instantly with no inhibition (`V = 1477`, fires) stays sub-threshold when enough
+`g_inh` is already present in the same boundary: `g_inh=2 → V=642` (no fire),
+`g_inh=6 → V=248`, `g_inh=12 → V=125`.
 
-| Kind | Edges | Count |
-| --- | --- | --- |
-| `feedforward` | L1E_s[i] → L2E[j] (dense) | 72 |
-| `feedback` | L2E[j] → L1E_new[i] (dense) | 72 |
-| `coincidence_local` | L1E_s[i] → L1E_new[i] (paired) | 9 |
-| `relay_excitation` | L1E_new[i] → L1I[i]; L2E[j] → L2I | 9 + 8 = 17 |
-| `inhibition` | L1I[i] → L1E_s[i] (delayed); L2I → L2E[j] | 9 + 8 = 17 |
+### Inhibitory-conductance decay is split by target population
 
-There is **no** `L2E → L1I` edge: L2 feedback targets the supervisory L1E_new
-population. The 9 sensory pixel → L1E_s afferents are not serialized as edges
-(their source is not a neuron); the pixel-grid UI shows the input.
+Retention is per-target so the two inhibitory roles have **independent timescales**
+(a required separation — otherwise a persistent WTA pulse alone drives turnover with
+no predictive inhibition at all):
 
-The four center-crossing patterns on the 3×3, 9-pixel surface: `row 1`, `col 1`,
-`diag \`, `diag /`.
+* `alpha_inh` (default **0.6**) — decay on **L2E** (the `L2I_WTA` target). Fast, so
+  winner-take-all is a clean single-winner suppressor that does not itself cause
+  turnover.
+* `alpha_inh_l1` (default **0.95**) — decay on **L1E_s / L1E_new** (the predictive PI
+  / legacy L1I target). This is the symmetry-breaking lever (see results).
 
-## Neuron state
+## Local post-synaptic activity trace
 
-**Excitatory** (`ExcitatoryNeuron`): membrane `V` (rest 0), shared threshold
-`theta`, leak rate, refractory steps/timer, nonnegative `acc_weights`, aligned
-per-afferent `acc_distance_factor` (learning only), one frozen subtractive gate
-magnitude `subt_magnitude`, and spike state (`spiked`, `v_pre`).
-
-**Inhibitory** (`InhibitoryNeuron`): a stateless instant relay. No weight vector,
-no membrane, no leak, no plasticity. It tracks `received_signal` and `spiked`, and
-reports a threshold of `theta/3` as a scientific/visual invariant only.
-
-## Delivery equations
-
-Accumulating delivery (geometry never appears here):
+Every excitatory neuron carries a local "calcium" trace `a` that **survives voltage
+reset**, so a cell that fired and reset earlier in the interval still registers as
+recently active when a PI cell later reads it:
 
 ```text
-V <- V + sum_i(acc_weights[i] * spike_i)
+depol = clip((v_pre_reset - V_rest) / (threshold - V_rest), 0, 1)
+a <- clip(alpha_a · a + beta_v · depol + beta_s · spike, 0, a_max)
 ```
 
-Subtractive delivery, under one explicit negative sign (`SUBTRACTIVE_SIGN = -1`):
+`v_pre_reset` is the post-integration membrane captured **before** any reset.
+Defaults `alpha_a = 0.85`, `beta_v = 0.30`, `beta_s = 1.00`, `a_max = 1.0`. The
+trace means only "this cell was recently depolarized/firing"; it carries **no**
+information about which afferent supplied the charge.
+
+## The one accumulating excitatory weight rule (unchanged)
+
+Runs when an excitatory neuron fires, on `acc_weights` only:
 
 ```text
-signed = SUBTRACTIVE_SIGN * subt_magnitude
-V <- max(V_rest, V + signed)          # then the hard-wipe invariant is enforced
+p        = threshold - sum(acc_weights)               # pre-update, signed
+signal_i = +1 if afferent i spiked in the causal volley else -1
+delta_i  = eta · p · signal_i · distance_factor_i · (1 - (w_i/w_max)**2)
+w_i      = clip(w_i + delta_i, 0, w_max)
 ```
 
-Every wired inhibitory gate is pretrained to the target threshold, so a real
-inhibitory spike floors any charge to rest. The postcondition `V == V_rest` is
-enforced explicitly so a threshold *crosser* (`V > theta`) cannot leave residual.
+Geometry is a per-synapse learning-rate multiplier only; it never scales delivered
+charge. `p` is signed, so a projection self-limits as its total approaches
+threshold. L2E feedforward and (in the comparison branch) L1E_new coincidence
+weights learn by this rule; sensory `L1E_s` weights are frozen.
 
-Firing: a neuron fires only when not refractory and `V >= theta`; firing records
-`v_pre`, resets `V` to rest, and arms the refractory timer.
+## Strictly-local predictive-inhibition plasticity
 
-Leak (once per completed step, only when not refractory), `0 <= lambda <= 1`:
+Each candidate synapse `PI[j] → L1E_s[i]` owns a nonnegative weight `w_ji`. On a real
+presynaptic PI event (its paired `L2E[j]` won), the update is **element-wise local** —
+entry `i` reads and writes only `w_ji` and its own target's trace `a_i`:
 
 ```text
-V <- V_rest + (1 - lambda) * (V - V_rest)
+w_ji <- clip(w_ji + pi_eta · a_i · (pi_w_max - w_ji), 0, pi_w_max)
 ```
 
-Refractory off-by-one convention: `refractory_steps = R` is the number of steps
-**after** the firing step during which the neuron cannot fire (the firing step
-itself does not count). Default `R = 0`. Leak is suppressed during refractory.
+No synapse sees another target's trace, the full L1 spike vector, a pattern label, or
+a central winner-row. The emitted inhibitory pulse uses the **pre-update** weight
+(`g_inh += pi_g_scale · w_ji`), so learning changes only future predictions. Weights
+start at **zero** (a first-seen pattern teaches the synapses; it is not pre-suppressed).
+A slow passive decay `w_ji ← w_ji·(1 - pi_lt_decay)` per boundary gives recovery from
+stale associations (local: each weight decays from itself).
 
-## The one accumulating-weight update
+**Required timescale separation** (all exposed and independently controllable):
+activity-trace decay `alpha_a`; inhibitory **association** rate `pi_eta` (slow, so one
+overlapping presentation does not let an incumbent learn every novel feature);
+inhibitory **expression** magnitude `pi_g_scale` (immediate once a synapse matures);
+inhibitory conductance **decay** `alpha_inh_l1`; long-term synaptic decay `pi_lt_decay`.
 
-Runs only when an excitatory neuron fires, and only on `acc_weights` (never the
-subtractive gate):
+## L2 winner-take-all
 
-```text
-p            = theta - sum(acc_weights)            # pre-update, signed
-signal_i     = +1 if afferent i spiked in the threshold-crossing volley else -1
-factor_i     = (d_ref / max(d_i, d_ref)) ** 2      # per-projection normalized, in (0,1]
-delta_i      = eta * p * signal_i * factor_i * (1 - (w_i / w_max) ** 2)
-acc_weights[i] <- clip(acc_weights[i] + delta_i, 0, w_max)
-```
+`L2I_WTA` is a deterministic single-winner selector, kept separate from the eight PI
+cells. Among the L2E threshold-crossers in a boundary, the highest membrane wins
+(tie-break: lowest index); **only** the winner fires and learns. Arbitration is
+**selection, not charge removal** — losers keep their membrane charge and are instead
+suppressed by the WTA **conductance** pulse `g_inh += l2i_g_scale` delivered to every
+L2E on the **next** boundary. The winning spike therefore precedes the feedback
+inhibition it causes; `L2I_WTA` cannot retroactively cancel its own winner.
 
-Decisions and their rationale:
+## Synchronous timestep and explicit delays
 
-- **`p` is the literal signed `theta - sum(acc_weights)`**, computed from the
-  pre-update weights. It deliberately changes sign as the stored weights cross
-  threshold: below threshold a participating afferent potentiates; exactly at
-  threshold it is frozen; above threshold it depresses. No clamp, no absolute
-  value. Because the rule is Hebbian only while `p > 0`, each learned projection is
-  **initialized below threshold in total** (see below), so a selective receptive
-  field forms and the rule self-limits as the total approaches `theta`.
-- **`(w / w_max) ** 2`**, not the historical `w**2 / w_max`.
-- **Geometry is a learning-rate multiplier only.** `d_i` is the Euclidean distance
-  between source and target functional coordinates; the factor is normalized per
-  projection so the closest synapse has factor 1. It never scales delivered charge,
-  and the exponent (2) is fixed in the model. Frontend display coordinates affect
-  neither delivery nor learning.
-- **Causal participation window** is simply the spikes delivered in the
-  threshold-crossing step. There are no eligibility traces.
+Every internal projection has an integer synaptic delay of **1**; relays
+(`L2I_WTA`, `PI`, `L1I`) fire in the same boundary as their source spike and schedule
+their inhibitory **conductance** output for the next boundary; external input arrives
+at the current boundary. Each boundary runs these subphases in order (no behaviour
+depends on Python neuron-iteration order, because every target integrates once from
+double-buffered arrivals):
 
-L1E_s sensory weights are frozen (a topology-level fact), so L1E_s runs no update.
+1. Deliver arrivals scheduled at `t-1` (inhibitory conductance first, then excitatory
+   charge) and deposit external input.
+2. Integrate every excitatory neuron once (joint exc/inh).
+3. Threshold test + fire: L1E_s crossers; L1E_new crossers (enew, each learns);
+   deterministic L2E WTA (one winner fires + learns feedforward).
+4. Update every excitatory neuron's local activity trace.
+5. Emit spikes into delay-1 queues: L1E_s→L2E feedforward (+ enew local sensory);
+   winner→`L2I_WTA` conductance (all L2E) and, per topology, winner→paired `PI`
+   (direct) or winner→dense feedback to `L1E_new` (enew); PI/L1I relays run their
+   **local plasticity** now (reading the traces finalized in step 4) and schedule
+   their inhibitory conductance for `t+1`.
+6. Decay each `g_inh` once; count down refractory; PI passive weight decay.
+7. Serialize the frame.
 
-## Shared configuration and derived values
+Causal reading — *first encounter:* `L1 activity → L2 winner → PI event → local
+inhibitory learning` (the original L1 spike is **not** cancelled). *Later encounter:*
+`L2 winner → PI event → persistent g_inh → a later L1 sensory interval is shunted`.
 
-Editable (small allowlist; `apply_config` rebuilds and rejects any other key):
+## Configuration
 
-| Key | Default | Meaning |
-| --- | --- | --- |
-| `leak_rate` | 0.03 | per-step membrane decay for every E neuron (nonzero: see coincidence) |
-| `refractory_steps` | 0 | steps blocked after firing |
-| `eta` | 0.01 | shared accumulating-weight learning rate |
-| `e_weight_cap` | 500 | the one shared per-synapse accumulating cap = theta/2 |
+Editable keys (`apply_config` rebuilds; unknown keys rejected): `leak_rate`,
+`refractory_steps`, `eta`, `e_weight_cap`, `input_period`, `enew_enabled`,
+`alpha_inh`, `alpha_inh_l1`, `alpha_a`, `beta_v`, `beta_s`, `a_max`, `e_inh`,
+`pi_eta`, `pi_w_max`, `pi_lt_decay`, `pi_g_scale`, `l2i_g_scale`,
+`pi_conductance_enabled`, `pi_plasticity_enabled`. Fixed/derived: `e_threshold=1000`,
+`i_threshold=θ/3` (reported invariant), `synaptic_delay=1`, distance exponent 2.
 
-The shared cap is `theta/2 = 500`, which calibrates the two-input L1E_new
-coincidence exactly: a mature paired-sensory weight (~500) plus a mature winning-L2E
-weight (~500) sums to `theta` on a coincident step, while either branch alone (~500)
-stays below `theta`. Zero leak is **not** a valid default for this circuit (two
-lone-branch events could accumulate and falsely fire L1E_new); the default leak is
-the value selected by the coincidence experiment.
+## Symmetry-breaking results (overlap experiment)
 
-Fixed / derived (not browser-configurable):
+`experiments/predictive_inhibition_overlap.py` runs a deterministic `row → column →
+row` schedule (shared pixel 4; novel column pixels {1,7}) across seeds, with controls.
+All behaviour is derived from ordinary input vectors; **no overlap pixel, pattern, or
+winner is hardcoded** into any rule.
 
-```text
-e_threshold         = 1000                (shared across all E populations)
-i_threshold         = e_threshold / 3     (~333.3333, reported invariant)
-subt_gate_magnitude = e_threshold         (frozen)
-population sizes    = 9 / 9 / 9 / 8 / 1
-distance exponent   = 2 (fixed)
-seed                = persisted dashboard seed (fallback 1)
-input_period        = 1
-```
+**Phase A** forms an incumbent whose paired PI learns output synapses **only** onto
+the row's active pixels: across 5 seeds, exactly **3/72 candidate synapses are
+nonzero** (the incumbent onto {3,4,5}, ~0.28 each), zero onto inactive pixels.
 
-### Projection-specific initialization (construction policy, not runtime options)
+**Phase B** (switch to the overlapping column): the incumbent predicts and suppresses
+the **shared** pixel 4 more than the **novel** pixels {1,7}
+(`g_shared/g_novel ≈ 1.3–1.4`). With the shared feature shunted, the incumbent — whose
+column drive was almost entirely pixel 4 — loses drive; a different competitor
+accumulates the residual novel-feature activity and wins. Representative seed-1
+history: incumbent `L2E0` wins ~1000 steps, then `L2E4` takes over (first rival win at
+step ~76), with incumbent-PI contamination of {1,7} held low (~0.14).
 
-One shared cap does not impose the same volley charge on projections with
-different active fan-in, so each learned projection is initialized around a
-documented mean whose **total is below threshold** (so `p > 0` and the rule is
-Hebbian). The init is a small uniform seed, not the mature target; the rule
-sparsifies it.
+**Phase C** (return to the row): the original detector reclaims the row in **100%** of
+runs — temporary adaptation, not catastrophic erasure.
 
-| Projection | Afferents | ~Active | Init policy |
-| --- | --- | --- | --- |
-| sensory L1E_s | 1 | 1 | frozen at `theta/3` (subthreshold; ~3 steps per source spike) |
-| feedforward L1E_s→L2E | 9 | ~3 | total ≈ `0.55*theta` (mean ≈ 61), learns, cap 500 |
-| L1E_new (coincidence) | 9 | 1 sensory + 1 winner | index 0 (paired sensory) ≈ `0.49*theta` = 490; each of 8 feedback ≈ `0.06*theta` = 60; total ≈ 970 < theta, learns, cap 500 |
+**Controls (5 seeds each), default parameters:**
 
-The L1E_new init is a strong-but-subthreshold paired sensory seed plus a small
-nonzero seed on each feedback afferent, so `p = theta - sum(acc_weights)` starts
-positive (Hebbian). The sub-threshold-total invariant (`sum < theta`) is enforced
-after jitter. At maturity the paired sensory weight and the associated winning-L2E
-weight approach 500 each (sum = theta) while unrelated feedback weights decay to 0.
-Deterministic ±4% seeded jitter breaks symmetry. No weight budget, no charge
-renormalization.
+| Condition | Symmetry break | Recover | Mechanism check |
+| --- | ---: | ---: | --- |
+| full (PI on, plastic) | **1.00** | 1.00 | works |
+| predictive conductance OFF | **0.00** | 1.00 | expression is necessary |
+| PI plasticity OFF | **0.00** | 1.00 | association is necessary |
+| fast association (`pi_eta=0.10`) | 0.80 | 1.00 | more contamination (0.27) |
+| slow association (`pi_eta=0.005`) | 0.00 | 1.00 | incumbent PI never matures in time |
 
-## Deterministic timestep order
+A second overlap pair (`diag \ → diag /`, shared pixel 4, novel {2,6}) breaks in 2/3
+seeds and recovers 3/3.
 
-Read top to bottom; no recursion, no hidden same-step side effects. Inhibition
-carries a one-step delay that lives in the `I→E` synapse (not the relay).
+### The load-bearing parameter and its sensitivity
 
-1. Deposit external sensory charge into `L1E_s` (`input_period` gates delivery).
-2. Deliver queued `L1I→L1E_s` inhibition from the previous step — **after** the new
-   sensory deposit and **before** the `L1E_s` threshold check — so it removes real
-   accumulating charge and lowers the source cadence.
-3. Resolve `L1E_s` threshold crossings (frozen sensory → no weight update).
-4. Deliver each `L1E_s` spike densely to all `L2E` **and** locally to its paired
-   `L1E_new[i]` (afferent index 0).
-5. Resolve L2 competition: the winner is the highest pre-fire membrane, tie-broken
-   by lowest index; **only** the winner fires and updates; its `+1` fires `L2I`
-   immediately; `L2I` hard-wipes every `L2E`; record the events.
-6. Deliver the winner spike through dense `L2E→L1E_new` feedback (afferent
-   index `1 + winner`).
-7. Resolve `L1E_new` coincidence crossings; each firing detector learns from its
-   nine real afferents (participation index 0 = paired `L1E_s` spiked; indices 1..8
-   = which `L2E` spiked).
-8. Each spiking `L1E_new[i]` triggers `L1I[i]`, which fires **now**.
-9. `L1I[i]` **queues** its subtractive output for delivery to `L1E_s[i]` on the next
-   timestep (the one-step delay is the `I→E` synapse; the relay itself is instant).
-10. Apply leak and refractory countdown once to excitatory neurons.
-11. Record history, sparse weight changes, spike frequency, log, and the snapshot.
+Symmetry breaking is gated by the **predictive conductance persistence
+`alpha_inh_l1`**, not by conductance magnitude:
 
-The delay is load-bearing: without it, inhibition would reach `L1E_s[i]` after it
-had already fired and reset in the same step, removing zero charge. Delivered on the
-next step (phase 2, after the fresh sensory deposit), it removes real charge.
+| `alpha_inh_l1` | break rate (8 seeds) |
+| ---: | ---: |
+| 0.60 (fast) | 0.00 |
+| 0.85 | 0.00 |
+| 0.92 | 0.12–0.25 |
+| **0.95** | **1.00** |
+| 0.97 | 1.00 |
 
-## Coincidence circuit and symmetry breaking: measured status
+The shared-feature shunt must persist across the rival's accumulation window
+(~90 boundaries). Below ~0.92 it decays too fast and the incumbent always recovers
+drive before a rival can accumulate; increasing `pi_g_scale` alone does **not** fix
+this. `pi_eta` has a working band: too fast contaminates the incumbent's novel-feature
+synapses and erodes reliability; too slow fails to mature the incumbent PI within the
+window.
 
-L1E_new was corrected from a pure feedback integrator (every winner trained every
-detector, so all L1I eventually fired → **global** inhibition) into a local
-coincidence detector: a firing L1E_new needs its paired sensory input **and** an
-L2E winner. The intent is pixel-selective inhibition and emergent symmetry breaking
-on pattern change, with no supervised activity mask.
+## Failure modes and honest limitations
 
-The leaky periodic-integrator model is exact here. For charge `Q` every `T` steps
-with retained fraction `r = 1 - lambda`, the post-volley peak is
-`V_peak(T) = Q / (1 - r**T)`. Lone-branch rejection with coincident firing needs
-
-```text
-Q_off < theta*(1 - r**T) <= Q_on,   Q = sum(active afferent weights),
-```
-
-where `Q_off` is the largest lone-branch charge (~500) and `Q_on` the coincident
-charge (~1000). This is validated analytically, against the engine's exact
-irregular-interval recurrence `V_pre[k] = V_post[k-1]*r**dt[k]`, `V_post[k] =
-V_pre[k] + Q[k]`, and for several active fan-in counts in
-`experiments/frequency_experiment.py`.
-
-**What works.**
-
-- The delayed `I→E` inhibition removes **nonzero** charge (measured: ~30000 units
-  over 400 steps at the default leak) with the one-step delay verified (a relay
-  firing at step *t* never wipes its source at *t*; the wipe lands at *t+1*), and it
-  lengthens the paired-source cadence (3.0 → ~3.5 steps at zero leak).
-- At the default leak (0.03), inactive-pixel L1E_new stay **completely quiet**
-  (0 false fires over 1500 steps) while L2E still bootstraps — so the reported bug
-  is fixed: inhibition is **pixel-selective**, not global. After a row→column
-  switch, inhibition lands only on the column-active pixels {1,4,7}.
-- Neuron-level coincidence is genuine: a mature detector (sensory 500 + winner 500)
-  rejects each lone 500 branch and fires only on coincidence once leak ≥ ~0.16.
-
-**What does not (negative, honest).**
-
-- **No single shared leak** satisfies both L2E bootstrapping and strict lone-branch
-  rejection. L2E bootstraps only at `leak ≤ 0.04` (its sub-threshold ff volley must
-  accumulate); a mature lone-500 branch is rejected only at `leak ≥ 0.16`. The two
-  windows are **disjoint**. Per the brief, no population-specific leak, boolean
-  coincidence gate, eligibility trace, or reset heuristic was introduced.
-- **No symmetry breaking.** With row→column→row, the same competitor (L2E5) wins all
-  three phases. At the bootstrap-compatible default leak, lone sensory (500) still
-  fires L1E_new for *every* active pixel, so the "new-exclusive pixels stay
-  available for a rival" mechanism never gates on winner association; and the
-  incumbent's learned feedforward weights let it win the overlapping pattern.
-
-**Production stance.** The default leak (0.03) sits in the window where the network
-is alive and inhibition is pixel-selective (the bug fix). Strict two-input
-coincidence and symmetry breaking would require breaking one of the two structural
-facts above (e.g. a delay register that decouples L1E_new firing from the source
-volley, or letting losers learn) — genuine design changes beyond this correction,
-recorded here rather than hidden as a heuristic. Measurements are in
-`experiments/frequency_results.json`.
+* **Contamination is real.** While the incumbent still wins the overlapping pattern it
+  *does* learn the novel features (measured: novel-weight sum rises during Phase B).
+  Symmetry breaking works only because the persistent shared-feature shunt removes the
+  incumbent's drive **faster** than contamination accumulates. In the fast-association
+  regime contamination wins and reliability drops.
+* **Suppressing the shared feature is necessary but not sufficient.** The rival must
+  still accumulate enough *novel-feature* drive to cross threshold. Rivals begin with
+  unlearned (~61) feedforward weights on the novel pixels, so turnover depends on a
+  long enough silent window for that slow accumulation — this is why the persistence
+  timescale, not the conductance magnitude, is load-bearing. This is the
+  association-bootstrap limitation resurfacing in the conductance model.
+* The result is robust for `row/col` (8/8 at `alpha_inh_l1 ≥ 0.95`) but weaker for
+  `diag\ / diag/` (2/3), so it is not claimed as pattern-independent.
+* The dense 72-candidate projection is deliberate scaffolding; learned use is sparse
+  (~3 synapses/pattern). Magnitude pruning to the strong synapses would preserve
+  single-pattern behaviour; destructive pruning is left as a follow-up, not done here.

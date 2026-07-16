@@ -10,13 +10,14 @@ membrane trajectory. These are model invariants, not long floating-point histori
 import numpy as np
 import pytest
 
-from snn.neurons import ExcitatoryNeuron, E_THRESHOLD
+from snn.neurons import E_THRESHOLD
 from experiments.frequency_experiment import (
     v_peak,
     fires_at,
     selectivity_window,
     simulate_periodic_integrator,
     recurrence_trace,
+    _jump_leak_reference_trace,
 )
 
 
@@ -48,26 +49,17 @@ def test_heterogeneous_weights_use_sum_not_cap():
     assert wrong > 5 * Q
 
 
-def test_recurrence_matches_engine_on_irregular_intervals():
-    # Drive a real ExcitatoryNeuron with irregular volley gaps and charges; the
-    # brief's V_pre/V_post recurrence must reproduce its membrane exactly.
+def test_recurrence_matches_reference_integrator_on_irregular_intervals():
+    # The frequency experiment analyses an abstract leaky *jump* integrator (its
+    # V_pre/V_post recurrence). The engine neuron is now conductance-based, so the
+    # recurrence is validated against the module's self-contained reference
+    # integrator rather than the engine neuron.
     leak = 0.15
-    theta = E_THRESHOLD
     gaps = [1, 2, 1, 3, 2]           # irregular inter-volley steps
     charges = [180.0, 90.0, 210.0, 60.0, 150.0]
-    n = ExcitatoryNeuron('probe', 'test', acc_weights=np.array([1.0]),
-                         acc_distance_factor=np.array([1.0]),
-                         threshold=theta, leak_rate=leak, learn=False)
-    engine_post = []
-    step = 0
-    for Q, dt in zip(charges, gaps):
-        for _ in range(dt - 1):      # dt-1 pure-leak steps between volleys
-            n.advance()
-        n.receive_acc(Q)             # deposit (this is the threshold-check point)
-        engine_post.append(n.V)
-        n.advance()                  # this volley step's own leak
+    reference_post = _jump_leak_reference_trace(charges, gaps, leak)
     analytic = recurrence_trace(charges, gaps, leak)
-    assert engine_post == pytest.approx(analytic, rel=1e-9)
+    assert reference_post == pytest.approx(analytic, rel=1e-9)
 
 
 def test_v_peak_zero_leak_is_unbounded_integrator():

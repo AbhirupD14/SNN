@@ -22,6 +22,9 @@ const COLORS = {
   // Structural E->I relay-excitation edge: a +1 event edge with no learned weight,
   // rendered blue at a fixed opacity (independent of the weak-weight filter).
   relay_excitation: 0x7c9cff,
+  // Predictive inhibitory output PI[j] -> L1E_s[i]: a locally-plastic conductance
+  // synapse, drawn a distinct magenta to separate it from the L2I_WTA red inhibition.
+  predictive_inhibition: 0xe066c0,
 };
 const WEAK = 0.25;            // fraction of the shared cap below which a learned edge is "weak"
 const STRUCTURAL_OPACITY = 0.22;   // fixed opacity for weightless structural relay edges

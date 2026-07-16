@@ -9,7 +9,11 @@ Populations and their homes:
     L1E_new[i] same grid lifted to z = +Z_OFFSET    (supervisory partners, above)
     L1I[i]     same grid dropped to z = -Z_OFFSET    (instant relays, below)
     L2E[j]     ring at z = L2_Z                       (eight competitors)
+    PI[j]      just outside L2E[j] on the ring        (paired predictive interneurons)
     L2I        above the ring at z = L2I_Z            (one shared relay)
+
+Both direct (PI) and comparison (L1E_new/L1I) populations are laid out here; only
+the ones the active topology builds are read by the engine.
 
 Small deterministic jitter (seeded) breaks exact distance ties so the geometric
 learning-rate factor varies per synapse, while staying well inside each cell so
@@ -57,6 +61,12 @@ def generate_layout(rng, n_pix: int, n_out: int) -> dict[str, np.ndarray]:
         pos[f'L2E{j}'] = anchor + np.array([rng.uniform(-0.4, 0.4),
                                             rng.uniform(-0.4, 0.4),
                                             rng.uniform(-_L2_Z_JITTER, _L2_Z_JITTER)])
+        # Paired predictive interneuron: just outside its L2E on the same ring.
+        pi_anchor = np.array([(L2_RING_R + 2.2) * math.cos(angle),
+                              (L2_RING_R + 2.2) * math.sin(angle), L2_Z])
+        pos[f'PI{j}'] = pi_anchor + np.array([rng.uniform(-0.3, 0.3),
+                                              rng.uniform(-0.3, 0.3),
+                                              rng.uniform(-_L2_Z_JITTER, _L2_Z_JITTER)])
 
     pos['L2I'] = np.array([0.0, 0.0, L2I_Z]) + jitter(0.6, 0.6)
     return pos

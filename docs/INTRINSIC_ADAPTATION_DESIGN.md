@@ -1,5 +1,11 @@
 # Design Direction: Intrinsic Adaptation for Winner Tyranny
 
+> **Historical (pre-conductance).** A proposed alternative from the hard-wipe era.
+> The implemented model instead uses persistent inhibitory conductance and local
+> predictive inhibition; see `Current_Implementation_Methodology_Equations.md`.
+> Kept for context only.
+
+
 ## Status
 
 This document records a proposed mechanism. Intrinsic adaptation is **not** part

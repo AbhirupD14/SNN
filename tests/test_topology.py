@@ -59,16 +59,19 @@ def test_no_l2e_to_l1i_edges(engine):
     assert all(s['target'].startswith('L1Enew') for s in fb)
 
 
-def test_subtractive_gates_equal_threshold_and_frozen(engine):
+def test_inhibition_edges_are_conductance_relays(engine):
+    # Inhibition is now a persistent conductance pulse, NOT a frozen threshold-sized
+    # hard wipe: the L1I->L1E_s and L2I->L2E gates carry no learned magnitude
+    # (weight is None) and are tagged inhibitory (sign -1).
     inh = [s for s in engine.topology()['synapses'] if s['kind'] == 'inhibition']
     assert len(inh) == 17
     for s in inh:
-        assert s['weight'] == pytest.approx(E_THRESHOLD)
+        assert s['weight'] is None
         assert s['sign'] == -1
-    # The engine has no subtractive plasticity: source E neurons never touch a gate.
-    for n in (*engine.l1e_s, *engine.l2e):
-        assert n.subt_magnitude == pytest.approx(E_THRESHOLD)
-        assert n.learn in (True, False)   # only acc_weights learn; gate is a scalar constant
+    # No neuron carries a subtractive hard-wipe magnitude any more.
+    for n in (*engine.l1e_s, *engine.l2e, *engine.l1e_new):
+        assert not hasattr(n, 'subt_magnitude')
+        assert hasattr(n, 'g_inh')        # conductance state instead
 
 
 def test_relay_edges_are_structural(engine):

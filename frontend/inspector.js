@@ -126,13 +126,22 @@ function synCard(title, list, self) {
         <span class="wbar"><i style="left:50%;width:${(Math.min(1, Math.abs(sy.w) / 500) * 50).toFixed(0)}%;background:#9be15d"></i></span>
         <span class="wv" title="paired local sensory afferent (coincidence input)">local ${sy.w.toFixed(0)}</span></div>`;
     }
-    // Frozen subtractive gate (I->E): a positive stored magnitude that acts under a
-    // negative sign as a hard wipe. Render it as inhibitory, never as excitatory.
+    // L2I_WTA / legacy L1I inhibition (I->E): a persistent inhibitory CONDUCTANCE
+    // pulse (no learned per-synapse magnitude). Render it as inhibitory.
     if (sy.kind === 'inhibition') {
       return `<div class="syn-row">
         <span class="name">${sy.other}</span>
         <span class="wbar"></span>
-        <span class="wv" style="color:var(--in)" title="frozen subtractive gate = target threshold; hard-wipes charge to rest">−gate ${sy.w.toFixed(0)}</span></div>`;
+        <span class="wv" style="color:var(--in)" title="inhibitory conductance pulse (g_inh), decays over time; not a hard wipe">g-pulse</span></div>`;
+    }
+    // Predictive inhibitory output PI[j] -> L1E_s[i]: a locally-plastic weight that
+    // sets the emitted inhibitory conductance (g_scale * w). Bounded to [0, w_max].
+    if (sy.kind === 'predictive_inhibition') {
+      const frac = Math.min(1, Math.abs(sy.w));
+      return `<div class="syn-row">
+        <span class="name">${sy.other}</span>
+        <span class="wbar"><i style="right:50%;width:${(frac * 50).toFixed(0)}%;background:#e066c0"></i></span>
+        <span class="wv" style="color:#e066c0" title="locally-learned predictive inhibitory weight; emits g_scale*w conductance">PI ${sy.w.toFixed(3)}</span></div>`;
     }
     const mag = Math.min(1, Math.abs(sy.w));
     const pos = sy.w >= 0;

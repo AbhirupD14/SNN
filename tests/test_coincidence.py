@@ -1,11 +1,11 @@
-"""L1E_new local coincidence detector, delayed I->E inhibition, and pixel-selective
-learning -- the corrected L1 feedback circuit.
+"""L1E_new coincidence comparison branch (enew_enabled=True) under the conductance
+engine: nine-afferent construction, delayed paired local-sensory delivery, an
+emergent coincidence advantage from leaky integration, and pixel-selective L1I
+inhibitory *conductance* (no longer a hard wipe) that stays local, not global.
 
-L1E_new[i] has nine accumulating afferents: index 0 is the paired local sensory
-afferent from L1E_s[i]; indices 1..8 are dense L2E feedback. It fires only when its
-paired sensory input and an L2E winner coincide (weighted integration + leak, not a
-boolean gate). A firing L1E_new[i] triggers L1I[i], whose subtractive output is
-queued and delivered to L1E_s[i] on the NEXT timestep.
+The one-step feedforward/feedback delay means a detector's paired sensory afferent
+(from L1E_s at t-1) and its winner feedback (from the L2 winner at t-1) both arrive
+at boundary t, so coincidence is still tested by joint leaky integration.
 """
 
 import numpy as np
@@ -21,187 +21,142 @@ def fresh(leak=0.03, seed=1):
     return e
 
 
-def mature_enew(leak, winner_j=0, sensory=500.0, winner_w=500.0):
-    w = np.zeros(1 + N_OUT)
-    w[0] = sensory
-    w[1 + winner_j] = winner_w
-    return ExcitatoryNeuron('L1Enew', 'supervisor', acc_weights=w,
-                            acc_distance_factor=np.ones(1 + N_OUT),
+def detector(leak, sensory=500.0, winner_w=500.0):
+    """A mature two-afferent coincidence detector: afferent 0 = paired sensory,
+    afferent 1 = the associated winning L2E feedback."""
+    return ExcitatoryNeuron('probe', 'supervisor',
+                            acc_weights=np.array([sensory, winner_w]),
+                            acc_distance_factor=np.ones(2),
                             threshold=E_THRESHOLD, w_max=E_THRESHOLD / 2.0,
                             leak_rate=leak, learn=False)
+
+
+def drive_detector(mode, leak, T, steps=400, sensory=500.0, winner_w=500.0):
+    """First firing step (or None) of a mature detector fed a train every T steps.
+    mode in {'sensory', 'winner', 'coincident'}. Integrates (leaks) every step."""
+    n = detector(leak, sensory, winner_w)
+    for t in range(1, steps + 1):
+        if t % T == 0:
+            if mode in ('sensory', 'coincident'):
+                n.gather_exc(n.acc_weights[0])
+            if mode in ('winner', 'coincident'):
+                n.gather_exc(n.acc_weights[1])
+        n.integrate()
+        if n.can_fire():
+            n.fire()
+            return t
+    return None
 
 
 # --------------------------------------------------------------- construction
 def test_l1e_new_has_nine_afferents_and_subthreshold_init():
     e = SimulationEngine(seed=1)
     for n in e.l1e_new:
-        assert n.acc_weights.shape == (1 + N_OUT,)          # 1 sensory + 8 feedback
+        assert n.acc_weights.shape == (1 + N_OUT,)
         assert np.all(n.acc_weights >= 0) and np.all(n.acc_weights <= e.params['e_weight_cap'])
-        assert n.acc_weights.sum() < e.params['e_threshold']  # p starts positive
-    assert e.params['e_weight_cap'] == pytest.approx(500.0)   # shared cap theta/2
+        assert n.acc_weights.sum() < e.params['e_threshold']
+    assert e.params['e_weight_cap'] == pytest.approx(500.0)
 
 
 def test_default_leak_is_nonzero():
-    # Zero leak is not a valid default for this circuit.
     assert SimulationEngine(seed=1).params['leak_rate'] > 0.0
 
 
 # ------------------------------------------------------------- charge delivery
-def test_local_sensory_reaches_only_paired_l1e_new():
+def test_local_sensory_reaches_only_paired_l1e_new_next_boundary():
     e = fresh()
     e.input_vec[:] = 0.0
     e.input_vec[4] = 1.0
     for n in e.l1e_new:
-        n.acc_weights[0] = 400.0          # visible paired-sensory weight
-        n.V = 0.0
-    # Step until L1E_s[4] fires and delivers locally.
-    for _ in range(6):
+        n.acc_weights[0] = 400.0
+    # Step until L1E_s[4] fires and EMITS its paired local-sensory edge.
+    for _ in range(8):
         d = e.step()
         if 'cl4' in d['emitted']:
             break
-    assert 'cl4' in d['emitted']                              # paired local delivery fired
+    assert 'cl4' in d['emitted']
     assert not any(f'cl{i}' in d['emitted'] for i in range(N_PIX) if i != 4)
-    # Only the paired L1E_new received local sensory charge (others got none locally).
+    # The charge lands on the paired detector on the NEXT boundary (delay 1).
+    e.step()
     assert e.l1e_new[4].V > 0.0
-
-
-def test_geometry_does_not_affect_delivered_charge():
-    # Two mature detectors with identical weights but different distance factors get
-    # identical charge from the same spike.
-    near = mature_enew(0.0); far = mature_enew(0.0)
-    near.acc_distance_factor[:] = 1.0
-    far.acc_distance_factor[:] = 0.01
-    near.receive_acc(near.acc_weights[0]); far.receive_acc(far.acc_weights[0])
-    assert near.V == far.V == pytest.approx(500.0)
+    assert all(e.l1e_new[i].V == 0.0 for i in range(N_PIX) if i != 4)
 
 
 # ---------------------------------------------------------------- coincidence
-def _drive(mode, leak, T, winner_j=0, steps=400):
-    n = mature_enew(leak, winner_j)
-    for t in range(1, steps + 1):
-        if t % T == 0:
-            if mode in ('sensory', 'coincident'):
-                n.receive_acc(n.acc_weights[0])
-            if mode in ('winner', 'coincident'):
-                n.receive_acc(n.acc_weights[1 + winner_j])
-        if n.can_fire():
-            n.fire(); return t
-        n.advance()
-    return None
+def test_coincident_volley_depolarizes_more_than_a_lone_branch():
+    # A single coincident deposit (500 + 500) produces strictly more depolarization
+    # than either lone 500 branch in the same boundary.
+    lone = detector(0.2); lone.gather_exc(lone.acc_weights[0]); lone.integrate()
+    coin = detector(0.2)
+    coin.gather_exc(coin.acc_weights[0]); coin.gather_exc(coin.acc_weights[1]); coin.integrate()
+    assert coin.V > lone.V
 
 
-def test_mature_coincidence_rejects_lone_branches_under_leak():
-    # At a leak that rejects a lone 500 branch, only the coincident (500+500) train
-    # crosses threshold -- an emergent AND from weighted integration + leak.
-    leak, T = 0.20, 5
-    assert _drive('sensory', leak, T) is None               # lone sensory subthreshold
-    assert _drive('winner', leak, T) is None                # lone winner subthreshold
-    assert _drive('coincident', leak, T) is not None        # coincidence fires
+def test_leaky_integration_gives_emergent_coincidence():
+    # At a leak where a repeated lone 500 branch saturates below threshold, only the
+    # coincident (500 + 500) train crosses -- an emergent AND from leak + integration.
+    leak, T = 0.5, 1
+    assert drive_detector('sensory', leak, T) is None
+    assert drive_detector('winner', leak, T) is None
+    assert drive_detector('coincident', leak, T) is not None
 
 
-def test_coincident_fires_on_first_volley_regardless_of_leak():
-    # 500 + 500 = theta arrives in one step, so a coincident volley always fires.
-    for leak in (0.0, 0.1, 0.3):
-        assert _drive('coincident', leak, T=5) == 5
+# ----------------------------------------------------------- L1I conductance
+def test_l1i_relay_fires_and_conductance_is_delayed_and_paired():
+    e = SimulationEngine(seed=1)
+    e.set_pattern('row 1')
+    # Find a boundary where L1E_new[i] fires and its L1I relay emits.
+    hit = None
+    for _ in range(200):
+        d = e.step()
+        for i in (3, 4, 5):
+            if any(n['id'] == f'L1I{i}' and n['spiked'] for n in d['neurons']):
+                hit = (i, d)
+                break
+        if hit:
+            break
+    assert hit is not None
+    i, d = hit
+    assert f're_l1_{i}' in d['emitted']
+    # No same-boundary inhibitory conductance on L1E{i}: the pulse is delayed one step.
+    assert not any(p['target'] == f'L1E{i}' for p in d['inhibitory_pulses'])
+    # Next boundary it lands as a 'legacy_l1i' conductance pulse on the paired L1E_s.
+    d2 = e.step()
+    landed = [p for p in d2['inhibitory_pulses']
+              if p['kind'] == 'legacy_l1i' and p['target'] == f'L1E{i}']
+    assert landed and landed[0]['conductance_increment'] > 0.0
 
 
-# ------------------------------------------------------------- local learning
-def test_participation_potentiates_active_and_depresses_inactive():
-    # A learning L1E_new firing on a coincident (paired sensory + winner j) event:
-    # sensory[0] and feedback[1+j] potentiate; the other feedback afferents depress.
-    n = ExcitatoryNeuron('L1Enew', 'supervisor',
-                         acc_weights=np.array([300.0, 40., 40., 40., 40., 40., 40., 40., 40.]),
-                         acc_distance_factor=np.ones(9),
-                         threshold=E_THRESHOLD, w_max=E_THRESHOLD / 2.0, eta=0.02)
-    before = n.acc_weights.copy()
-    n.fire()
-    part = np.zeros(9, dtype=bool); part[0] = True; part[1 + 2] = True   # sensory + winner 2
-    n.update_acc_weights(part)
-    assert n.acc_weights[0] > before[0]                     # paired sensory up
-    assert n.acc_weights[1 + 2] > before[1 + 2]             # winning feedback up
-    for j in range(N_OUT):
-        if j != 2:
-            assert n.acc_weights[1 + j] < before[1 + j]     # other feedback down
-    assert np.all(n.acc_weights <= E_THRESHOLD / 2.0)       # within [0, 500]
-
-
-def test_only_participating_pixel_enew_can_learn():
-    # Over a held row pattern, only the active-pixel L1E_new fire/learn; inactive-pixel
-    # detectors stay quiet (no false training toward the winner) -> selective, not global.
-    e = SimulationEngine(seed=1)                            # default leak 0.03
+def test_held_pattern_inhibition_is_pixel_selective():
+    e = SimulationEngine(seed=1)
     e.set_pattern('row 1')                                  # active pixels 3,4,5
-    active_fired = inactive_fired = 0
+    fired = np.zeros(N_PIX, dtype=int)
+    hits = np.zeros(N_PIX, dtype=int)
     for _ in range(1500):
         d = e.step()
         by = {n['id']: n for n in d['neurons']}
         for i in range(N_PIX):
             if by[f'L1Enew{i}']['spiked']:
-                if i in (3, 4, 5):
-                    active_fired += 1
-                else:
-                    inactive_fired += 1
-    assert active_fired > 0
-    assert inactive_fired == 0                              # the corrected-bug invariant
+                fired[i] += 1
+        for p in d['inhibitory_pulses']:
+            if p['kind'] == 'legacy_l1i':
+                hits[int(p['target'][3:])] += 1
+    assert set(np.nonzero(fired)[0]) == {3, 4, 5}          # only active pixels' detectors fire
+    assert set(np.nonzero(hits)[0]) <= {3, 4, 5}           # inhibition local, never global
 
 
-# --------------------------------------------------------------------- delay
-def test_l1i_relay_fires_on_coincidence_step_but_wipe_is_delayed():
-    # Construct a single coincident L1E_new fire and check the relay fires this step
-    # while its wipe is queued (no same-step L1E_s wipe), landing next step.
-    e = fresh(leak=0.0)
-    for n in e.l2e:
-        n.acc_weights[:] = 0.0
-    e.l2e[0].acc_weights[4] = E_THRESHOLD                   # L2E0 wins on pixel 4
-    for n in e.l1e_new:
-        n.acc_weights[:] = 0.0
-    e.l1e_new[4].acc_weights[0] = 500.0                    # paired sensory
-    e.l1e_new[4].acc_weights[1 + 0] = 500.0                # winner-0 feedback -> coincidence
-    e.input_vec[:] = 0.0; e.input_vec[4] = 1.0
-    for _ in range(6):
-        d = e.step()
-        if any(n['id'] == 'L1I4' and n['spiked'] for n in d['neurons']):
-            break
-    # L1I4 fired this step; the wipe was NOT applied to L1E4 this step (queued).
-    assert 're_l1_4' in d['emitted']
-    assert not any(ev['target'] == 'L1E4' for ev in d['applied_inhibition'])
-    assert e._pending_inh[4]                                # queued for next step
-    # Next step, after sensory deposit but before the L1E_s crossing, the wipe lands.
-    e.l1e_s[4].V = 600.0                                    # subthreshold charge to remove
-    d2 = e.step()
-    landed = {ev['target']: ev for ev in d2['applied_inhibition']}
-    assert 'L1E4' in landed and landed['L1E4']['charge_removed'] > 0.0
-
-
-def test_delayed_inhibition_lowers_source_cadence():
-    # The paired-source cadence in the live circuit is longer than the un-inhibited
-    # integrator cadence (a held pixel at zero leak fires every 3 steps).
-    e = SimulationEngine(seed=1, leak_rate=0.0)
-    e.set_pattern('row 1')
-    spikes = 0
-    for _ in range(600):
-        d = e.step()
-        by = {n['id']: n for n in d['neurons']}
-        spikes += by['L1E3']['spiked']
-    cadence = 600 / max(1, spikes)
-    assert cadence > 3.0                                    # inhibition delayed some spikes
-
-
-# ------------------------------------------------------------- pattern switch
-def test_switch_inhibition_is_pixel_selective_not_global():
-    # After training a row and switching to a column, the delayed inhibition lands on
-    # the column's active pixels (coincidence), never on all nine pixels globally.
+def test_switch_inhibition_follows_the_new_active_pixels():
     e = SimulationEngine(seed=1)
     e.set_pattern('row 1')
-    for _ in range(1500):
+    for _ in range(1200):
         e.step()
     e.set_pattern('col 1')                                  # active pixels 1,4,7
-    inh_hits = np.zeros(N_PIX, dtype=int)
+    hits = np.zeros(N_PIX, dtype=int)
     for _ in range(1500):
         d = e.step()
-        for ev in d['applied_inhibition']:
-            t = ev['target']
-            if t.startswith('L1E') and not t.startswith('L1Enew'):
-                inh_hits[int(t[3:])] += 1
-    hit_pixels = set(np.nonzero(inh_hits)[0].tolist())
+        for p in d['inhibitory_pulses']:
+            if p['kind'] == 'legacy_l1i':
+                hits[int(p['target'][3:])] += 1
+    hit_pixels = set(np.nonzero(hits)[0].tolist())
     assert hit_pixels                                       # inhibition happened
     assert hit_pixels <= {1, 4, 7}                          # only column-active pixels

@@ -1,5 +1,11 @@
 # Open Problem: Temporal AND Semantics and Winner Turnover
 
+> **Historical (pre-conductance).** This document analyses the earlier subtractive
+> hard-wipe model. Inhibition is now persistent conductance and winner turnover is
+> addressed by local predictive inhibition; see
+> `Current_Implementation_Methodology_Equations.md`. Kept for context only.
+
+
 ## Status
 
 The July 2026 backend rebuild fixed two concrete defects in the L1 feedback

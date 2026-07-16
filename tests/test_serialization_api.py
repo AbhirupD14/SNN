@@ -45,10 +45,35 @@ def test_dynamic_payload_shape(engine):
     engine.set_pattern('row 1')
     d = engine.step()
     assert set(d) >= {'timestep', 'running', 'neurons', 'changed_synapses',
-                      'emitted', 'applied_inhibition', 'input', 'winner', 'stats', 'log'}
+                      'emitted', 'inhibitory_pulses', 'input', 'winner', 'stats', 'log'}
+    assert 'applied_inhibition' not in d                  # renamed: pulses are not charge removal
     for n in d['neurons']:
         assert set(n) >= {'id', 'potential', 'activation', 'spiked', 'freq', 'refractory'}
+    # Excitatory neurons expose conductance and activity-trace state.
+    exc = [n for n in d['neurons'] if n['id'].startswith(('L1E', 'L2E'))
+           and not n['id'].startswith('L1I')]
+    for n in exc:
+        assert {'g_inh', 'trace', 'v_pre_reset'} <= set(n)
     assert len(d['input']) == 9
+
+
+def test_inhibitory_pulse_schema():
+    # A PI (direct-topology) inhibitory pulse carries conductance-pulse fields and
+    # never serializes a 'charge_removed'.
+    e = SimulationEngine(seed=1, enew_enabled=False)
+    e.set_pattern('row 1')
+    pulse = None
+    for _ in range(400):
+        d = e.step()
+        preds = [p for p in d['inhibitory_pulses'] if p['kind'] == 'predictive']
+        if preds:
+            pulse = preds[0]
+            break
+    assert pulse is not None
+    assert set(pulse) == {'source', 'target', 'kind', 'synaptic_weight',
+                          'conductance_increment', 'g_inh_before', 'g_inh_after', 'boundary'}
+    assert 'charge_removed' not in pulse
+    assert pulse['g_inh_after'] >= pulse['g_inh_before']
 
 
 def test_config_rejects_deleted_keys(engine):
@@ -65,10 +90,13 @@ def test_config_accepts_editable_keys(engine):
     assert set(applied) == {'leak_rate', 'refractory_steps'}
     assert engine.params['leak_rate'] == 0.1
     assert engine.l2e[0].leak_rate == 0.1                # rebuild propagated it
-    # The spec surface stays small and matches config_values.
+    # The control surface matches config_values and exposes the separated
+    # predictive-inhibition timescales plus the two ablation toggles.
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == set(config_values(engine.params))
-    assert keys == {'leak_rate', 'refractory_steps', 'eta', 'e_weight_cap'}
+    assert keys == {'leak_rate', 'refractory_steps', 'eta', 'e_weight_cap', 'enew_enabled',
+                    'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'pi_eta', 'pi_g_scale',
+                    'l2i_g_scale', 'pi_conductance_enabled', 'pi_plasticity_enabled'}
 
 
 def test_reset_and_reseed_cycle(engine):

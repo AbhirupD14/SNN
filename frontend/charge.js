@@ -10,6 +10,7 @@ const MARGIN = 66;
 const AXIS = 16;
 const HISTORY = 1500;
 const CHARGE_CAP = 2.0;   // V/θ at the top of a lane's charge zone (overshoot visible up to 2x)
+const INH_REF = 6.0;      // conductance increment mapped to a full-height violet inhibition marker
 
 export class ChargeChart {
   constructor(store) {
@@ -79,18 +80,19 @@ export class ChargeChart {
       chg[i] = n.activation ?? 0;
       if (n.spiked) spk[i] = 1;
     }
-    // Every hard-wipe this step comes from one engine record. An L2E target is the
-    // L2I competitive reset (red tick); an L1E target is the paired L1I->L1E_s wipe
-    // (violet marker). Both are full wipes to rest.
-    for (const ev of dyn.applied_inhibition || []) {
+    // Each inhibitory pulse this step is a persistent-conductance increment (NOT a
+    // charge removal). An L2E target is the L2I_WTA global pulse (red tick); an L1E
+    // target is a predictive PI (or legacy L1I) conductance pulse (violet marker,
+    // height/opacity scale with the conductance increment).
+    for (const ev of dyn.inhibitory_pulses || []) {
       const i = this.index.get(ev.target);
       if (i == null) continue;
+      const frac = Math.min(1, (ev.conductance_increment || 0) / INH_REF);
       if (ev.target.startsWith('L2E')) {
         inh[i] = 1;
       } else {
-        const frac = ev.v_pre > 0 ? Math.min(1, ev.charge_removed / ev.v_pre) : 0;
-        linh[i] = ev.reached_rest ? 1 : Math.max(linh[i], frac);
-        lrest[i] = ev.reached_rest ? 1 : lrest[i];
+        linh[i] = Math.max(linh[i], frac);
+        lrest[i] = frac >= 0.8 ? 1 : lrest[i];   // 1 = strong (near-shunting) pulse
       }
     }
     this.charge.push(chg); this.spike.push(spk); this.inhibited.push(inh);
@@ -223,10 +225,10 @@ export class ChargeChart {
           ctx.fillRect(xOf(c), laneTop + Math.max(5, laneH * 0.22), barW,
                        Math.max(2, Math.min(4, laneH * 0.18)));
         }
-        // Applied paired L1I->L1E inhibition (L1E lanes): a top-anchored violet
-        // marker whose height/opacity grow with the fraction of charge removed;
-        // a full reset (floored at rest) draws taller and fully opaque, so weak
-        // partial inhibition is visually distinct from a mature effective reset.
+        // Predictive/legacy inhibitory conductance pulse (L1E lanes): a top-anchored
+        // violet marker whose height/opacity grow with the conductance increment;
+        // a strong (near-shunting) pulse draws taller and fully opaque, so weak
+        // partial inhibition is visually distinct from strong predictive inhibition.
         const li = this.l1inh[c][idx];
         if (li > 0.001) {
           const rest = this.l1rest[c][idx];
@@ -254,9 +256,9 @@ export class ChargeChart {
       // Legend: three separately-colored event types + the charge/threshold guides.
       const parts = [
         ['charge V/θ (bar) · dashed = θ', cMut],
-        ['peak = spike (incl. L1I)', cExc],
-        ['red tick = L2 competitive reset', cInh],
-        ['violet = applied L1I→L1E inhibition (tall = reset)', cL1inh],
+        ['peak = spike (incl. PI / L1I)', cExc],
+        ['red tick = L2I_WTA conductance', cInh],
+        ['violet = predictive/L1I conductance (tall = strong)', cL1inh],
       ];
       let lx = MARGIN + 6;
       for (const [txt, col] of parts) {

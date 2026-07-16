@@ -1,11 +1,22 @@
 # SNN
 
 A small, from-scratch spiking neural network for learning four overlapping 3×3
-line patterns. The model uses NumPy, local plasticity, no gradients, and no
-global error signal. There is one scientific model — no mode flags or ablations.
+line patterns. The model uses NumPy, local plasticity, no gradients, and no global
+error signal. Inhibition is **persistent conductance** (never a hard wipe), every
+excitatory cell carries a local activity trace, and the timestep is synchronous with
+explicit unit synaptic delays.
 
-- `snn/` + `backend/` + `frontend/`: the model and its interactive dashboard.
-- `experiments/`: one deterministic headless frequency experiment.
+One `enew_enabled` flag selects the topology:
+
+- **`False` — the predictive-inhibition (PI) experiment.** Eight pattern-specific
+  predictive interneurons `PI[j]`, paired 1:1 with the competitors `L2E[j]`, each
+  with nine locally-plastic inhibitory synapses onto the sensory `L1E_s` cells. Tests
+  temporal explaining-away / symmetry breaking on overlapping patterns.
+- **`True` (default) — the retained L1E_new coincidence comparison topology.**
+
+Directories: `snn/` + `backend/` + `frontend/` are the model and its dashboard;
+`experiments/` holds the overlap symmetry-breaking experiment and a legacy frequency
+analysis.
 
 ## Start here
 
@@ -30,12 +41,15 @@ browser action
 ```
 
 For a single simulation step, read `SimulationEngine.step()` in
-`backend/simulation.py` top to bottom: it delivers input to L1E_s, resolves L1E_s
-firing, delivers a dense volley to L2E, runs deterministic WTA (winner + L2I hard
-wipe), delivers feedback to L1E_new, relays each L1E_new fire through its paired
-L1I to wipe the paired L1E_s, then applies leak/refractory and records the frame.
-`ExcitatoryNeuron`/`InhibitoryNeuron` in `snn/neurons.py` own the local state
-transitions and the one weight rule.
+`backend/simulation.py` top to bottom. It runs synchronous subphases: deliver
+delay-1 arrivals (inhibitory conductance, then excitatory charge) and external
+input; integrate every excitatory neuron once (joint excitation/inhibition);
+threshold-test and fire (L1E_s, then deterministic L2E winner-take-all); update
+each cell's local activity trace; emit spikes into delay-1 queues and run the local
+PI / L1I inhibitory plasticity; decay conductances and count down refractory; record
+the frame. `ExcitatoryNeuron`, `InhibitoryNeuron`, and `PredictiveInterneuron` in
+`snn/neurons.py` own the local state transitions, the conductance/trace dynamics, and
+the two weight rules (excitatory accumulating + local predictive-inhibition).
 
 ## Small code map
 
@@ -48,39 +62,41 @@ transitions and the one weight rule.
 | `backend/layout.py` | Seeded functional positions (used for learning distances only). |
 | `backend/serializer.py`, `backend/websocket.py` | Protocol envelopes and the run loop. |
 | `frontend/` | Vanilla JS + Three.js dashboard; display positions never alter model distances. |
-| `experiments/frequency_experiment.py` | Deterministic frequency measurement (see below). |
+| `experiments/predictive_inhibition_overlap.py` | Multi-seed row→col→row symmetry-breaking experiment + controls. |
+| `experiments/frequency_experiment.py` | Legacy analytic leaky-integrator study (see below). |
 
-The implemented model is documented in
+The implemented model — conductance dynamics, activity trace, local PI plasticity,
+timestep/delays, and the symmetry-breaking results — is documented in
 [`Current_Implementation_Methodology_Equations.md`](Current_Implementation_Methodology_Equations.md).
 The browser protocol and view boundary are in
-[`docs/DASHBOARD.md`](docs/DASHBOARD.md).
-The unresolved temporal-AND and winner-turnover limitation is isolated in
-[`docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md`](docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md).
-A proposed L2E intrinsic-adaptation mechanism for one-volley winner tyranny is
-recorded separately in
-[`docs/INTRINSIC_ADAPTATION_DESIGN.md`](docs/INTRINSIC_ADAPTATION_DESIGN.md).
+[`docs/DASHBOARD.md`](docs/DASHBOARD.md). `docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md`
+and `docs/INTRINSIC_ADAPTATION_DESIGN.md` predate the conductance/PI rewrite and are
+retained as historical context only.
 
-## Architecture summary
+## Architecture summary (predictive-inhibition topology, `enew_enabled=False`)
 
 ```text
-9 external pixels -> 9 L1E_s sensory sources -> 8 L2E competitors -> 1 L2I relay (hard wipe)
-                     9 L1E_new coincidence detectors: paired L1E_s[i] + dense L2E feedback
-                     9 L1I relays: L1E_new[i] -> L1I[i] -> hard-wipe L1E_s[i] (delayed one step)
+external -> 9 L1E_s ==ff==> 8 L2E --relay--> 8 PI (paired 1:1)
+                ^                |                |
+                |   72 locally-plastic predictive inhibitory conductance synapses
+                +----------------|----------------+
+                                 L2E --relay--> 1 L2I_WTA --> all L2E (WTA conductance)
 ```
 
-Each L1E_new[i] receives its paired sensory input and dense L2E feedback, making
-inhibition pixel-selective during a fixed pattern. The shared weight cap is
-`theta/2 = 500`, which calibrates simultaneous mature inputs as a two-input
-coincidence (500 + 500 = theta). At the production shared leak, repeated unmatched
-inputs can still accumulate, so strict temporal AND behavior and winner turnover
-remain open problems documented above.
+Each `PI[j]` learns inhibitory outputs onto the sensory features that were locally
+active when its paired `L2E[j]` fired (via each L1E_s cell's activity trace). On a
+later overlapping pattern the incumbent's persistent conductance suppresses the
+shared feature more than the novel ones, so a rival can win — measured symmetry
+breaking, with the incumbent recovering its original pattern afterwards. See the
+methodology document for equations, controls, and honest failure modes.
 
-Excitatory neurons have separate nonnegative `acc_weights` (learned) and one
-frozen subtractive gate (`SUBTRACTIVE_SIGN = -1`, magnitude = target threshold,
-hard wipe). Inhibitory neurons are stateless instant relays with reported
-threshold `theta/3`. Functional coordinates set per-synapse learning rates only;
-`frontend/renderer.js` expands separate display positions that cannot change
-simulation behaviour.
+Excitatory neurons integrate `acc_weights` (learned) jointly with a persistent
+inhibitory conductance `g_inh` (decaying, `E_inh = 0` shunting) and carry a local
+activity trace that survives voltage reset. Inhibitory relays are stateless; the
+engine turns their firing into a conductance pulse. `PredictiveInterneuron` cells own
+locally-plastic inhibitory output weights. Functional coordinates set per-synapse
+learning rates only; `frontend/renderer.js` expands separate display positions that
+cannot change simulation behaviour.
 
 ## Making a change yourself
 
@@ -99,18 +115,30 @@ Behavioural `pytest` suite under `tests/`:
 .venv/bin/python -m pytest tests/ -q
 ```
 
-Coverage: excitatory neuron dynamics + the exact weight rule, the inhibitory
-relay, exact topology and edge counts, the causal WTA step, serialization/API,
-and the frequency model (`tests/test_frequency.py`).
+Coverage: conductance/trace dynamics and local PI plasticity
+(`test_conductance_neuron.py`), the excitatory weight rule, both topologies' exact
+neuron/edge counts, the synchronous causal WTA step, engine-level predictive
+inhibition + the symmetry-breaking causal controls (`test_predictive_inhibition.py`),
+the retained coincidence branch, serialization/API, and the legacy frequency model.
 
-## Frequency experiment
+## Overlap symmetry-breaking experiment
+
+```bash
+PYTHONPATH=. .venv/bin/python -m experiments.predictive_inhibition_overlap
+```
+
+Runs the deterministic `row → column → row` schedule on the PI topology across seeds
+with controls (predictive conductance off, plasticity off, fast/slow association),
+and measures symmetry breaking, incumbent contamination, shared-vs-novel suppression,
+recovery, and sparsity. Results are written to
+`experiments/predictive_inhibition_results.json` (see the methodology document).
+
+## Legacy frequency experiment
 
 ```bash
 PYTHONPATH=. .venv/bin/python -m experiments.frequency_experiment
 ```
 
-It validates the leaky periodic-integrator inequality, measures the real network's
-L1E_s cadence and winner charge, searches jointly over `(leak_rate, e_weight_cap)`,
-and reports whether turnover with recovery occurs. Results are written to
-`experiments/frequency_results.json`. The current conclusion is a documented
-negative result — see the methodology document.
+An analytic study of an abstract leaky *jump* integrator (the old membrane model),
+retained for reference. The live engine neuron is now conductance-based, so this
+module uses a self-contained reference integrator rather than the engine neuron.

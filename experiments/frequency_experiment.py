@@ -56,19 +56,28 @@ def selectivity_window(leak_rate, T_fast, T_slow, N_active, theta=E_THRESHOLD):
     return Q_lo, Q_hi, Q_lo / N_active, Q_hi / N_active
 
 
-def simulate_periodic_integrator(Q, leak_rate, T, steps=400, theta=E_THRESHOLD):
-    """First firing step (or None) for one neuron fed charge Q every T steps."""
-    n = ExcitatoryNeuron('probe', 'test', acc_weights=np.array([Q]),
-                         acc_distance_factor=np.array([1.0]),
-                         threshold=theta, leak_rate=leak_rate, learn=False)
+# NOTE: this module analyses an abstract *leaky periodic jump integrator*
+# (V += Q on a volley, then V *= (1 - leak_rate)). That was the historical engine
+# neuron. The live engine neuron is now conductance-based (input enters as a
+# current over the interval, not an instantaneous jump), so these analytic helpers
+# use a small self-contained reference integrator rather than the engine neuron.
+def _jump_leak_first_fire(deposit, leak_rate, steps=400, theta=E_THRESHOLD):
+    """First firing step (or None) of a leaky jump integrator; ``deposit(t)`` is the
+    charge injected at step ``t`` (0 for none)."""
+    r = 1.0 - leak_rate
+    V = 0.0
     for t in range(1, steps + 1):
-        if t % T == 0:
-            n.receive_acc(Q)
-        if n.can_fire():
-            n.fire()
+        V += deposit(t)
+        if V >= theta:
             return t
-        n.advance()
+        V *= r
     return None
+
+
+def simulate_periodic_integrator(Q, leak_rate, T, steps=400, theta=E_THRESHOLD):
+    """First firing step (or None) for a jump integrator fed charge Q every T steps."""
+    return _jump_leak_first_fire(lambda t: Q if t % T == 0 else 0.0,
+                                 leak_rate, steps, theta)
 
 
 def recurrence_trace(charges, gaps, leak_rate):
@@ -80,6 +89,21 @@ def recurrence_trace(charges, gaps, leak_rate):
         v_pre = v_post * (r ** dt)
         v_post = v_pre + Q
         trace.append(v_post)
+    return trace
+
+
+def _jump_leak_reference_trace(charges, gaps, leak_rate):
+    """Post-volley membrane of the reference jump integrator on irregular gaps: for
+    each volley, ``dt-1`` pure-leak steps, then deposit Q and record V (pre-leak)."""
+    r = 1.0 - leak_rate
+    V = 0.0
+    trace = []
+    for Q, dt in zip(charges, gaps):
+        for _ in range(dt - 1):
+            V *= r
+        V += Q
+        trace.append(V)
+        V *= r
     return trace
 
 
@@ -96,21 +120,19 @@ def mature_enew(leak_rate, winner_j=0, sensory=500.0, winner_w=500.0, theta=E_TH
                             learn=False)
 
 
-def drive_enew(leak_rate, T, mode, winner_j=0, steps=400):
-    """Drive a mature L1E_new with a train every T steps and return the first firing
-    step (or None). mode in {'sensory', 'winner', 'coincident'}."""
-    n = mature_enew(leak_rate, winner_j)
-    for t in range(1, steps + 1):
-        if t % T == 0:
-            if mode in ('sensory', 'coincident'):
-                n.receive_acc(n.acc_weights[0])
-            if mode in ('winner', 'coincident'):
-                n.receive_acc(n.acc_weights[1 + winner_j])
-        if n.can_fire():
-            n.fire()
-            return t
-        n.advance()
-    return None
+def drive_enew(leak_rate, T, mode, winner_j=0, steps=400, sensory=500.0, winner_w=500.0):
+    """Drive a mature L1E_new (abstract jump integrator) with a train every T steps
+    and return the first firing step (or None). mode in {'sensory','winner','coincident'}."""
+    def deposit(t):
+        if t % T != 0:
+            return 0.0
+        q = 0.0
+        if mode in ('sensory', 'coincident'):
+            q += sensory
+        if mode in ('winner', 'coincident'):
+            q += winner_w
+        return q
+    return _jump_leak_first_fire(deposit, leak_rate, steps)
 
 
 # ------------------------------------------------------- network measurements
@@ -218,16 +240,9 @@ def part_a():
     # Recurrence agreement on irregular gaps.
     gaps = [1, 2, 1, 3]
     charges = [180.0, 90.0, 210.0, 60.0]
-    n = ExcitatoryNeuron('p', 't', acc_weights=np.array([1.0]),
-                         acc_distance_factor=np.array([1.0]), threshold=E_THRESHOLD,
-                         leak_rate=0.15, learn=False)
-    eng = []
-    for Q, dt in zip(charges, gaps):
-        for _ in range(dt - 1):
-            n.advance()
-        n.receive_acc(Q); eng.append(n.V); n.advance()
+    ref = _jump_leak_reference_trace(charges, gaps, 0.15)
     ana = recurrence_trace(charges, gaps, 0.15)
-    print(f'   irregular-interval recurrence matches engine: {np.allclose(eng, ana)}')
+    print(f'   irregular-interval recurrence matches reference integrator: {np.allclose(ref, ana)}')
     return rows
 
 
