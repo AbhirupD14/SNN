@@ -19,9 +19,11 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .dashboard_config import CONFIG_SPEC, DASHBOARD_OVERRIDES, config_values
-from .simulation import SimulationEngine
+from .simulation import SimulationEngine, N_PIX, N_OUT
 from .serializer import topology_message, full_state
 from .websocket import ConnectionManager, SimulationRunner
+from .network_spec import ARCHETYPES, EDGE_KINDS, SpecError
+from . import presets as preset_store
 
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "frontend")
 
@@ -80,9 +82,10 @@ class PatternBody(BaseModel):
 
 
 class WeightBody(BaseModel):
-    j: int          # L2E neuron index
-    i: int          # source pixel index (0..N_PIX-1)
-    weight: float   # new feedforward weight (absolute; clipped to [0, cap])
+    weight: float                 # new weight (absolute; clipped to the synapse's cap)
+    synapse: str | None = None    # plastic edge id (topology-agnostic) -- preferred
+    j: int | None = None          # legacy: competitor index
+    i: int | None = None          # legacy: source pixel index
 
 
 # ----------------------------------------------------------------- REST: core
@@ -173,15 +176,23 @@ async def toggle_pixel(index: int):
 
 @app.post("/api/weight")
 async def set_weight(body: WeightBody):
-    """Manually set an L2E feedforward weight (RF panel hand-edit). Re-broadcasts the
-    topology so every client's weight map updates. Best used while paused."""
+    """Hand-set a plastic synapse weight (RF panel). Prefer ``synapse`` (edge id,
+    works for any topology); the legacy ``j``/``i`` form still sets a feedforward
+    weight. Re-broadcasts the topology so every client's weight map updates."""
     try:
-        w = engine.set_feedforward_weight(body.j, body.i, body.weight)
-    except IndexError as e:
-        return JSONResponse({"error": str(e)}, status_code=400)
+        if body.synapse is not None:
+            w = engine.set_synapse_weight(body.synapse, body.weight)
+            synapse = body.synapse
+        elif body.j is not None and body.i is not None:
+            w = engine.set_feedforward_weight(body.j, body.i, body.weight)
+            synapse = f"ff{body.i}->{body.j}"
+        else:
+            return JSONResponse({"error": "provide 'synapse' or both 'j' and 'i'"}, status_code=400)
+    except (IndexError, KeyError) as e:
+        return JSONResponse({"error": f"unknown synapse: {e}"}, status_code=400)
     await manager.broadcast(topology_message(engine))
     await runner.broadcast_dynamic()
-    return {"j": body.j, "i": body.i, "weight": w, "synapse": f"ff{body.i}->{body.j}"}
+    return {"synapse": synapse, "weight": w}
 
 
 @app.post("/api/clear")
@@ -236,6 +247,98 @@ async def set_config(body: ConfigBody):
     await manager.broadcast(topology_message(engine))
     await runner.broadcast_dynamic()
     return {"applied": applied, **_current_config()}
+
+
+# ------------------------------------------------------------------- topology
+class SpecBody(BaseModel):
+    spec: dict
+
+
+class SavePresetBody(BaseModel):
+    name: str
+    spec: dict | None = None       # omitted => save the current live topology
+
+
+def _vocabulary():
+    """The fixed editor palette: node archetypes and the edge kinds valid between
+    them (with which endpoint archetypes/classes each kind may connect)."""
+    return {"archetypes": {k: {"cls": v["cls"], "role": v["role"], "desc": v["desc"]}
+                           for k, v in ARCHETYPES.items()},
+            "edge_kinds": {k: {"src": v["src"], "tgt": v["tgt"], "plastic": v["plastic"],
+                               "sign": v["sign"], "desc": v["desc"]}
+                           for k, v in EDGE_KINDS.items()}}
+
+
+@app.get("/api/topology")
+async def get_topology():
+    """The current editable NetworkSpec plus the fixed vocabulary for the editor."""
+    return {"spec": engine.current_spec(), "vocabulary": _vocabulary()}
+
+
+@app.post("/api/topology")
+async def apply_topology(body: SpecBody):
+    """Validate + install an edited NetworkSpec, rebuild the network (resets learned
+    state), and broadcast the new topology to every client."""
+    runner.running = False
+    try:
+        spec = engine.apply_topology(body.spec)
+    except (SpecError, ValueError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return {"applied": True, "spec": spec}
+
+
+@app.get("/api/topology/presets")
+async def list_presets():
+    return {"presets": preset_store.list_presets(N_PIX, N_OUT)}
+
+
+@app.get("/api/topology/presets/{name}")
+async def get_preset(name: str):
+    """The NetworkSpec for a preset WITHOUT applying it (load-into-editor)."""
+    try:
+        return {"spec": preset_store.load_spec(name, N_PIX, N_OUT)}
+    except KeyError:
+        return JSONResponse({"error": f"unknown preset '{name}'"}, status_code=404)
+    except (SpecError, ValueError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+
+
+@app.post("/api/topology/presets")
+async def save_preset(body: SavePresetBody):
+    spec = body.spec if body.spec is not None else engine.current_spec()
+    try:
+        name = preset_store.save_preset(body.name, spec, N_PIX)
+    except (SpecError, ValueError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    return {"saved": name, "presets": preset_store.list_presets(N_PIX, N_OUT)}
+
+
+@app.post("/api/topology/presets/{name}/load")
+async def load_preset(name: str):
+    runner.running = False
+    try:
+        if name in preset_store.BUILTINS:
+            engine.apply_config({"topology": name})          # built-in: a clean preset select
+        else:
+            spec = preset_store.load_spec(name, N_PIX, N_OUT)
+            engine.apply_topology(spec)
+    except KeyError:
+        return JSONResponse({"error": f"unknown preset '{name}'"}, status_code=404)
+    except (SpecError, ValueError) as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return {"loaded": name, "spec": engine.current_spec()}
+
+
+@app.delete("/api/topology/presets/{name}")
+async def delete_preset(name: str):
+    removed = preset_store.delete_preset(name)
+    if not removed:
+        return JSONResponse({"error": f"cannot delete '{name}'"}, status_code=400)
+    return {"deleted": name, "presets": preset_store.list_presets(N_PIX, N_OUT)}
 
 
 # ----------------------------------------------------------------- websocket

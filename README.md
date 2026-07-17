@@ -6,13 +6,27 @@ error signal. Inhibition is **persistent conductance** (never a hard wipe), ever
 excitatory cell carries a local activity trace, and the timestep is synchronous with
 explicit unit synaptic delays.
 
-One `enew_enabled` flag selects the topology:
+The network is a **graph** built from a `NetworkSpec` (typed nodes + typed edges);
+the engine executes whatever graph it is given. Two built-in presets ship, selected
+by the `topology` parameter (`'pi'` default, or `'old'`), and you can build arbitrary
+graphs live in the browser **Topology Editor** (🧬 in the top bar) and save/load them
+as presets:
 
-- **`False` — the predictive-inhibition (PI) experiment.** Eight pattern-specific
-  predictive interneurons `PI[j]`, paired 1:1 with the competitors `L2E[j]`, each
-  with nine locally-plastic inhibitory synapses onto the sensory `L1E_s` cells. Tests
-  temporal explaining-away / symmetry breaking on overlapping patterns.
-- **`True` (default) — the retained L1E_new coincidence comparison topology.**
+- **`topology='pi'` — the predictive-inhibition (PI) experiment (26 neurons).** Eight
+  pattern-specific predictive interneurons `PI[j]`, paired 1:1 with the competitors
+  `L2E[j]`, each with nine locally-plastic inhibitory synapses onto the sensory
+  `L1E_s` cells. Tests temporal explaining-away / symmetry breaking on overlapping
+  patterns.
+- **`topology='old'` — the original dense global-inhibition topology (27 neurons).**
+  Nine paired `L1I` relays, fed densely by every `L2E` (every `L2E`→every `L1I`), each
+  projecting a paired inhibitory conductance onto its own `L1E_s`. The single L2 winner
+  drives all nine `L1I`, so every `L1E_s` is shunted — winner-gated global inhibition.
+
+Both are the *same* computation — `winner → relay_excitation → relays →
+(inhibition | predictive) edges → conductance` — differing only in which edges exist.
+The fixed editor vocabulary is four node archetypes (`e_sensory`, `e_competitor`,
+`i_relay`, `predictor`) and four edge kinds (`feedforward`, `relay_excitation`,
+`inhibition`, `predictive_inhibition`); see `backend/network_spec.py`.
 
 Directories: `snn/` + `backend/` + `frontend/` are the model and its dashboard;
 `experiments/` holds the overlap symmetry-breaking experiment and a legacy frequency
@@ -55,12 +69,16 @@ the two weight rules (excitatory accumulating + local predictive-inhibition).
 
 | Path | Responsibility |
 | --- | --- |
-| `snn/neurons.py` | `ExcitatoryNeuron`, `InhibitoryNeuron`, shared constants, the one weight rule. |
-| `backend/simulation.py` | Topology construction, the deterministic step, and state snapshots. |
-| `backend/dashboard_config.py` | The dashboard preset and the small control schema. |
-| `backend/api.py` | HTTP/WebSocket adapter; contains no neural rules. |
+| `snn/neurons.py` | `ExcitatoryNeuron`, `InhibitoryNeuron`, `PredictiveInterneuron`, shared constants, the two weight rules. |
+| `backend/network_spec.py` | The `NetworkSpec` vocabulary (archetypes, edge kinds), the `pi`/`old` presets, and `validate_spec`. |
+| `backend/simulation.py` | Spec-driven construction (`_build_from_spec`), the generic edge-dispatched step, `current_spec`/`apply_topology`, state snapshots. |
+| `backend/presets.py` | Server-side preset persistence (built-ins + saved-graph JSON under `.claude/presets/`). |
+| `backend/dashboard_config.py` | The dashboard preset and the small control schema (topology selector + rules). |
+| `backend/api.py` | HTTP/WebSocket adapter (incl. `/api/topology*` CRUD); contains no neural rules. |
 | `backend/layout.py` | Seeded functional positions (used for learning distances only). |
 | `backend/serializer.py`, `backend/websocket.py` | Protocol envelopes and the run loop. |
+| `frontend/editor.js` | Full-screen **3D topology editor** (Three.js): drag neurons, wire edges, save/load presets. |
+| `frontend/receptive.js` | Receptive-field pop-up (one feedforward grid per competitor; hand-edit any weight). |
 | `frontend/` | Vanilla JS + Three.js dashboard; display positions never alter model distances. |
 | `experiments/predictive_inhibition_overlap.py` | Multi-seed row→col→row symmetry-breaking experiment + controls. |
 | `experiments/frequency_experiment.py` | Legacy analytic leaky-integrator study (see below). |
@@ -73,7 +91,19 @@ The browser protocol and view boundary are in
 and `docs/INTRINSIC_ADAPTATION_DESIGN.md` predate the conductance/PI rewrite and are
 retained as historical context only.
 
-## Architecture summary (predictive-inhibition topology, `enew_enabled=False`)
+## Editing the topology
+
+Open the **Topology Editor** (🧬 in the top bar). It renders the live network in 3D
+at its real functional positions, so what you see is the actual topology (z is
+preserved through save/load/apply — nothing is flattened). Drag a neuron to move it,
+drag one node onto another to wire an edge (the kind is inferred from the two
+archetypes), click an edge to toggle it directional/bidirectional or delete it, add
+neurons from the palette, and **Apply** to rebuild the live network (every view
+refreshes off the broadcast). Save the current graph as a named preset and load it
+back later; the two built-ins (`pi`, `old`) are always available. Presets persist
+server-side under `.claude/presets/`.
+
+## Architecture summary (predictive-inhibition topology, `topology='pi'`)
 
 ```text
 external -> 9 L1E_s ==ff==> 8 L2E --relay--> 8 PI (paired 1:1)
@@ -116,10 +146,14 @@ Behavioural `pytest` suite under `tests/`:
 ```
 
 Coverage: conductance/trace dynamics and local PI plasticity
-(`test_conductance_neuron.py`), the excitatory weight rule, both topologies' exact
-neuron/edge counts, the synchronous causal WTA step, engine-level predictive
-inhibition + the symmetry-breaking causal controls (`test_predictive_inhibition.py`),
-the retained coincidence branch, serialization/API, and the legacy frequency model.
+(`test_conductance_neuron.py`), the excitatory weight rule, both presets' exact
+neuron/edge counts (`test_direct_topology.py`, `test_old_topology.py`), the
+graph-driven engine + `NetworkSpec` validation + custom-graph execution + bidirectional
+edges (`test_network_spec.py`), preset persistence (`test_presets.py`), a bit-exact
+behavioural regression for both presets (`test_golden_topology.py`), the synchronous
+causal WTA step, engine-level predictive inhibition + the symmetry-breaking causal
+controls (`test_predictive_inhibition.py`), serialization/API, and the legacy
+frequency model.
 
 ## Overlap symmetry-breaking experiment
 

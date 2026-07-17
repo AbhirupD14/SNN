@@ -2,10 +2,10 @@
 double-buffered timestep with explicit integer synaptic delays, and state
 snapshots for the dashboard.
 
-Two topologies share one synchronous engine, selected by ``enew_enabled``:
+Two topologies share one synchronous engine, selected by ``topology``:
 
-``enew_enabled=False`` -- the predictive-inhibition (PI) experiment (default here
-for the scientific question)::
+``topology='pi'`` -- the predictive-inhibition (PI) experiment (default here for the
+scientific question)::
 
         external -> L1E_s[i] ==ff==> L2E[j] --relay--> PI[j]
                         ^                 |
@@ -16,8 +16,18 @@ for the scientific question)::
     9 L1E_s, 8 L2E, 8 PI (paired 1:1 with L2E), 1 L2I_WTA  = 26 neurons.
     Each PI[j] owns 9 candidate inhibitory output synapses onto L1E_s (72 total).
 
-``enew_enabled=True`` -- the retained L1E_new coincidence comparison topology
-(36 neurons). Its inhibition is ALSO conductance now (no hard wipes anywhere).
+``topology='old'`` -- the original dense global-inhibition topology (27 neurons)::
+
+        external -> L1E_s[i] ==ff==> L2E[j] --relay--> L2I_WTA --> all L2E (conductance)
+                        ^                 |
+                        |                 +--relay (DENSE: every L2E -> every L1I)--+
+                        |                                                            v
+                        +----------- inhibition (paired L1I[i] -> L1E_s[i]) ------ L1I[i]
+
+    9 L1E_s, 9 L1I (paired relays), 8 L2E, 1 L2I_WTA  = 27 neurons. The single L2
+    winner drives ALL nine L1I relays (dense feedback), so every L1E_s receives a
+    persistent inhibitory conductance pulse on the next boundary -- global inhibition
+    gated by the winner. Inhibition is conductance now (no hard wipes anywhere).
 
 Timestep semantics (see ``step``): every internal excitatory projection has an
 integer delay of 1; relays (L2I_WTA, PI, L1I) fire in the same boundary as their
@@ -44,9 +54,11 @@ from snn.neurons import (  # noqa: E402
     E_THRESHOLD,
     I_THRESHOLD,
     E_WEIGHT_CAP,
-    INHIBITORY_SIGN,
 )
 from backend.layout import generate_layout  # noqa: E402
+from backend.network_spec import (  # noqa: E402
+    preset_spec, validate_spec, ARCHETYPES,
+)
 
 
 # --- The four center-crossing patterns on the 3x3, 9-pixel surface ----------
@@ -63,8 +75,6 @@ N_OUT = 8
 SENSORY_WEIGHT = E_THRESHOLD / 3.0                 # frozen sensory afferent weight
 FF_INIT_TOTAL_FRAC = 0.55                          # L2E ff sum(acc_weights) at init, / theta
 FF_INIT_MEAN = FF_INIT_TOTAL_FRAC * E_THRESHOLD / N_PIX   # ~61
-ENEW_SENSORY_INIT_FRAC = 0.49                      # paired local sensory afferent, / theta
-ENEW_FB_INIT_FRAC = 0.06                           # each L2E feedback afferent, / theta
 INIT_JITTER_FRAC = 0.04                            # deterministic narrow seeded jitter
 DISTANCE_POWER = 2.0                               # fixed exponent for the learning-rate factor
 
@@ -81,7 +91,7 @@ DEFAULTS = dict(
     leak_rate=LEAK_DEFAULT,                        # -> baseline leak conductance g_L
     refractory_steps=0,
     input_period=1,
-    enew_enabled=True,                             # topology switch (comparison flag)
+    topology='pi',                                 # topology selector: 'pi' | 'old'
 
     # --- conductance / trace (membrane) ---
     # Inhibitory-conductance retention is deliberately SPLIT by target population so
@@ -116,10 +126,11 @@ DEFAULTS = dict(
 # Keys a browser/experiment config-apply may change. Everything else is derived.
 EDITABLE_KEYS = {
     'eta', 'leak_rate', 'refractory_steps', 'e_weight_cap', 'input_period',
-    'enew_enabled', 'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'beta_v', 'beta_s',
+    'topology', 'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'beta_v', 'beta_s',
     'a_max', 'e_inh', 'pi_eta', 'pi_w_max', 'pi_lt_decay', 'pi_g_scale',
     'pi_conductance_enabled', 'pi_plasticity_enabled', 'l2i_g_scale',
 }
+VALID_TOPOLOGIES = ('pi', 'old')
 
 
 class SimulationEngine:
@@ -132,7 +143,10 @@ class SimulationEngine:
             if k not in DEFAULTS:
                 raise KeyError(f'unknown config key: {k!r}')
             params[k] = v
+        if params['topology'] not in VALID_TOPOLOGIES:
+            raise ValueError(f'topology must be one of {VALID_TOPOLOGIES}, got {params["topology"]!r}')
         self.params = params
+        self._custom_spec = None       # a user/editor NetworkSpec overrides the preset when set
         self._build()
 
     # ================================================================ build
@@ -151,70 +165,19 @@ class SimulationEngine:
         p = self.params
         rng = np.random.default_rng(p['seed'])
 
-        self.pos = generate_layout(rng, N_PIX, N_OUT)
+        self.pos = generate_layout(rng, N_PIX, N_OUT)  # full functional layout (preset ids)
         thr = float(p['e_threshold'])
         cap = float(p['e_weight_cap'])
-        self.enew_enabled = bool(p['enew_enabled'])
 
-        def jitter(mean, size):
-            j = rng.uniform(1.0 - INIT_JITTER_FRAC, 1.0 + INIT_JITTER_FRAC, size=size)
-            return np.clip(mean * j, 0.0, cap)
-
-        ff_factor = self._distance_factors(
-            [f'L1E{i}' for i in range(N_PIX)], [f'L2E{j}' for j in range(N_OUT)])
-        alpha_l1 = float(p['alpha_inh_l1'])            # slow, predictive-target decay
-        alpha_l2 = float(p['alpha_inh'])               # fast, WTA-target decay
-
-        # ---- shared excitatory populations ----
-        self.l1e_s = [
-            self._mkE(f'L1E{i}', 'source', np.array([SENSORY_WEIGHT]), np.array([1.0]),
-                      learn=False, alpha_inh=alpha_l1)
-            for i in range(N_PIX)]
-        self.l2e = [
-            self._mkE(f'L2E{j}', 'competitor', jitter(FF_INIT_MEAN, N_PIX), ff_factor[j],
-                      learn=True, alpha_inh=alpha_l2)
-            for j in range(N_OUT)]
-        self.l2i = InhibitoryNeuron('L2I', 'relay', threshold=thr / 3.0)
-
-        if self.enew_enabled:
-            # Retained L1E_new coincidence comparison topology.
-            fb_factor = self._distance_factors(
-                [f'L2E{j}' for j in range(N_OUT)], [f'L1Enew{i}' for i in range(N_PIX)])
-            local_factor = self._distance_factors(
-                [f'L1E{i}' for i in range(N_PIX)], [f'L1Enew{i}' for i in range(N_PIX)])
-            self.l1e_new = [
-                self._mkE(f'L1Enew{i}', 'supervisor', self._enew_init(rng, cap),
-                          np.concatenate(([local_factor[i][i]], fb_factor[i])), learn=True,
-                          alpha_inh=alpha_l1)
-                for i in range(N_PIX)]
-            self.l1i = [InhibitoryNeuron(f'L1I{i}', 'relay', threshold=thr / 3.0)
-                        for i in range(N_PIX)]
-            self.pi = []
+        # The active NetworkSpec: an applied custom graph overrides the named preset.
+        if self._custom_spec is not None:
+            spec = validate_spec(self._custom_spec, N_PIX)
+            self.mode = spec.get('name') or 'custom'
         else:
-            # Predictive-inhibition experiment topology: one PI per L2E.
-            self.l1e_new = []
-            self.l1i = []
-            self.pi = [
-                PredictiveInterneuron(
-                    f'PI{j}', 'predictor', N_PIX,
-                    w_init=0.0, w_max=float(p['pi_w_max']), eta=float(p['pi_eta']),
-                    lt_decay=float(p['pi_lt_decay']), g_scale=float(p['pi_g_scale']),
-                    threshold=thr / 3.0)
-                for j in range(N_OUT)]
-
-        self.exc = {n.id: n for n in (*self.l1e_s, *self.l1e_new, *self.l2e)}
-        relays = (*self.l1i, self.l2i, *self.pi)
-        self.inh = {n.id: n for n in relays}
-        self.neurons = {**self.exc, **self.inh}
-        self.order = (
-            [n.id for n in self.l1e_s]
-            + [n.id for n in self.l1e_new]
-            + [n.id for n in self.l1i]
-            + [n.id for n in self.pi]
-            + [n.id for n in self.l2e]
-            + ['L2I'])
-
-        self._build_meta_and_edges(thr)
+            self.mode = str(p['topology'])             # 'pi' | 'old'
+            spec = preset_spec(self.mode, N_PIX, N_OUT)
+        self.spec = spec
+        self._build_from_spec(spec, rng, thr, cap)
 
         # ---- runtime state ----
         self.timestep = 0
@@ -234,11 +197,10 @@ class SimulationEngine:
         # ---- delivery double-buffers (arrivals scheduled for the NEXT boundary) ----
         self._exc_next = {}            # nid -> excitatory charge for next boundary
         self._inh_next = []            # list of pulse dicts for next boundary
-        self._ff_part_next = np.zeros(N_PIX, dtype=bool)   # which L1E_s fired -> L2E next
-        self._winner_next = None       # winner index this boundary -> feedback/relay next
-        # arrivals landing at the CURRENT boundary (filled from *_next at step start)
-        self._ff_part_now = np.zeros(N_PIX, dtype=bool)
-        self._winner_now = None
+        # Feedforward causal volley: the set of sensory source ids that fired at t-1,
+        # so a competitor's learning at t reads which of ITS afferents participated.
+        self._ff_fired_next = set()
+        self._ff_fired_now = set()
 
     def _distance_factors(self, sources, targets):
         ds = np.array([[np.linalg.norm(self.pos[s] - self.pos[t]) for s in sources]
@@ -247,73 +209,166 @@ class SimulationEngine:
         d_ref = float(positive.min()) if positive.size else 1.0
         return (d_ref / np.maximum(ds, d_ref)) ** DISTANCE_POWER
 
-    def _enew_init(self, rng, cap):
-        thr = float(self.params['e_threshold'])
-        w = np.empty(1 + N_OUT)
-        w[0] = ENEW_SENSORY_INIT_FRAC * thr
-        w[1:] = ENEW_FB_INIT_FRAC * thr
-        w *= rng.uniform(1.0 - INIT_JITTER_FRAC, 1.0 + INIT_JITTER_FRAC, size=w.shape)
-        np.clip(w, 0.0, 0.98 * cap, out=w)
-        total = w.sum()
-        if total >= thr:
-            w *= 0.97 * thr / total
-        return w
+    def _build_from_spec(self, spec, rng, thr, cap):
+        """Construct neurons, meta, edges, and the generic execution adjacency from a
+        NetworkSpec. Presets rebuild byte-identically: the RNG draw order (layout, then
+        per-competitor feedforward jitter in node order) is preserved.
 
-    def _build_meta_and_edges(self, thr):
+        Excitatory node positions come from ``node['pos']`` if the spec supplies one
+        (editor-placed), else from the seeded functional layout by id (presets)."""
+        p = self.params
         i_thr = thr / 3.0
+        alpha_l1 = float(p['alpha_inh_l1'])            # slow, predictive-target decay
+        alpha_l2 = float(p['alpha_inh'])               # fast, WTA-target decay
+
+        nodes = spec['nodes']
+        edges = spec['edges']
+        node_by_id = {n['id']: n for n in nodes}
+
+        # ---- positions: spec override, else functional layout by id ----
+        pos = {}
+        for n in nodes:
+            if n.get('pos') is not None:
+                pos[n['id']] = np.asarray(n['pos'], dtype=float)
+            elif n['id'] in self.pos:
+                pos[n['id']] = self.pos[n['id']]
+            else:
+                pos[n['id']] = np.zeros(3)             # placeholder for an unplaced node
+        self.pos = pos
+
+        # ---- expand bidirectional edges into directed delivery edges ----
+        # A bidirectional (directed=False) edge delivers BOTH ways; the engine works on
+        # directed edges only. The reverse gets a '~r' id and is engine-internal; the
+        # editor still sees the single bidirectional edge via ``current_spec``.
+        dedges = []
+        for e in edges:
+            fwd = dict(e)
+            fwd['directed'] = True
+            dedges.append(fwd)
+            if not e.get('directed', True):
+                dedges.append(dict(id=f"{e['id']}~r", source=e['target'], target=e['source'],
+                                   kind=e['kind'], directed=True,
+                                   **({'sign': e['sign']} if 'sign' in e else {})))
+
+        # ---- feedforward wiring first: a competitor's afferent list sizes its weights ----
+        ff_by_comp = {}                                # comp_id -> [source_id ...] in edge order
+        ff_edge_ids = {}                               # comp_id -> [edge_id ...] aligned
+        for e in dedges:
+            if e['kind'] == 'feedforward':
+                ff_by_comp.setdefault(e['target'], []).append(e['source'])
+                ff_edge_ids.setdefault(e['target'], []).append(e['id'])
+        # Global distance reference across ALL feedforward pairs (matches the historical
+        # _distance_factors: d_ref is the min positive source-target distance overall).
+        ff_dists = {e['id']: float(np.linalg.norm(pos[e['source']] - pos[e['target']]))
+                    for e in dedges if e['kind'] == 'feedforward'}
+        pos_d = [d for d in ff_dists.values() if d > 0]
+        d_ref = min(pos_d) if pos_d else 1.0
+
+        def ff_factor(eid):
+            return (d_ref / max(ff_dists[eid], d_ref)) ** DISTANCE_POWER
+
+        # ---- construct neurons per archetype (competitors draw jitter in node order) ----
+        def jitter(mean, size):
+            j = rng.uniform(1.0 - INIT_JITTER_FRAC, 1.0 + INIT_JITTER_FRAC, size=size)
+            return np.clip(mean * j, 0.0, cap)
+
+        neurons = {}
+        self.sensory, self.competitors, self.relays = [], [], []
+        self._sensory_pixel = []
+        for n in nodes:
+            nid, arch = n['id'], n['archetype']
+            if arch == 'e_sensory':
+                cell = self._mkE(nid, 'source', np.array([SENSORY_WEIGHT]), np.array([1.0]),
+                                 learn=False, alpha_inh=alpha_l1)
+                self.sensory.append(cell)
+                self._sensory_pixel.append(n.get('pixel'))
+                neurons[nid] = cell
+            elif arch == 'e_competitor':
+                srcs = ff_by_comp.get(nid, [])
+                eids = ff_edge_ids.get(nid, [])
+                w = jitter(FF_INIT_MEAN, len(srcs)) if srcs else np.zeros(0)
+                dfac = np.array([ff_factor(eid) for eid in eids]) if eids else np.zeros(0)
+                cell = self._mkE(nid, 'competitor', w, dfac, learn=True, alpha_inh=alpha_l2)
+                cell.ff_src = list(srcs)
+                cell.ff_edge_ids = list(eids)
+                self.competitors.append(cell)
+                neurons[nid] = cell
+            elif arch == 'i_relay':
+                cell = InhibitoryNeuron(nid, 'relay', threshold=i_thr)
+                self.relays.append(cell)
+                neurons[nid] = cell
+            elif arch == 'predictor':
+                cell = PredictiveInterneuron(
+                    nid, 'predictor', 0, w_init=0.0, w_max=float(p['pi_w_max']),
+                    eta=float(p['pi_eta']), lt_decay=float(p['pi_lt_decay']),
+                    g_scale=float(p['pi_g_scale']), threshold=i_thr)
+                self.relays.append(cell)
+                neurons[nid] = cell
+
+        # ---- predictor output wiring: w vector aligns to its predictive targets ----
+        pred_out = {}                                  # pred_id -> [(target_id, edge_id) ...]
+        for e in dedges:
+            if e['kind'] == 'predictive_inhibition':
+                pred_out.setdefault(e['source'], []).append((e['target'], e['id']))
+        for cell in self.relays:
+            if isinstance(cell, PredictiveInterneuron):
+                outs = pred_out.get(cell.id, [])
+                cell.n_targets = len(outs)
+                cell.w = np.zeros(len(outs))
+                cell.pred_targets = [t for (t, _) in outs]
+                cell.pred_edge_ids = [eid for (_, eid) in outs]
+
+        # ---- registries used across the engine ----
+        self.exc = {c.id: c for c in (*self.sensory, *self.competitors)}
+        self.inh = {c.id: c for c in self.relays}
+        self.neurons = {**self.exc, **self.inh}
+        self.order = [n['id'] for n in nodes]
+        # Back-compat handles used by tests / experiments (presets only need these):
+        self.l1e_s = list(self.sensory)
+        self.l2e = list(self.competitors)
+        self.pi = [c for c in self.relays if isinstance(c, PredictiveInterneuron)]
+        self.l1i = [c for c in self.relays
+                    if not isinstance(c, PredictiveInterneuron)
+                    and node_by_id[c.id].get('layer') == 'L1']
+        self.l2i = self.inh.get('L2I') or next(
+            (c for c in self.relays if not isinstance(c, PredictiveInterneuron)), None)
+        self._comp_ids = {c.id for c in self.competitors}
+
+        # ---- generic execution adjacency (built once per rebuild) ----
+        self._relayexc_out = {}        # source_id -> [(relay_id, edge_id) ...]
+        self._inh_out = {}             # relay_id  -> [(target_id, edge_id) ...]
+        for e in dedges:
+            if e['kind'] == 'relay_excitation':
+                self._relayexc_out.setdefault(e['source'], []).append((e['target'], e['id']))
+            elif e['kind'] == 'inhibition':
+                self._inh_out.setdefault(e['source'], []).append((e['target'], e['id']))
+
+        # ---- meta + serialized synapse list ----
         meta = {}
-
-        def add(nid, label, layer, ntype, role, threshold):
-            meta[nid] = dict(id=nid, label=label, layer=layer, type=ntype, role=role,
-                             threshold=round(float(threshold), 4),
-                             pos=[round(float(x), 4) for x in self.pos[nid]])
-
-        for i in range(N_PIX):
-            add(f'L1E{i}', f'L1E_s{i}', 'L1', 'E', 'source', thr)
-            if self.enew_enabled:
-                add(f'L1Enew{i}', f'L1E_new{i}', 'L1', 'E', 'supervisor', thr)
-                add(f'L1I{i}', f'L1I{i}', 'L1', 'I', 'relay', i_thr)
-        for j in range(N_OUT):
-            add(f'L2E{j}', f'L2E{j}', 'L2', 'E', 'competitor', thr)
-            if not self.enew_enabled:
-                add(f'PI{j}', f'PI{j}', 'L2', 'I', 'predictor', i_thr)
-        add('L2I', 'L2I', 'L2', 'I', 'relay', i_thr)
+        for n in nodes:
+            arch = ARCHETYPES[n['archetype']]
+            m = dict(
+                id=n['id'], label=n.get('label') or n['id'], layer=n.get('layer', 'L2'),
+                type=arch['cls'], role=arch['role'], archetype=n['archetype'],
+                threshold=round(thr * arch['thr_frac'], 4),
+                pos=[round(float(x), 4) for x in pos[n['id']]])
+            if n.get('pixel') is not None:
+                m['pixel'] = int(n['pixel'])       # lets the RF map an afferent to a grid cell
+            meta[n['id']] = m
         self.meta = meta
-
-        edges = []
-
-        def edge(eid, src, tgt, kind, sign=None):
-            e = dict(id=eid, source=src, target=tgt, kind=kind)
-            if sign is not None:
-                e['sign'] = sign
-            edges.append(e)
-
-        for j in range(N_OUT):
-            for i in range(N_PIX):
-                edge(f'ff{i}->{j}', f'L1E{i}', f'L2E{j}', 'feedforward')
-        for j in range(N_OUT):
-            edge(f're_l2_{j}', f'L2E{j}', 'L2I', 'relay_excitation')
-        for j in range(N_OUT):
-            edge(f'inh_l2_{j}', 'L2I', f'L2E{j}', 'inhibition', sign=INHIBITORY_SIGN)
-
-        if self.enew_enabled:
-            for i in range(N_PIX):
-                for j in range(N_OUT):
-                    edge(f'fb{j}->{i}', f'L2E{j}', f'L1Enew{i}', 'feedback')
-            for i in range(N_PIX):
-                edge(f'cl{i}', f'L1E{i}', f'L1Enew{i}', 'coincidence_local')
-            for i in range(N_PIX):
-                edge(f're_l1_{i}', f'L1Enew{i}', f'L1I{i}', 'relay_excitation')
-            for i in range(N_PIX):
-                edge(f'inh_l1_{i}', f'L1I{i}', f'L1E{i}', 'inhibition', sign=INHIBITORY_SIGN)
-        else:
-            for j in range(N_OUT):
-                edge(f're_pi_{j}', f'L2E{j}', f'PI{j}', 'relay_excitation')   # paired 1:1
-            for j in range(N_OUT):
-                for i in range(N_PIX):
-                    edge(f'pi{j}->{i}', f'PI{j}', f'L1E{i}', 'predictive_inhibition',
-                         sign=INHIBITORY_SIGN)
-        self.synapses = edges
+        self.synapses = [dict(id=e['id'], source=e['source'], target=e['target'],
+                              kind=e['kind'], **({'sign': e['sign']} if 'sign' in e else {}),
+                              **({'directed': False} if not e.get('directed', True) else {}))
+                         for e in edges]
+        # weight lookups for serialization: edge_id -> (cell, weight_index)
+        self._ff_weight_ref = {}
+        for cell in self.competitors:
+            for widx, eid in enumerate(cell.ff_edge_ids):
+                self._ff_weight_ref[eid] = (cell, widx)
+        self._pred_weight_ref = {}
+        for cell in self.pi:
+            for widx, eid in enumerate(cell.pred_edge_ids):
+                self._pred_weight_ref[eid] = (cell, widx)
 
     # ============================================================== stepping
     def _begin_step(self):
@@ -354,12 +409,10 @@ class SimulationEngine:
         # ---- subphase 1: gather scheduled arrivals (emitted at t-1, delay 1) ----
         exc_now = self._exc_next
         inh_now = self._inh_next
-        self._ff_part_now = self._ff_part_next
-        self._winner_now = self._winner_next
+        self._ff_fired_now = self._ff_fired_next
         self._exc_next = {}
         self._inh_next = []
-        self._ff_part_next = np.zeros(N_PIX, dtype=bool)
-        self._winner_next = None
+        self._ff_fired_next = set()
 
         # inhibitory conductance arrivals (persistent; added before integration)
         for pulse in inh_now:
@@ -373,8 +426,8 @@ class SimulationEngine:
 
         # external sensory input (delay 0) + manual continuous injections
         input_arrives = (t % max(1, int(p['input_period'])) == 0)
-        for i, n in enumerate(self.l1e_s):
-            if input_arrives and self.input_vec[i] > 0.5:
+        for n, pix in zip(self.sensory, self._sensory_pixel):
+            if input_arrives and pix is not None and self.input_vec[pix] > 0.5:
                 n.gather_exc(n.acc_weights[0])
         for nid, mag in self._continuous.items():
             n = self.exc.get(nid)
@@ -386,94 +439,50 @@ class SimulationEngine:
             n.integrate()
 
         # ---- subphase 3: threshold test + fire ----
-        # L1E_s: every crosser fires (sensory sources).
-        l1s_spikes = np.zeros(N_PIX, dtype=bool)
-        for i, n in enumerate(self.l1e_s):
+        # e_sensory: every threshold crosser fires (sensory sources).
+        fired_sensory = set()
+        for n in self.sensory:
             if n.can_fire():
                 n.fire()
-                l1s_spikes[i] = True
+                fired_sensory.add(n.id)
                 self.spiked[n.id] = True
 
-        # L1E_new (enew branch): every crosser fires + learns.
-        enew_spikes = np.zeros(N_PIX, dtype=bool)
-        if self.enew_enabled:
-            l2_part = np.zeros(N_OUT, dtype=bool)
-            if self._winner_now is not None:
-                l2_part[self._winner_now] = True
-            for i, n in enumerate(self.l1e_new):
-                if n.can_fire():
-                    n.fire()
-                    enew_spikes[i] = True
-                    self.spiked[n.id] = True
-                    part = np.concatenate(([bool(self._ff_part_now[i])], l2_part))
-                    n.update_acc_weights(part)
-                    self._emit_enew_weight_changes(i, n)
-
-        # L2E: deterministic single-winner WTA among the crossers (selection, NOT
-        # charge removal). Only the winner fires and learns.
-        winner_j = None
-        crossers = [j for j, n in enumerate(self.l2e) if n.can_fire()]
+        # e_competitor: deterministic single-winner WTA among the crossers (selection,
+        # NOT charge removal). Highest membrane wins; tie-break = lowest node order.
+        winner = None
+        crossers = [(idx, n) for idx, n in enumerate(self.competitors) if n.can_fire()]
         if crossers:
-            winner_j = max(crossers, key=lambda j: (self.l2e[j].V, -j))
-            wn = self.l2e[winner_j]
-            wn.fire()
-            wn.update_acc_weights(self._ff_part_now)     # causal volley arrived this boundary
-            self._emit_weight_changes(wn, lambda i, j=winner_j: f'ff{i}->{j}')
-            self.spiked[wn.id] = True
-            self.winner = wn.id
+            _, winner = max(crossers, key=lambda kv: (kv[1].V, -kv[0]))
+            winner.fire()
+            # Learn feedforward: participation = which of THIS competitor's afferents
+            # fired in the causal volley that arrived this boundary.
+            part = np.array([src in self._ff_fired_now for src in winner.ff_src], dtype=bool)
+            winner.update_acc_weights(part)
+            self._emit_ff_weight_changes(winner)
+            self.spiked[winner.id] = True
+            self.winner = winner.id
 
         # ---- subphase 4: update local activity traces (survive reset) ----
         for n in self.exc.values():
             n.update_trace()
 
         # ---- subphase 5: emit spikes into delay-1 queues; run local relays/plasticity ----
-        # L1E_s spikes -> L2E feedforward (delay 1); enew: paired local sensory too.
-        if l1s_spikes.any():
-            active_pix = np.nonzero(l1s_spikes)[0]
-            for j, n in enumerate(self.l2e):
-                q = float((n.acc_weights * l1s_spikes).sum())
+        # sensory spikes -> feedforward charge onto competitor targets (delay 1).
+        if fired_sensory:
+            for comp in self.competitors:
+                q = 0.0
+                for widx, src in enumerate(comp.ff_src):
+                    if src in fired_sensory:
+                        q += float(comp.acc_weights[widx])
+                        self.emitted.append(comp.ff_edge_ids[widx])
                 if q:
-                    self._sched_exc(n.id, q)
-                    for i in active_pix:
-                        self.emitted.append(f'ff{i}->{j}')
-            self._ff_part_next = l1s_spikes.copy()
-            if self.enew_enabled:
-                for i in active_pix:
-                    self._sched_exc(self.l1e_new[i].id, float(self.l1e_new[i].acc_weights[0]))
-                    self.emitted.append(f'cl{i}')
+                    self._sched_exc(comp.id, q)
+            self._ff_fired_next = fired_sensory
 
-        # L2 winner -> L2I_WTA relay (same boundary); conductance onto all L2E (delay 1).
-        if winner_j is not None:
-            self.l2i.receive()
-            if self.l2i.resolve():
-                self.spiked['L2I'] = True
-                self.emitted.append(f're_l2_{winner_j}')
-                g = float(p['l2i_g_scale'])
-                for j in range(N_OUT):
-                    self._sched_inh(f'L2E{j}', g, 'L2I', 'wta', weight=g)
-            self._winner_next = winner_j
-
-            if self.enew_enabled:
-                # dense feedback L2E[winner] -> L1E_new (delay 1)
-                for i, n in enumerate(self.l1e_new):
-                    self._sched_exc(n.id, float(n.acc_weights[1 + winner_j]))
-                    self.emitted.append(f'fb{winner_j}->{i}')
-            else:
-                # paired PI[winner] relay (same boundary); learns locally now; its
-                # conductance onto L1E_s is scheduled for the next boundary.
-                self._fire_pi(winner_j)
-
-        # enew: L1E_new spikes -> paired L1I relay (same boundary); conductance
-        # onto paired L1E_s (delay 1).
-        if self.enew_enabled and enew_spikes.any():
-            for i in np.nonzero(enew_spikes)[0]:
-                relay = self.l1i[i]
-                relay.receive()
-                if relay.resolve():
-                    self.spiked[relay.id] = True
-                    self.emitted.append(f're_l1_{i}')
-                    g = float(p['l2i_g_scale'])           # legacy L1I uses the same fixed scale
-                    self._sched_inh(f'L1E{i}', g, relay.id, 'legacy_l1i', weight=g)
+        # winner competitor drives its relay_excitation targets THIS boundary; each
+        # relay that fires schedules its inhibitory / predictive conductance for t+1.
+        if winner is not None:
+            self._drive_relays(winner)
 
         # ---- subphase 6: decay conductance once; subphase 7: refractory + PI decay ----
         for n in self.exc.values():
@@ -495,44 +504,53 @@ class SimulationEngine:
         self._inh_next.append(dict(target=target, dg=float(dg), source=source,
                                    kind=kind, weight=float(weight)))
 
-    def _fire_pi(self, winner_j):
-        """Fire the winner's paired PI relay: emit its (pre-update) inhibitory
-        conductance onto every L1E_s for the next boundary, then update its output
-        synapses STRICTLY LOCALLY from each target's own activity trace."""
+    def _drive_relays(self, winner):
+        """The winner competitor drives every relay it projects to (relay_excitation);
+        each relay that fires emits its outgoing conductance for the NEXT boundary.
+
+        This one traversal expresses both topologies: whatever relay_excitation edges
+        leave the winner (its paired L2I plus paired PI, or L2I plus every L1I) fire
+        their targets, and each fired relay's own inhibition / predictive_inhibition
+        edges schedule the persistent conductance pulses. An i_relay emits a fixed
+        pulse; a predictor emits pre-update pulse[i] AND learns locally."""
         p = self.params
-        pi = self.pi[winner_j]
-        pi.receive()
-        if not pi.resolve():
-            return
-        self.spiked[pi.id] = True
-        # conductance from PRE-update weights, delivered next boundary
-        if p['pi_conductance_enabled']:
-            pulse = pi.conductance_pulse()               # g_scale * w (pre-update)
-            for i in range(N_PIX):
-                if pulse[i] > 0.0:
-                    self._sched_inh(f'L1E{i}', pulse[i], pi.id, 'predictive',
-                                    weight=float(pi.w[i]))
-                    self.emitted.append(f'pi{winner_j}->{i}')
-        # strictly-local plasticity: each output synapse reads only its own target's
-        # trace and its own weight. Traces were finalized in subphase 4.
-        if p['pi_plasticity_enabled']:
-            traces = np.array([n.a for n in self.l1e_s])
-            pi.learn(traces)
-            self._emit_pi_weight_changes(winner_j, pi)
+        g = float(p['l2i_g_scale'])
+        for rid, re_eid in self._relayexc_out.get(winner.id, []):
+            relay = self.inh.get(rid)
+            if relay is None:
+                continue
+            relay.receive()
+            if not relay.resolve():
+                continue
+            self.spiked[rid] = True
+            self.emitted.append(re_eid)
+            if isinstance(relay, PredictiveInterneuron):
+                if p['pi_conductance_enabled']:
+                    pulse = relay.conductance_pulse()    # g_scale * w (pre-update)
+                    for widx, (tgt, eid) in enumerate(zip(relay.pred_targets, relay.pred_edge_ids)):
+                        if pulse[widx] > 0.0:
+                            self._sched_inh(tgt, float(pulse[widx]), rid, 'predictive',
+                                            weight=float(relay.w[widx]))
+                            self.emitted.append(eid)
+                if p['pi_plasticity_enabled']:
+                    # strictly-local: each output synapse reads only its own target's
+                    # trace (finalized in subphase 4) and its own weight.
+                    traces = np.array([self.exc[t].a if t in self.exc else 0.0
+                                       for t in relay.pred_targets])
+                    relay.learn(traces)
+                    for widx, eid in enumerate(relay.pred_edge_ids):
+                        self.changed_synapses.append(
+                            dict(id=eid, weight=round(float(relay.w[widx]), 6)))
+            else:
+                # i_relay: fixed inhibitory conductance onto each of its targets.
+                for tgt, eid in self._inh_out.get(rid, []):
+                    kind = 'wta' if tgt in self._comp_ids else 'inhibition'
+                    self._sched_inh(tgt, g, rid, kind, weight=g)
+                    self.emitted.append(eid)
 
-    def _emit_weight_changes(self, neuron, edge_of):
-        for k, w in enumerate(neuron.acc_weights):
-            self.changed_synapses.append(dict(id=edge_of(k), weight=round(float(w), 4)))
-
-    def _emit_enew_weight_changes(self, i, neuron):
-        w = neuron.acc_weights
-        self.changed_synapses.append(dict(id=f'cl{i}', weight=round(float(w[0]), 4)))
-        for j in range(N_OUT):
-            self.changed_synapses.append(dict(id=f'fb{j}->{i}', weight=round(float(w[1 + j]), 4)))
-
-    def _emit_pi_weight_changes(self, j, pi):
-        for i in range(N_PIX):
-            self.changed_synapses.append(dict(id=f'pi{j}->{i}', weight=round(float(pi.w[i]), 6)))
+    def _emit_ff_weight_changes(self, comp):
+        for widx, eid in enumerate(comp.ff_edge_ids):
+            self.changed_synapses.append(dict(id=eid, weight=round(float(comp.acc_weights[widx]), 4)))
 
     def firing_freq(self, nid):
         h = self._spike_hist[nid]
@@ -576,23 +594,73 @@ class SimulationEngine:
             self._sched_exc(neuron_id, charge)           # lands next boundary
 
     def set_feedforward_weight(self, j: int, i: int, weight: float) -> float:
-        if not (0 <= j < N_OUT and 0 <= i < N_PIX):
+        if not (0 <= j < len(self.l2e) and 0 <= i < len(self.l2e[j].acc_weights)):
             raise IndexError(f'feedforward index out of range: j={j}, i={i}')
         w = float(np.clip(weight, 0.0, self.params['e_weight_cap']))
         self.l2e[j].acc_weights[i] = w
         return w
+
+    def set_synapse_weight(self, edge_id: str, weight: float) -> float:
+        """Hand-set any plastic synapse weight by its edge id (topology-agnostic):
+        feedforward -> competitor.acc_weights (clip [0, e_weight_cap]); predictive
+        -> predictor.w (clip [0, pi_w_max]). Raises KeyError for a non-plastic/unknown
+        edge. Best used while paused."""
+        ref = self._ff_weight_ref.get(edge_id)
+        if ref is not None:
+            cell, widx = ref
+            w = float(np.clip(weight, 0.0, self.params['e_weight_cap']))
+            cell.acc_weights[widx] = w
+            return w
+        ref = self._pred_weight_ref.get(edge_id)
+        if ref is not None:
+            cell, widx = ref
+            w = float(np.clip(weight, 0.0, self.params['pi_w_max']))
+            cell.w[widx] = w
+            return w
+        raise KeyError(edge_id)
 
     def apply_config(self, overrides: dict):
         applied = []
         for k, v in (overrides or {}).items():
             if k not in EDITABLE_KEYS:
                 continue
+            if k == 'topology' and v not in VALID_TOPOLOGIES:
+                raise ValueError(f'topology must be one of {VALID_TOPOLOGIES}, got {v!r}')
             self.params[k] = v
             applied.append(k)
+        # Selecting a named preset topology discards any applied custom graph.
+        if 'topology' in applied:
+            self._custom_spec = None
         if applied:
             self._build()
             self._log('config', f'applied {applied}; network rebuilt')
         return applied
+
+    # ---------------------------------------------------------- topology editing
+    def current_spec(self) -> dict:
+        """The active NetworkSpec with live (resolved) positions -- what the editor
+        loads. Weights are NOT included; live weights come from ``topology()``."""
+        nodes = []
+        for n in self.spec['nodes']:
+            m = self.meta[n['id']]
+            node = dict(id=n['id'], archetype=n['archetype'], layer=m['layer'],
+                        label=m['label'], pos=list(m['pos']))
+            if n.get('pixel') is not None:
+                node['pixel'] = n['pixel']
+            nodes.append(node)
+        edges = [dict(e) for e in self.spec['edges']]
+        return dict(name=self.mode, nodes=nodes, edges=edges,
+                    is_custom=self._custom_spec is not None)
+
+    def apply_topology(self, spec: dict):
+        """Validate and install a custom NetworkSpec, then rebuild. Raises SpecError
+        (a ValueError) if the graph is structurally invalid. Learned state is reset."""
+        norm = validate_spec(spec, N_PIX)
+        self._custom_spec = norm
+        self._build()
+        self._log('topology', f"applied topology '{self.mode}': "
+                              f"{len(norm['nodes'])} nodes, {len(norm['edges'])} edges")
+        return self.current_spec()
 
     def reset(self):
         self._build()
@@ -612,17 +680,11 @@ class SimulationEngine:
     def _live_weight(self, edge):
         eid, kind = edge['id'], edge['kind']
         if kind == 'feedforward':
-            i, j = eid[2:].split('->')
-            return float(self.l2e[int(j)].acc_weights[int(i)])
-        if kind == 'feedback':
-            j, i = eid[2:].split('->')
-            return float(self.l1e_new[int(i)].acc_weights[1 + int(j)])
-        if kind == 'coincidence_local':
-            i = int(eid[2:])
-            return float(self.l1e_new[i].acc_weights[0])
+            ref = self._ff_weight_ref.get(eid)
+            return None if ref is None else float(ref[0].acc_weights[ref[1]])
         if kind == 'predictive_inhibition':
-            j, i = eid[2:].split('->')
-            return float(self.pi[int(j)].w[int(i)])
+            ref = self._pred_weight_ref.get(eid)
+            return None if ref is None else float(ref[0].w[ref[1]])
         return None                                       # structural relay / conductance gate
 
     def topology(self) -> dict:
@@ -643,7 +705,9 @@ class SimulationEngine:
                    eta=float(p['eta']), leak_rate=float(p['leak_rate']),
                    refractory_steps=int(p['refractory_steps']),
                    input_period=int(p['input_period']),
-                   enew_enabled=bool(p['enew_enabled']),
+                   topology=str(p['topology']),
+                   topology_name=str(self.mode),
+                   is_custom_topology=bool(self._custom_spec is not None),
                    alpha_inh=float(p['alpha_inh']), alpha_inh_l1=float(p['alpha_inh_l1']),
                    alpha_a=float(p['alpha_a']),
                    beta_v=float(p['beta_v']), beta_s=float(p['beta_s']),

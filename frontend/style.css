@@ -169,8 +169,7 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .sw.exc { background: var(--exc); } .sw.inh { background: var(--inh); } .sw.win { background: var(--win); }
 .ln { width: 16px; height: 2px; border-radius: 2px; }
 .ln.ff { background: var(--ff); } .ln.in { background: var(--in); } .ln.ex { background: var(--ex); }
-.ln.fb { background: #c084fc; }
-.ln.cl { background: #9be15d; }
+.ln.pi { background: #e066c0; }
 .view-hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
   color: var(--txt-2); font-size: 11px; background: rgba(13,17,25,.6); padding: 4px 12px; border-radius: 20px; }
 
@@ -319,3 +318,42 @@ canvas.chart, #histogram { width: 100%; display: block; }
 #raster-canvas, #charge-canvas { position: sticky; left: 0; top: 0; display: block; }
 #weights-scroll { overflow: hidden; }
 #weights-canvas { display: block; }
+
+/* ───────────────────────── Topology editor overlay ─────────────────────── */
+.editor-overlay { display: flex; flex-direction: column; }
+.editor-bar { flex-wrap: wrap; height: auto; min-height: 46px; row-gap: 6px; }
+.ed-group { display: flex; align-items: center; gap: 6px; padding-right: 12px; border-right: 1px solid var(--line); }
+.ed-group:last-of-type { border-right: none; }
+.ed-group label { font-size: 11px; color: var(--txt-2); }
+.editor-bar select, .ed-name { background: var(--bg-3); color: var(--txt-0); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; font-size: 12px; max-width: 190px; }
+.ed-name { width: 120px; }
+.ed-status { font-size: 12px; color: var(--txt-2); margin-left: 8px; }
+.ed-status.is-err { color: var(--inh, #f0788c); }
+.editor-bar .danger#editor-close { margin-left: auto; }
+.editor-body { flex: 1; display: flex; min-height: 0; }
+.editor-canvas { flex: 1; position: relative; min-width: 0; background: var(--bg-1);
+  touch-action: none; overflow: hidden; }
+.editor-canvas canvas { display: block; }
+.editor-inspect { flex: 0 0 260px; background: var(--bg-2); border-left: 1px solid var(--line);
+  padding: 14px; overflow-y: auto; font-size: 12px; }
+.ed-empty { color: var(--txt-2); line-height: 1.5; }
+.ed-title { font-weight: 700; font-size: 15px; margin-bottom: 10px; }
+.ed-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.ed-row span { color: var(--txt-2); }
+.ed-desc { color: var(--txt-2); line-height: 1.5; margin: 10px 0; }
+.ed-note { color: var(--txt-2); font-size: 11px; line-height: 1.4; margin: 8px 0; opacity: 0.8; }
+.ed-field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.ed-field span { color: var(--txt-2); }
+.ed-field input { background: var(--bg-3); color: var(--txt-0); border: 1px solid var(--line); border-radius: 6px; padding: 5px; }
+.ed-check { display: flex; align-items: center; gap: 8px; margin: 12px 0; cursor: pointer; }
+.editor-inspect .btn.danger { margin-top: 10px; width: 100%; }
+.editor-hint { flex: none; padding: 6px 14px; font-size: 11px; color: var(--txt-2); background: var(--bg-2); border-top: 1px solid var(--line); }
+
+/* ─────────────────────── Receptive-fields overlay ──────────────────────── */
+.rf-overlay { display: flex; flex-direction: column; }
+.rf-scroll { flex: 1; overflow: auto; padding: 16px; background: var(--bg-1); }
+.rf-overlay .rf-edit-hint { font-size: 11px; color: var(--txt-2); }
+.rf-overlay .rf-edit-hint.is-active { color: var(--ok, #5eead4); }
+.rf-cell.rf-blank { opacity: 0.3; border: 1px dashed var(--line); background: transparent !important; cursor: default; }
+.rf-overlay .viz-transport { margin-left: auto; }

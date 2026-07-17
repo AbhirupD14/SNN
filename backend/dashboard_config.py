@@ -27,11 +27,15 @@ CONFIG_SPEC = [
     {"key": "e_weight_cap", "label": "Excitatory weight cap", "kind": "range",
      "min": 200, "max": 2000, "step": 50,
      "desc": "The shared per-synapse accumulating-weight cap (theta = 1000)."},
-    {"key": "enew_enabled", "label": "L1E_new coincidence topology", "kind": "toggle",
-     "desc": "ON: retained 36-neuron L1E_new/L1I coincidence comparison topology. "
-             "OFF: the 26-neuron predictive-inhibition (PI) experiment -- eight "
+    {"key": "topology", "label": "Topology", "kind": "select",
+     "options": [{"value": "pi", "label": "Predictive inhibition (PI)"},
+                 {"value": "old", "label": "Old dense global inhibition"}],
+     "desc": "pi: the 26-neuron predictive-inhibition experiment -- eight "
              "pattern-specific PI cells paired 1:1 with L2E, each with 9 locally "
-             "plastic inhibitory outputs onto L1E_s. Applying rebuilds the network."},
+             "plastic inhibitory outputs onto L1E_s. old: the 27-neuron original "
+             "topology -- nine paired L1I relays, densely fed by every L2E, so the "
+             "winner shunts every L1E_s (global inhibition). Applying rebuilds the "
+             "network. (Use the Topology Editor for arbitrary graphs and presets.)"},
 
     # --- membrane conductance / trace ---
     {"key": "alpha_inh", "label": "WTA conductance retention (L2E)", "kind": "range",

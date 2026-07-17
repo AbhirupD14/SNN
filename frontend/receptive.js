@@ -1,29 +1,40 @@
-// Receptive-field view for the minimal SIGNED-SPIKE experiment.
+// Receptive-field view (full-screen pop-up). One 3x3 feedforward grid per COMPETITOR
+// neuron, generalized to any topology: each grid cell is the feedforward weight from
+// the sensory afferent mapped to that input pixel (topology.synapses of kind
+// 'feedforward', keyed by the source node's pixel). Cells with no such edge are blank.
 //
-// Renders, live, one 3x3 feedforward receptive field per L2E neuron. Cells show the
-// ACTUAL weight by default (a "ratio" mode shows weight / per-afferent cap in [0,1]
-// with more precision, since near-balanced weights collapse to the same 2-decimal
-// ratio). When the simulation is PAUSED, each cell is editable: type a value and press
-// Enter to set that synapse (weight, or ratio*cap), which the backend applies (clipped
-// to the cap) so you can hand-push a neuron toward winning or losing, then step/resume
-// to watch the effect. A unit is flagged "dead" once its three strongest pixels can no
-// longer sum to threshold (it can never fire again).
+// Cells show the ACTUAL weight ('weight' mode) or weight / per-afferent cap ('ratio').
+// When PAUSED each mapped cell is editable: type a value + Enter to set that exact
+// synapse via /api/weight {synapse: edgeId}. A unit whose three strongest afferents
+// can no longer sum to threshold is flagged "dead".
 
-const N_PIX = 9;   // 3x3 grid
+const N_PIX = 9;   // fixed 3x3 sensory input surface
 
 export class ReceptiveFields {
   constructor(store, api) {
     this.store = store;
     this.api = api;
+    this.overlay = document.getElementById('rf-overlay');
     this.grid = document.getElementById('rf-grid');
     this.inputEl = document.getElementById('rf-input');
-    this.cards = [];        // per-L2E { root, cells[9], badge }
+    this.cards = [];
     this.inputCells = [];
-    this.built = false;
-    this.mode = 'weight';   // 'weight' | 'ratio'
-    this.running = true;    // paused => editable
+    this.mode = 'weight';
+    this.running = true;
+    this.ffMap = new Map();   // compId -> {pixel -> edgeId}
     this._wireModeToggle();
+    this._wireOverlay();
   }
+
+  _wireOverlay() {
+    document.querySelector('.tab[data-tab="rf"]')?.addEventListener('click', () => this.open());
+    document.getElementById('rf-close')?.addEventListener('click', () => this.close());
+    window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this._open()) this.close(); });
+  }
+
+  _open() { return this.overlay && !this.overlay.hidden; }
+  open() { this.overlay.hidden = false; if (!this.built) this.build(); this.update(this.store.dynamic); }
+  close() { this.overlay.hidden = true; }
 
   _wireModeToggle() {
     const toggle = document.getElementById('rf-mode-toggle');
@@ -34,11 +45,10 @@ export class ReceptiveFields {
       this.mode = btn.dataset.mode;
       for (const b of toggle.querySelectorAll('.rf-toggle-btn'))
         b.classList.toggle('is-on', b.dataset.mode === this.mode);
-      this.update(this.store.dynamic);   // repaint immediately
+      this.update(this.store.dynamic);
     });
   }
 
-  // Effective per-afferent cap (weight_cap_frac * threshold_l2) and firing threshold.
   _caps() {
     const p = this.store.topology?.params || {};
     const thr = p.threshold_l2 || 1;
@@ -46,11 +56,24 @@ export class ReceptiveFields {
     return { thr, cap: cap || 1 };
   }
 
+  // Rebuild from the CURRENT topology (called on every topology broadcast, so it
+  // follows the editor: competitors, sensory pixels, and feedforward edges can all
+  // change). Maps each competitor's 3x3 grid cells to feedforward edge ids by pixel.
   build() {
-    if (this.built) return;
-    this.l2Ids = (this.store.topology?.neurons || [])
-      .filter(n => n.layer === 'L2' && n.type === 'E')
-      .map(n => n.id);
+    const topo = this.store.topology;
+    if (!topo) return;
+    const pixelByNode = new Map();
+    for (const n of topo.neurons) if (n.pixel != null) pixelByNode.set(n.id, n.pixel);
+    this.ffMap = new Map();
+    for (const s of topo.synapses) {
+      if (s.kind !== 'feedforward') continue;
+      const px = pixelByNode.get(s.source);
+      if (px == null) continue;                 // afferent not tied to an input pixel
+      if (!this.ffMap.has(s.target)) this.ffMap.set(s.target, {});
+      this.ffMap.get(s.target)[px] = s.id;
+    }
+    this.compIds = topo.neurons.filter(n => n.role === 'competitor').map(n => n.id);
+
     // Signed-input reference grid.
     this.inputEl.innerHTML = '';
     this.inputCells = [];
@@ -60,24 +83,23 @@ export class ReceptiveFields {
       this.inputEl.appendChild(c);
       this.inputCells.push(c);
     }
-    // One card per L2E neuron.
+    // One card per competitor.
     this.grid.innerHTML = '';
     this.cards = [];
-    for (const id of this.l2Ids) {
-      const j = Number(id.slice(3));
+    for (const id of this.compIds) {
       const root = document.createElement('div');
       root.className = 'rf-card';
       const title = document.createElement('div');
       title.className = 'rf-title';
-      title.innerHTML = `<span>L2E${j}</span><span class="rf-badge" hidden></span>`;
+      title.innerHTML = `<span>${id}</span><span class="rf-badge" hidden></span>`;
       const cellsEl = document.createElement('div');
       cellsEl.className = 'rf-cells';
       const cells = [];
-      for (let i = 0; i < N_PIX; i++) {
+      for (let px = 0; px < N_PIX; px++) {
         const c = document.createElement('div');
         c.className = 'rf-cell rf-num';
-        c.dataset.j = String(j);
-        c.dataset.i = String(i);
+        c.dataset.comp = id;
+        c.dataset.pixel = String(px);
         this._wireCellEditing(c);
         cellsEl.appendChild(c);
         cells.push(c);
@@ -85,16 +107,17 @@ export class ReceptiveFields {
       root.appendChild(title);
       root.appendChild(cellsEl);
       this.grid.appendChild(root);
-      this.cards.push({ root, cells, badge: title.querySelector('.rf-badge') });
+      this.cards.push({ id, root, cells, badge: title.querySelector('.rf-badge') });
     }
     this.built = true;
   }
+
+  _edgeFor(compId, pixel) { return this.ffMap.get(compId)?.[pixel]; }
 
   _wireCellEditing(cell) {
     cell.addEventListener('focus', () => {
       if (!cell.isContentEditable) return;
       cell.classList.add('rf-editing');
-      // Select all so typing replaces the shown value.
       const r = document.createRange(); r.selectNodeContents(cell);
       const sel = window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
     });
@@ -108,29 +131,28 @@ export class ReceptiveFields {
   _commitCell(cell) {
     cell.classList.remove('rf-editing');
     if (cell._cancel) { cell._cancel = false; this.update(this.store.dynamic); return; }
+    const edgeId = this._edgeFor(cell.dataset.comp, Number(cell.dataset.pixel));
+    if (!edgeId) { this.update(this.store.dynamic); return; }   // no synapse to set
     const val = parseFloat((cell.textContent || '').trim());
     if (!Number.isFinite(val)) { this.update(this.store.dynamic); return; }
     const { cap } = this._caps();
     const weight = this.mode === 'ratio' ? val * cap : val;
-    const j = Number(cell.dataset.j), i = Number(cell.dataset.i);
-    this.api.post('/api/weight', { j, i, weight });
-    // The backend re-broadcasts topology; a temporary local echo avoids a flicker.
-    this.store.weights.set(`ff${i}->${j}`, Math.max(0, Math.min(cap, weight)));
+    this.api.post('/api/weight', { synapse: edgeId, weight });
+    this.store.weights.set(edgeId, Math.max(0, Math.min(cap, weight)));   // optimistic echo
   }
 
   update(dyn) {
+    if (!this._open()) return;
     if (!this.built) this.build();
     const s = this.store;
     const { thr, cap } = this._caps();
 
-    // Paused => editable. Reflect on the container + hint.
     this.running = !!(dyn && dyn.running);
     const editable = !this.running;
     this.grid.classList.toggle('rf-can-edit', editable);
     const hint = document.getElementById('rf-edit-hint');
     if (hint) hint.classList.toggle('is-active', editable);
 
-    // Signed input: +1 (active) vs -1 (inactive).
     const input = (dyn && dyn.input) || [];
     for (let i = 0; i < N_PIX; i++) {
       const on = input[i] > 0;
@@ -140,39 +162,43 @@ export class ReceptiveFields {
       c.textContent = on ? '+' : '−';
     }
 
-    const winner = dyn && dyn.winner;   // e.g. "L2E3"
-    for (let cardIndex = 0; cardIndex < this.l2Ids.length; cardIndex++) {
-      const id = this.l2Ids[cardIndex];
-      const j = Number(id.slice(3));
-      const card = this.cards[cardIndex];
-      const fireRatios = [];   // w/threshold, for dead detection (independent of view mode)
-      for (let i = 0; i < N_PIX; i++) {
-        const w = s.weights.get(`ff${i}->${j}`) ?? 0;
+    const winner = dyn && dyn.winner;
+    for (const card of this.cards) {
+      const fireRatios = [];
+      for (let px = 0; px < N_PIX; px++) {
+        const cell = card.cells[px];
+        const edgeId = this._edgeFor(card.id, px);
+        if (!edgeId) {                          // no feedforward edge for this pixel
+          cell.contentEditable = 'false';
+          cell.classList.remove('rf-editable');
+          cell.classList.add('rf-blank');
+          cell.style.background = 'transparent';
+          if (document.activeElement !== cell) cell.textContent = '';
+          fireRatios.push(0);
+          continue;
+        }
+        cell.classList.remove('rf-blank');
+        const w = s.weights.get(edgeId) ?? 0;
         fireRatios.push(w / thr);
-        const cell = card.cells[i];
         cell.contentEditable = editable ? 'true' : 'false';
         cell.classList.toggle('rf-editable', editable);
-        // Color intensity: fraction of the per-afferent cap.
         const norm = Math.max(0, Math.min(1, w / cap));
         cell.style.background = norm > 0.001
           ? `rgba(94,234,212,${(0.08 + 0.92 * norm).toFixed(3)})` : 'transparent';
-        // Don't clobber a cell the user is actively editing.
         if (document.activeElement === cell) continue;
         cell.textContent = this.mode === 'ratio'
-          ? (w / cap).toFixed(3)                 // [0,1], precise enough to separate
-          : (w >= 0.05 ? w.toFixed(1) : '0');    // actual weight
+          ? (w / cap).toFixed(3)
+          : (w >= 0.05 ? w.toFixed(1) : '0');
       }
-      // Dead = the three strongest pixels cannot sum to threshold, so the neuron can
-      // never accumulate to fire again.
       const top3 = [...fireRatios].sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0);
       const dead = top3 < 1.0;
       card.badge.hidden = !dead;
       if (dead) card.badge.textContent = 'dead';
       card.root.classList.toggle('rf-dead', dead);
 
-      const st = s.stateById.get(id);
+      const st = s.stateById.get(card.id);
       card.root.classList.toggle('rf-spike', !!(st && st.spiked));
-      card.root.classList.toggle('rf-winner', winner === id);
+      card.root.classList.toggle('rf-winner', winner === card.id);
     }
   }
 }

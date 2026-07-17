@@ -15,7 +15,8 @@ export class Charts {
   }
 
   buildStatic(topology) {
-    this.l2 = topology.neurons.filter(n => n.layer === 'L2' && n.type === 'E').map(n => n.id);
+    // Competitors (WTA units), whatever their layer/ids in the active topology.
+    this.l2 = topology.neurons.filter(n => n.role === 'competitor').map(n => n.id);
     if (this.heatmap) {
       this.heatmap.innerHTML = this.l2.map(id =>
         `<div class="hm-cell" data-id="${id}"><b>0</b><span>${id}</span></div>`).join('');

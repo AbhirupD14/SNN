@@ -1,18 +1,14 @@
-// Full-screen weights-over-time view: the selected L2E neuron's 9 incoming
-// feedforward weights (L1E -> L2E, one per pixel) as a fraction of the weight cap,
-// over the full (bounded) training history. There is no L2I -> L2E gate series:
-// the active L2 competition is an unweighted hard reset + competitive depression,
-// with no learned inhibitory magnitude to plot. This is the view for debugging
-// whether a receptive field is forming and whether the signed +1/-1 rule replaces
-// the old budget: the three pattern pixels should climb toward the cap while the
-// rest are pushed to the floor. Pick a neuron by clicking an L2E in the 3D view.
+// Full-screen weights-over-time view: the selected competitor's incoming feedforward
+// weights (one series per afferent) as a fraction of the weight cap, over the full
+// (bounded) training history. Topology-generic: the afferent set is read from the
+// live topology (feedforward edges into the target), so it works for any competitor
+// with any fan-in, not just a fixed 9-pixel L2E. Pick a target by clicking a
+// competitor in the 3D view.
 //
-// Fit-to-width (no horizontal scroll): the whole history is compressed into the
-// viewport so the learning curve is visible at a glance. History is bounded.
+// Fit-to-width (no horizontal scroll): the whole history compresses into the viewport.
 
 const HISTORY = 1500;
-const N_PIX = 9;
-const PAD = { l: 44, r: 66, t: 22, b: 22 };
+const PAD = { l: 44, r: 84, t: 22, b: 22 };
 
 export class WeightsChart {
   constructor(store) {
@@ -22,8 +18,9 @@ export class WeightsChart {
     this.canvas = document.getElementById('weights-canvas');
     this.ctx = this.canvas.getContext('2d');
     this.targetEl = document.getElementById('weights-target');
-    this.target = 'L2E0';
-    this.ff = [];          // Float32Array(9) per sample
+    this.target = null;
+    this.edges = [];       // [{id, label}] incoming feedforward edges of the target
+    this.hist = [];        // Float32Array(edges.length) per sample
     this._raf = 0;
     this._cw = this._ch = 0;
 
@@ -39,29 +36,49 @@ export class WeightsChart {
     this._raf = requestAnimationFrame(() => { this._raf = 0; this._draw(); });
   }
 
-  build() { this._reset(); }
-  _reset() { this.ff = []; }
+  // Rebuild on topology change: keep the current target if it still exists, else pick
+  // the first competitor. Recompute its incoming feedforward afferent set.
+  build() {
+    const comps = (this.store.topology?.neurons || []).filter(n => n.role === 'competitor');
+    if (!comps.length) { this.target = null; this.edges = []; this._reset(); return; }
+    if (!this.target || !comps.some(n => n.id === this.target)) this.target = comps[0].id;
+    this._recomputeEdges();
+    this._reset();
+  }
+
+  _recomputeEdges() {
+    const syn = this.store.topology?.synapses || [];
+    const pixelByNode = new Map((this.store.topology?.neurons || [])
+      .filter(n => n.pixel != null).map(n => [n.id, n.pixel]));
+    this.edges = syn.filter(s => s.kind === 'feedforward' && s.target === this.target)
+      .map(s => ({ id: s.id, label: pixelByNode.has(s.source) ? 'p' + pixelByNode.get(s.source) : s.source }));
+  }
+
+  _reset() { this.hist = []; }
 
   setTarget(id) {
-    if (!id || !id.startsWith('L2E') || id === this.target) return;
+    if (!id || id === this.target) return;
+    const meta = this.store.meta?.get(id);
+    if (!meta || meta.role !== 'competitor') return;   // only competitors have a feedforward RF
     this.target = id;
     if (this.targetEl) this.targetEl.textContent = id;
+    this._recomputeEdges();
     this._reset();
     this._schedule();
   }
 
   update(dyn) {
-    const j = parseInt(this.target.slice(3), 10);
-    if (Number.isNaN(j)) return;
+    if (!this.target || !this.edges.length) return;
     const w = this.store.weights;
-    const ff = new Float32Array(N_PIX);
-    for (let i = 0; i < N_PIX; i++) ff[i] = w.get(`ff${i}->${j}`) ?? 0;
-    this.ff.push(ff);
-    while (this.ff.length > HISTORY) { this.ff.shift(); }
+    const row = new Float32Array(this.edges.length);
+    for (let i = 0; i < this.edges.length; i++) row[i] = w.get(this.edges[i].id) ?? 0;
+    this.hist.push(row);
+    while (this.hist.length > HISTORY) this.hist.shift();
     this._schedule();
   }
 
-  open() { this.overlay.hidden = false; this._cw = this._ch = 0; if (this.targetEl) this.targetEl.textContent = this.target; this._draw(); }
+  open() { this.overlay.hidden = false; this._cw = this._ch = 0; if (!this.edges.length) this.build();
+           if (this.targetEl) this.targetEl.textContent = this.target || '—'; this._draw(); }
   close() { this.overlay.hidden = true; }
 
   _cap() {
@@ -89,13 +106,11 @@ export class WeightsChart {
     const cMut = css.getPropertyValue('--txt-2').trim() || '#5f6b82';
 
     const x0 = PAD.l, x1 = vw - PAD.r, y0 = PAD.t, y1 = vh - PAD.b;
-    const YMAX = 1.1;                          // fraction of cap
-    const cap = this._cap();
-    const N = this.ff.length;
+    const YMAX = 1.1, cap = this._cap();
+    const N = this.hist.length, M = this.edges.length;
     const xOf = (i) => N <= 1 ? x0 : x0 + (i / (N - 1)) * (x1 - x0);
     const yOf = (v) => y1 - Math.max(0, Math.min(YMAX, v)) / YMAX * (y1 - y0);
 
-    // Axes + reference lines (0, cap).
     ctx.strokeStyle = cLine; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x0, y1); ctx.lineTo(x1, y1); ctx.stroke();
     ctx.fillStyle = cMut; ctx.font = '10px ui-monospace, monospace';
@@ -106,24 +121,30 @@ export class WeightsChart {
     ctx.beginPath(); ctx.moveTo(x0, yCap); ctx.lineTo(x1, yCap); ctx.stroke(); ctx.setLineDash([]);
     ctx.fillText('cap', x0 - 5, yCap);
     ctx.textAlign = 'left';
-    ctx.fillText(`${this.target} · weight ÷ cap (${cap.toFixed(0)}) · ${N} samples · newest →`, x0 + 4, y0 - 8 < 6 ? 8 : y0 - 8);
+    ctx.fillText(`${this.target || '—'} · ${M} feedforward afferents ÷ cap (${cap.toFixed(0)}) · ${N} samples · newest →`,
+                 x0 + 4, y0 - 8 < 6 ? 8 : y0 - 8);
 
-    if (N < 2) return;
+    if (N < 2 || !M) {
+      if (!M) { ctx.fillStyle = cMut; ctx.textAlign = 'center';
+        ctx.fillText('selected neuron has no feedforward afferents — click a competitor in the 3D view',
+                     (x0 + x1) / 2, (y0 + y1) / 2); }
+      return;
+    }
 
-    // 9 feedforward series (teal, lightness by pixel index) + endpoint labels.
-    for (let i = 0; i < N_PIX; i++) {
-      ctx.strokeStyle = `hsl(168, 70%, ${38 + i * 4}%)`;
-      ctx.lineWidth = 1.4;
+    // One series per afferent; hue spread across the fan-in, endpoint labels at right.
+    for (let i = 0; i < M; i++) {
+      const hue = 168 + (i / Math.max(M, 1)) * 150;
+      ctx.strokeStyle = `hsl(${hue}, 70%, 55%)`; ctx.lineWidth = 1.4;
       ctx.beginPath();
       for (let k = 0; k < N; k++) {
-        const v = this.ff[k][i] / cap;
+        const v = this.hist[k][i] / cap;
         k ? ctx.lineTo(xOf(k), yOf(v)) : ctx.moveTo(xOf(k), yOf(v));
       }
       ctx.stroke();
-      const last = this.ff[N - 1][i] / cap;
-      ctx.fillStyle = `hsl(168, 70%, ${48 + i * 4}%)`;
+      const last = this.hist[N - 1][i] / cap;
+      ctx.fillStyle = `hsl(${hue}, 70%, 62%)`;
       ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
-      ctx.fillText(`p${i} ${last.toFixed(2)}`, x1 + 4, yOf(last));
+      ctx.fillText(`${this.edges[i].label} ${last.toFixed(2)}`, x1 + 4, yOf(last));
     }
   }
 }

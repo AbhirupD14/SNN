@@ -7,16 +7,27 @@ conductance-based spiking network with **persistent inhibitory conductance**
 topology, the synchronous timestep, and serialization live in
 `backend/simulation.py`.
 
-One `enew_enabled` flag selects between two whole topologies (a comparison switch,
-not a scientific-mode multiplier):
+The network is defined by a **`NetworkSpec`** (typed nodes + typed edges, in
+`backend/network_spec.py`); the engine executes whatever graph it is given via
+per-edge-kind dispatch. The fixed vocabulary is four node archetypes
+(`e_sensory`, `e_competitor`, `i_relay`, `predictor`) and four edge kinds
+(`feedforward`, `relay_excitation`, `inhibition`, `predictive_inhibition`). Two
+intrinsic population rules are NOT edges: `e_sensory` — every threshold crosser
+fires; `e_competitor` — deterministic single-winner WTA (one winner fires + learns
+its feedforward weights). Two built-in presets ship, selected by the `topology`
+parameter, and arbitrary graphs can be built/saved/loaded live in the browser
+Topology Editor:
 
-* **`enew_enabled=False` — the predictive-inhibition (PI) experiment.** 26 neurons.
+* **`topology='pi'` — the predictive-inhibition (PI) experiment.** 26 neurons.
   Eight pattern-specific predictive interneurons `PI[j]`, paired one-to-one with the
   competitors `L2E[j]`, each owning nine locally-plastic inhibitory output synapses
   onto the sensory `L1E_s` cells. This is the topology the symmetry-breaking science
   is about.
-* **`enew_enabled=True` — the retained L1E_new coincidence comparison topology.**
-  36 neurons. Its inhibition is now conductance too (no hard wipes).
+* **`topology='old'` — the original dense global-inhibition topology.** 27 neurons.
+  Nine paired `L1I` relays fed densely by every `L2E` (every `L2E`→every `L1I`), each
+  projecting a paired inhibitory conductance onto its own `L1E_s`. The single L2
+  winner drives all nine `L1I`, so every `L1E_s` is shunted — winner-gated global
+  inhibition. Its inhibition is conductance too (no hard wipes anywhere).
 
 ## Populations and topology
 
@@ -25,18 +36,17 @@ not a scientific-mode multiplier):
 | L1E_s (sensory source) | 9 | `L1E0..8` | E | both |
 | L2E (competitors) | 8 | `L2E0..7` | E | both |
 | L2I_WTA (winner-take-all relay) | 1 | `L2I` | I | both |
-| PI (predictive interneurons) | 8 | `PI0..7` | I | direct only |
-| L1E_new (coincidence) | 9 | `L1Enew0..8` | E | enew only |
-| L1I (paired relays) | 9 | `L1I0..8` | I | enew only |
+| PI (predictive interneurons) | 8 | `PI0..7` | I | pi only |
+| L1I (paired relays) | 9 | `L1I0..8` | I | old only |
 
-**Direct (PI) edges — 168 total:** 72 feedforward `L1E_s→L2E` · 8
+**PI-preset edges — 168 total:** 72 feedforward `L1E_s→L2E` · 8
 `relay_excitation L2E[j]→PI[j]` (paired 1:1) · 8 `relay_excitation L2E→L2I` · 72
 `predictive_inhibition PI[j]→L1E_s[i]` (candidate, locally plastic) · 8
 `inhibition L2I→L2E` (WTA conductance).
 
-**Comparison (enew) edges — 187 total:** 72 `ff` · 72 `feedback L2E→L1E_new` · 9
-`coincidence_local L1E_s→L1E_new` · 9 `relay_excitation L1E_new→L1I` · 8
-`relay_excitation L2E→L2I` · 9 `inhibition L1I→L1E_s` · 8 `inhibition L2I→L2E`.
+**Old-preset edges — 169 total:** 72 feedforward `L1E_s→L2E` · 72
+`relay_excitation L2E→L1I` (DENSE, every L2E→every L1I) · 8 `relay_excitation L2E→L2I`
+· 9 `inhibition L1I[i]→L1E_s[i]` (paired) · 8 `inhibition L2I→L2E` (WTA conductance).
 
 The four center-crossing patterns on the 3×3 surface: `row 1`, `col 1`, `diag \`,
 `diag /`.
@@ -179,10 +189,12 @@ inhibitory learning` (the original L1 spike is **not** cancelled). *Later encoun
 ## Configuration
 
 Editable keys (`apply_config` rebuilds; unknown keys rejected): `leak_rate`,
-`refractory_steps`, `eta`, `e_weight_cap`, `input_period`, `enew_enabled`,
+`refractory_steps`, `eta`, `e_weight_cap`, `input_period`, `topology` (`'pi'`|`'old'`),
 `alpha_inh`, `alpha_inh_l1`, `alpha_a`, `beta_v`, `beta_s`, `a_max`, `e_inh`,
 `pi_eta`, `pi_w_max`, `pi_lt_decay`, `pi_g_scale`, `l2i_g_scale`,
-`pi_conductance_enabled`, `pi_plasticity_enabled`. Fixed/derived: `e_threshold=1000`,
+`pi_conductance_enabled`, `pi_plasticity_enabled`. Arbitrary custom graphs are applied
+via `apply_topology(spec)` / `POST /api/topology` (validated `NetworkSpec`), bypassing
+the preset selector. Fixed/derived: `e_threshold=1000`,
 `i_threshold=θ/3` (reported invariant), `synaptic_delay=1`, distance exponent 2.
 
 ## Symmetry-breaking results (overlap experiment)

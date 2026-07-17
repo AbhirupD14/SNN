@@ -51,7 +51,7 @@ def _phase(engine, pattern, steps):
 def run_schedule(seed, pattern_a='row 1', pattern_b='col 1',
                  steps=(3000, 3000, 2000), **cfg):
     """One row->column->row run. Returns a metrics dict (JSON-serializable)."""
-    e = SimulationEngine(seed=seed, enew_enabled=False, **cfg)
+    e = SimulationEngine(seed=seed, topology='pi', **cfg)
     a_pix, b_pix = active_pixels(pattern_a), active_pixels(pattern_b)
     shared = sorted(a_pix & b_pix)
     novel = sorted(b_pix - a_pix)

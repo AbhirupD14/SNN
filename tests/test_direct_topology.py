@@ -1,7 +1,7 @@
-"""The predictive-inhibition (PI) direct topology, selected by enew_enabled=False.
+"""The predictive-inhibition (PI) direct topology, selected by topology='pi'.
 
-With the flag off the network drops the L1E_new / L1I comparison population and
-adds eight pattern-specific predictive interneurons ``PI[j]``, paired one-to-one
+The network drops the L1I comparison population and adds eight pattern-specific
+predictive interneurons ``PI[j]``, paired one-to-one
 with the competitors ``L2E[j]``. Each PI owns nine candidate inhibitory output
 synapses onto the sensory ``L1E_s`` cells (72 candidates), learned strictly
 locally. There is NO global winner-to-all-L1I shortcut. These tests pin that
@@ -18,13 +18,13 @@ from backend.simulation import SimulationEngine, N_PIX, N_OUT
 
 @pytest.fixture
 def direct():
-    return SimulationEngine(seed=1, enew_enabled=False)
+    return SimulationEngine(seed=1, topology='pi')
 
 
-def test_flag_defaults_to_enew(direct):
-    assert SimulationEngine(seed=1).params['enew_enabled'] is True
-    assert direct.params['enew_enabled'] is False
-    assert direct.topology()['params']['enew_enabled'] is False
+def test_topology_defaults_to_pi(direct):
+    assert SimulationEngine(seed=1).params['topology'] == 'pi'
+    assert direct.params['topology'] == 'pi'
+    assert direct.topology()['params']['topology'] == 'pi'
 
 
 def test_direct_population_counts(direct):
@@ -40,7 +40,7 @@ def test_direct_population_counts(direct):
     assert 'supervisor' not in roles       # no L1E_new
     assert not any(n['id'].startswith('L1Enew') for n in topo['neurons'])
     assert not any(n['id'].startswith('L1I') for n in topo['neurons'])
-    assert len(direct.pi) == 8 and direct.l1e_new == [] and direct.l1i == []
+    assert len(direct.pi) == 8 and direct.l1i == []
 
 
 def test_each_l2e_drives_only_its_paired_pi(direct):
@@ -88,16 +88,16 @@ def test_pi_weights_start_at_zero(direct):
 
 
 def test_toggle_rebuilds_and_resets_pi_weights():
-    eng = SimulationEngine(seed=1, enew_enabled=False)
+    eng = SimulationEngine(seed=1, topology='pi')
     eng.set_pattern('row 1')
     for _ in range(200):
         eng.step()
     assert any(np.any(pi.w > 0) for pi in eng.pi)   # learned something
-    # Switch to the comparison topology and back.
-    assert eng.apply_config({'enew_enabled': True}) == ['enew_enabled']
-    assert len(eng.topology()['neurons']) == 36
-    assert Counter(n['role'] for n in eng.topology()['neurons'])['supervisor'] == 9
-    assert eng.apply_config({'enew_enabled': False}) == ['enew_enabled']
+    # Switch to the old topology and back.
+    assert eng.apply_config({'topology': 'old'}) == ['topology']
+    assert len(eng.topology()['neurons']) == 27
+    assert Counter(n['role'] for n in eng.topology()['neurons'])['relay'] == 10
+    assert eng.apply_config({'topology': 'pi'}) == ['topology']
     assert len(eng.topology()['neurons']) == 26
     for pi in eng.pi:                                # rebuild wipes learned weights
         assert np.all(pi.w == 0.0)

@@ -129,9 +129,9 @@ export class Controls {
     const bind = (ids, fn) => ids.forEach(id => document.getElementById(id)?.addEventListener('click', fn));
     // Sidebar controls plus the transport mirrored inside the full-screen chart
     // overlays (raster/charge/weights), which cover the top bar's run indicator.
-    bind(['g-start', 'x-start', 'x-resume', 'raster-play', 'charge-play', 'weights-play'],
+    bind(['g-start', 'x-start', 'x-resume', 'raster-play', 'charge-play', 'weights-play', 'rf-play'],
          () => this.api.post('/api/start'));
-    bind(['g-pause', 'x-pause', 'raster-pause', 'charge-pause', 'weights-pause'],
+    bind(['g-pause', 'x-pause', 'raster-pause', 'charge-pause', 'weights-pause', 'rf-pause'],
          () => this.api.post('/api/pause'));
     bind(['g-step', 'x-step'], () => this.api.post('/api/step'));
     bind(['g-reset', 'x-reset'], () => this.api.post('/api/reset'));
@@ -226,7 +226,7 @@ export class Controls {
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
       // Raster / Charge / Weights are not bottom panels -- they open full-screen
       // overlays (handled in their own modules), so they don't switch the drawer.
-      if (['raster', 'charge', 'weights'].includes(tab.dataset.tab)) return;
+      if (['raster', 'charge', 'weights', 'rf'].includes(tab.dataset.tab)) return;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');

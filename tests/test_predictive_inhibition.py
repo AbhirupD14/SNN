@@ -12,7 +12,7 @@ from experiments.predictive_inhibition_overlap import run_schedule, active_pixel
 
 
 def direct(seed=1, **cfg):
-    return SimulationEngine(seed=seed, enew_enabled=False, **cfg)
+    return SimulationEngine(seed=seed, topology='pi', **cfg)
 
 
 def test_pi_learns_active_pixels_only():

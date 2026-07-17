@@ -10,6 +10,7 @@ import { ReceptiveFields } from './receptive.js';
 import { Raster } from './raster.js';
 import { ChargeChart } from './charge.js';
 import { WeightsChart } from './weights.js';
+import { Editor } from './editor.js';
 
 const api = {
   async post(path, body) {
@@ -40,6 +41,7 @@ const receptive = new ReceptiveFields(store, api);
 const raster = new Raster(store);
 const chargeChart = new ChargeChart(store);
 const weightsChart = new WeightsChart(store);
+const editor = new Editor(store);
 
 function select(id) { inspector.select(id); renderer.select(id); weightsChart.setTarget(id); }
 

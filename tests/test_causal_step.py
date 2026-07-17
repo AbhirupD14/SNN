@@ -105,10 +105,11 @@ def test_wta_is_selection_and_l2i_conductance_lands_next_boundary():
                (n for n in d2['neurons'] if n['id'].startswith('L2E')))
 
 
-def test_l2_feedback_reaches_l1e_new_densely_next_boundary():
-    # enew comparison branch: the winning L2E spike is emitted into dense feedback to
-    # every L1E_new (edge fb{win}->{i}); no other winner's feedback is emitted.
-    e = fresh()
+def test_old_winner_relays_densely_to_all_l1i_next_boundary():
+    # Old topology: the winning L2E spike is emitted into the dense L2E->L1I relay to
+    # every L1I (edge re_l1i_{win}->{i}); no other competitor's relay is emitted.
+    e = SimulationEngine(seed=1, topology='old', leak_rate=0.0)
+    e.clear_input()
     zero_l2e(e)
     pix, win = 4, 3
     e.l2e[win].acc_weights[pix] = 1.2 * e.params['e_threshold']
@@ -116,8 +117,11 @@ def test_l2_feedback_reaches_l1e_new_densely_next_boundary():
     d, winners = step_until_l2_spike(e)
     assert winners == ['L2E3']
     emitted = set(d['emitted'])
-    assert all(f'fb{win}->{i}' in emitted for i in range(N_PIX))
-    assert not any(s.startswith(f'fb{k}->') for s in emitted for k in range(N_OUT) if k != win)
+    assert all(f're_l1i_{win}->{i}' in emitted for i in range(N_PIX))   # dense to all L1I
+    assert not any(s.startswith(f're_l1i_{k}->') for s in emitted
+                   for k in range(N_OUT) if k != win)
+    # Every L1I fired this boundary; the paired inhibition lands next boundary.
+    assert all(n['spiked'] for n in d['neurons'] if n['id'].startswith('L1I'))
 
 
 def test_input_period_gates_delivery():

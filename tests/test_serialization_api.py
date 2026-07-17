@@ -31,12 +31,13 @@ def test_topology_payload_shape(engine):
 
 
 def test_new_population_ids_and_roles(engine):
+    # Default topology is 'pi': 9 L1E_s sources, 8 L2E competitors, 8 PI, 1 L2I.
     ids = {n['id'] for n in engine.topology()['neurons']}
     assert {f'L1E{i}' for i in range(9)} <= ids          # sources (controls.js flashes these)
-    assert {f'L1Enew{i}' for i in range(9)} <= ids       # supervisory
-    assert {f'L1I{i}' for i in range(9)} <= ids
+    assert {f'PI{j}' for j in range(8)} <= ids           # predictive interneurons
     assert {f'L2E{j}' for j in range(8)} <= ids
     assert 'L2I' in ids
+    assert not any(i.startswith('L1Enew') for i in ids)  # coincidence topology removed
     ff_ids = {s['id'] for s in engine.topology()['synapses'] if s['kind'] == 'feedforward'}
     assert 'ff0->0' in ff_ids and 'ff8->7' in ff_ids     # weights.js/receptive.js id scheme
 
@@ -60,7 +61,7 @@ def test_dynamic_payload_shape(engine):
 def test_inhibitory_pulse_schema():
     # A PI (direct-topology) inhibitory pulse carries conductance-pulse fields and
     # never serializes a 'charge_removed'.
-    e = SimulationEngine(seed=1, enew_enabled=False)
+    e = SimulationEngine(seed=1, topology='pi')
     e.set_pattern('row 1')
     pulse = None
     for _ in range(400):
@@ -94,7 +95,7 @@ def test_config_accepts_editable_keys(engine):
     # predictive-inhibition timescales plus the two ablation toggles.
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == set(config_values(engine.params))
-    assert keys == {'leak_rate', 'refractory_steps', 'eta', 'e_weight_cap', 'enew_enabled',
+    assert keys == {'leak_rate', 'refractory_steps', 'eta', 'e_weight_cap', 'topology',
                     'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'pi_eta', 'pi_g_scale',
                     'l2i_g_scale', 'pi_conductance_enabled', 'pi_plasticity_enabled'}
 
@@ -119,4 +120,4 @@ def test_reset_and_reseed_cycle(engine):
 def test_api_module_imports_and_builds():
     import backend.api as api
     assert api.engine is not None
-    assert len(api.engine.topology()['neurons']) == 36
+    assert len(api.engine.topology()['neurons']) == 26   # default topology 'pi'
