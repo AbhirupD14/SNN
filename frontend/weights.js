@@ -1,14 +1,17 @@
-// Full-screen weights-over-time view: the selected competitor's incoming feedforward
+// Full-screen weights-over-time view: the selected cell's incoming feedforward
 // weights (one series per afferent) as a fraction of the weight cap, over the full
 // (bounded) training history. Topology-generic: the afferent set is read from the
-// live topology (feedforward edges into the target), so it works for any competitor
-// with any fan-in, not just a fixed 9-pixel L2E. Pick a target by clicking a
-// competitor in the 3D view.
+// live topology (feedforward edges into the target), so it works for any plastic cell
+// with any fan-in, not just a fixed 9-pixel L2E. In the 'rg' topology that includes
+// each L1E encoder's single RG afferent, which is how the RG->L1E weight trajectory is
+// read off the dashboard. Pick a target by clicking a competitor/encoder in the 3D view.
 //
 // Fit-to-width (no horizontal scroll): the whole history compresses into the viewport.
 
 const HISTORY = 1500;
 const PAD = { l: 44, r: 84, t: 22, b: 22 };
+// Roles that own plastic feedforward weights (mirrors ARCHETYPES[*]['plastic_ff']).
+const PLASTIC_ROLES = new Set(['competitor', 'encoder']);
 
 export class WeightsChart {
   constructor(store) {
@@ -37,9 +40,11 @@ export class WeightsChart {
   }
 
   // Rebuild on topology change: keep the current target if it still exists, else pick
-  // the first competitor. Recompute its incoming feedforward afferent set.
+  // the first plastic cell. Recompute its incoming feedforward afferent set.
+  // Any cell that OWNS plastic feedforward weights is a valid target -- competitors and,
+  // in the 'rg' topology, the L1E encoders (whose single RG afferent is charted here).
   build() {
-    const comps = (this.store.topology?.neurons || []).filter(n => n.role === 'competitor');
+    const comps = (this.store.topology?.neurons || []).filter(n => PLASTIC_ROLES.has(n.role));
     if (!comps.length) { this.target = null; this.edges = []; this._reset(); return; }
     if (!this.target || !comps.some(n => n.id === this.target)) this.target = comps[0].id;
     this._recomputeEdges();
@@ -59,7 +64,7 @@ export class WeightsChart {
   setTarget(id) {
     if (!id || id === this.target) return;
     const meta = this.store.meta?.get(id);
-    if (!meta || meta.role !== 'competitor') return;   // only competitors have a feedforward RF
+    if (!meta || !PLASTIC_ROLES.has(meta.role)) return;   // only plastic cells own a feedforward RF
     this.target = id;
     if (this.targetEl) this.targetEl.textContent = id;
     this._recomputeEdges();
@@ -126,7 +131,7 @@ export class WeightsChart {
 
     if (N < 2 || !M) {
       if (!M) { ctx.fillStyle = cMut; ctx.textAlign = 'center';
-        ctx.fillText('selected neuron has no feedforward afferents — click a competitor in the 3D view',
+        ctx.fillText('selected neuron has no feedforward afferents — click a competitor or encoder in the 3D view',
                      (x0 + x1) / 2, (y0 + y1) / 2); }
       return;
     }

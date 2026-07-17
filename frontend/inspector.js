@@ -48,7 +48,10 @@ export class Inspector {
       if (syn.source === this.id) outgoing.push({ ...syn, w, conf, other: syn.target });
     }
     const strongest = [...incoming, ...outgoing].sort((a, b) => Math.abs(b.w) - Math.abs(a.w)).slice(0, 4);
-    const col = meta.type === 'E' ? 'var(--exc)' : 'var(--inh)';
+    // 'S' is the exogenous RG source: neither excitatory-integrator nor inhibitory.
+    const col = meta.type === 'E' ? 'var(--exc)' : meta.type === 'S' ? 'var(--rg)' : 'var(--inh)';
+    const typeLabel = meta.type === 'E' ? 'excitatory'
+      : meta.type === 'S' ? 'retinal source' : 'inhibitory';
     const chargeBarPct = Math.max(0, Math.min(1, state.activation)) * 100;
 
     this.body.innerHTML = `
@@ -58,7 +61,8 @@ export class Inspector {
           <div class="insp-id">${this.id}</div>
           <div class="insp-tags">
             <span class="tag">${meta.layer}</span>
-            <span class="tag">${meta.type === 'E' ? 'excitatory' : 'inhibitory'}</span>
+            <span class="tag">${typeLabel}</span>
+            <span class="tag">${meta.role}</span>
             ${state.assembly ? `<span class="tag" style="color:var(--win)">assembly</span>` : ''}
           </div>
         </div>
@@ -88,6 +92,29 @@ export class Inspector {
         ${card('Spike', `<span class="firing-badge ${state.spiked ? 'yes' : 'no'}">${state.spiked ? 'SPIKE' : 'idle'}</span>`, '', true)}
         ${card('Firing freq', (state.freq * 100).toFixed(1) + '%', bar(state.freq))}
         ${card('Refractory', state.refractory + ' steps')}
+        ${state.winner_trace != null ? card('Local winner trace x_j', `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-variant-numeric:tabular-nums">${state.winner_trace.toFixed(3)}</span>
+            <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.max(0, Math.min(1, state.winner_trace)) * 100}%;background:#f59e0b;border-radius:3px"></div>
+            </div>
+            <span style="font-size:11px;color:var(--txt-2)">${state.residual_received ? 'residual now' : 'no residual'}</span>
+          </div>`) : ''}
+        ${state.residual_charge != null ? card('Residual branch charge', `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-variant-numeric:tabular-nums">${state.residual_charge.toFixed(2)}</span>
+            <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.max(0, Math.min(1, state.residual_charge / meta.threshold)) * 100}%;background:#22c55e;border-radius:3px"></div>
+            </div>
+            <span style="font-size:11px;color:var(--txt-2)">${state.residual_events ?? 0} ErrorE event(s)</span>
+          </div>`) : ''}
+        ${state.trace_charge != null ? card('Winner-priming charge', `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-variant-numeric:tabular-nums">${state.trace_charge.toFixed(2)}</span>
+            <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.max(0, Math.min(1, state.trace_charge / meta.threshold)) * 100}%;background:#f59e0b;border-radius:3px"></div>
+            </div>
+          </div>`) : ''}
         ${synCard('Strongest connections', strongest, this.id)}
         ${synCard(`Incoming (${incoming.length})`, incoming, this.id)}
         ${synCard(`Outgoing (${outgoing.length})`, outgoing, this.id)}
@@ -117,6 +144,16 @@ function synCard(title, list, self) {
         <span class="name">${sy.other}</span>
         <span class="wbar"></span>
         <span class="wv" style="color:var(--ex)" title="structural +1 relay event (no learned weight)">relay</span></div>`;
+    }
+    if (sy.kind === 'fixed_excitation') {
+      return `<div class="syn-row">
+        <span class="name">${sy.other}</span><span class="wbar"></span>
+        <span class="wv" style="color:#22c55e" title="fixed evidence-copy charge">fixed +</span></div>`;
+    }
+    if (sy.kind === 'trace_excitation') {
+      return `<div class="syn-row">
+        <span class="name">${sy.other}</span><span class="wbar"></span>
+        <span class="wv" style="color:#f59e0b" title="paired local winner eligibility event">trace x_j</span></div>`;
     }
     // Paired local sensory afferent L1E_s->L1E_new (coincidence input): a learned
     // excitatory weight; label it so it reads distinctly from dense L2 feedback.

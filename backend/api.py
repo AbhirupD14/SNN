@@ -261,10 +261,18 @@ class SavePresetBody(BaseModel):
 
 def _vocabulary():
     """The fixed editor palette: node archetypes and the edge kinds valid between
-    them (with which endpoint archetypes/classes each kind may connect)."""
-    return {"archetypes": {k: {"cls": v["cls"], "role": v["role"], "desc": v["desc"]}
+    them (with which endpoint archetypes/classes each kind may connect).
+
+    ``src``/``tgt`` may be a single requirement or a list of alternatives (an archetype
+    name or a class letter 'E'/'I'/'S'); the editor's matcher handles both. ``input_sink``
+    marks the archetypes that may own an external pixel."""
+    return {"archetypes": {k: {"cls": v["cls"], "role": v["role"], "desc": v["desc"],
+                               "input_sink": v["input_sink"], "wta": v["wta"],
+                               "plastic_ff": v["plastic_ff"]}
                            for k, v in ARCHETYPES.items()},
-            "edge_kinds": {k: {"src": v["src"], "tgt": v["tgt"], "plastic": v["plastic"],
+            "edge_kinds": {k: {"src": list(v["src"]) if isinstance(v["src"], tuple) else v["src"],
+                               "tgt": list(v["tgt"]) if isinstance(v["tgt"], tuple) else v["tgt"],
+                               "plastic": v["plastic"],
                                "sign": v["sign"], "desc": v["desc"]}
                            for k, v in EDGE_KINDS.items()}}
 

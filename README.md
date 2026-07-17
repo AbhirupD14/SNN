@@ -7,10 +7,11 @@ excitatory cell carries a local activity trace, and the timestep is synchronous 
 explicit unit synaptic delays.
 
 The network is a **graph** built from a `NetworkSpec` (typed nodes + typed edges);
-the engine executes whatever graph it is given. Two built-in presets ship, selected
-by the `topology` parameter (`'pi'` default, or `'old'`), and you can build arbitrary
-graphs live in the browser **Topology Editor** (🧬 in the top bar) and save/load them
-as presets:
+the engine executes whatever graph it is given. **Four** built-in presets ship,
+selected by the `topology` parameter (`'pi'` default, `'old'`, `'rg'`, or
+`'rg_residual'`), and you can
+build arbitrary graphs live in the browser **Topology Editor** (🧬 in the top bar) and
+save/load them as presets:
 
 - **`topology='pi'` — the predictive-inhibition (PI) experiment (26 neurons).** Eight
   pattern-specific predictive interneurons `PI[j]`, paired 1:1 with the competitors
@@ -21,16 +22,41 @@ as presets:
   Nine paired `L1I` relays, fed densely by every `L2E` (every `L2E`→every `L1I`), each
   projecting a paired inhibitory conductance onto its own `L1E_s`. The single L2 winner
   drives all nine `L1I`, so every `L1E_s` is shunted — winner-gated global inhibition.
+- **`topology='rg'` — the retinal-ganglion source-layer experiment (36 neurons).**
+  `old`'s cortex exactly, with nine **RG** cells spliced in ahead of L1 and plastic
+  paired `RG_i → L1E_i` synapses. RG cells are *exogenous spike sources*: a held edge
+  makes its RG cell spike on every `input_period` boundary and **no cortical inhibition
+  can stop it**, so retinal evidence persists even while L1 is shunted. The direct
+  external→`L1E` injection is removed in this preset only, so `L1E` becomes a plastic
+  **noncompetitive** cell that must *learn* its sensory afferent. Isolates the timing
+  consequences of a persistent source layer and a plastic L1 path. It deliberately does
+  **not** test contextual explaining-away — `old`'s dense `L2E→L1I` feedback erases
+  winner identity, because every winner drives every `L1I`.
+- **`topology='rg_residual'` — the residual/error experiment (52 neurons).** Keeps
+  `RG→L1E→L2E` as a complete uninhibited evidence path and copies each L1E event into
+  a separate `ErrorE` sheet. Paired PI cells learn predictive inhibition onto ErrorE;
+  residual events add visible bounded charge to all eight `SwitchI` interneurons.
+  A paired winner trace opens a second individually-subthreshold priming branch; only
+  their charged coincidence can inhibit that incumbent, after
+  which the ordinary shared-L2I WTA chooses one replacement. The exact graph has 274
+  directed internal projections.
 
-Both are the *same* computation — `winner → relay_excitation → relays →
-(inhibition | predictive) edges → conductance` — differing only in which edges exist.
-The fixed editor vocabulary is four node archetypes (`e_sensory`, `e_competitor`,
-`i_relay`, `predictor`) and four edge kinds (`feedforward`, `relay_excitation`,
-`inhibition`, `predictive_inhibition`); see `backend/network_spec.py`.
+All four use the same synchronous event engine and differ in which typed edges exist.
+The fixed editor vocabulary is eight node archetypes (`rg_source`, `e_sensory`,
+`e_encoder`, `e_residual`, `e_competitor`, `i_relay`, `predictor`, `switch`) and six
+edge kinds (`feedforward`, `fixed_excitation`, `trace_excitation`,
+`relay_excitation`, `inhibition`, `predictive_inhibition`); see
+`backend/network_spec.py`.
+
+External input does **not** always target `L1E` directly: it is delivered to whichever
+cells own a `pixel` (the *input sinks*). In `pi`/`old` that is the nine `e_sensory`
+`L1E` cells; in `rg`/`rg_residual` it is the nine `RG` cells, and `L1E` sees the world only through a
+learned synapse. A node's `grid` field is separate: display / receptive-field metadata
+with no input attached.
 
 Directories: `snn/` + `backend/` + `frontend/` are the model and its dashboard;
-`experiments/` holds the overlap symmetry-breaking experiment and a legacy frequency
-analysis.
+`experiments/` holds the overlap symmetry-breaking experiment, the RG timing/symmetry
+experiment, and a legacy frequency analysis.
 
 ## Start here
 
@@ -58,19 +84,28 @@ For a single simulation step, read `SimulationEngine.step()` in
 `backend/simulation.py` top to bottom. It runs synchronous subphases: deliver
 delay-1 arrivals (inhibitory conductance, then excitatory charge) and external
 input; integrate every excitatory neuron once (joint excitation/inhibition);
-threshold-test and fire (L1E_s, then deterministic L2E winner-take-all); update
-each cell's local activity trace; emit spikes into delay-1 queues and run the local
-PI / L1I inhibitory plasticity; decay conductances and count down refractory; record
-the frame. `ExcitatoryNeuron`, `InhibitoryNeuron`, and `PredictiveInterneuron` in
-`snn/neurons.py` own the local state transitions, the conductance/trace dynamics, and
-the two weight rules (excitatory accumulating + local predictive-inhibition).
+threshold-test and fire (exogenous RG sources, then L1E_s / plastic encoders, then the
+deterministic L2E winner-take-all); update each cell's local activity trace; emit
+spikes into delay-1 queues and run the local PI / L1I inhibitory plasticity; decay
+conductances and count down refractory; record the frame. `ExcitatoryNeuron`,
+`SourceNeuron`, `InhibitoryNeuron`, `PredictiveInterneuron`, and
+`SwitchInterneuron` in `snn/neurons.py` own
+the local state transitions, the conductance/trace dynamics, and the two weight rules
+(excitatory accumulating + local predictive-inhibition).
+
+Feedforward dispatch is **generic over hops**: any permitted source spike (an RG cell
+or any fired excitatory cell, including a competitor) schedules weighted charge onto its plastic
+targets for the next boundary, and causal participation is tracked **per postsynaptic
+target per arrival boundary** — never as one global source set. That is what lets `rg`
+run two feedforward hops without an L1E update ever seeing an L2E's volley (or a
+neighbouring boundary's).
 
 ## Small code map
 
 | Path | Responsibility |
 | --- | --- |
-| `snn/neurons.py` | `ExcitatoryNeuron`, `InhibitoryNeuron`, `PredictiveInterneuron`, shared constants, the two weight rules. |
-| `backend/network_spec.py` | The `NetworkSpec` vocabulary (archetypes, edge kinds), the `pi`/`old` presets, and `validate_spec`. |
+| `snn/neurons.py` | Excitatory/source/relay/predictor cells plus the local traced `SwitchInterneuron`. |
+| `backend/network_spec.py` | The `NetworkSpec` vocabulary, four built-in presets, and `validate_spec`. |
 | `backend/simulation.py` | Spec-driven construction (`_build_from_spec`), the generic edge-dispatched step, `current_spec`/`apply_topology`, state snapshots. |
 | `backend/presets.py` | Server-side preset persistence (built-ins + saved-graph JSON under `.claude/presets/`). |
 | `backend/dashboard_config.py` | The dashboard preset and the small control schema (topology selector + rules). |
@@ -81,11 +116,18 @@ the two weight rules (excitatory accumulating + local predictive-inhibition).
 | `frontend/receptive.js` | Receptive-field pop-up (one feedforward grid per competitor; hand-edit any weight). |
 | `frontend/` | Vanilla JS + Three.js dashboard; display positions never alter model distances. |
 | `experiments/predictive_inhibition_overlap.py` | Multi-seed row→col→row symmetry-breaking experiment + controls. |
+| `experiments/rg_timing_symmetry.py` | Multi-seed RG timing/symmetry experiment: `old` vs frozen/plastic/equal-init RG. |
 | `experiments/frequency_experiment.py` | Legacy analytic leaky-integrator study (see below). |
 
 The implemented model — conductance dynamics, activity trace, local PI plasticity,
 timestep/delays, and the symmetry-breaking results — is documented in
 [`Current_Implementation_Methodology_Equations.md`](Current_Implementation_Methodology_Equations.md).
+The evolution from a GPT-5.5 architect/Claude implementer split to the current
+strength-based Sol/Claude workflow is recorded in
+[`docs/agent_workflow_evolution.md`](docs/agent_workflow_evolution.md).
+The detailed reading of Silver's *Neuronal arithmetic*, its limits, and the staged
+plan for multiplicative `SwitchI` coincidence and paired hard reset are in
+[`docs/SILVER_NEURONAL_ARITHMETIC_SWITCHI.md`](docs/SILVER_NEURONAL_ARITHMETIC_SWITCHI.md).
 The browser protocol and view boundary are in
 [`docs/DASHBOARD.md`](docs/DASHBOARD.md). `docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md`
 and `docs/INTRINSIC_ADAPTATION_DESIGN.md` predate the conductance/PI rewrite and are
@@ -100,8 +142,15 @@ drag one node onto another to wire an edge (the kind is inferred from the two
 archetypes), click an edge to toggle it directional/bidirectional or delete it, add
 neurons from the palette, and **Apply** to rebuild the live network (every view
 refreshes off the broadcast). Save the current graph as a named preset and load it
-back later; the two built-ins (`pi`, `old`) are always available. Presets persist
-server-side under `.claude/presets/`.
+back later; the four built-ins (`pi`, `old`, `rg`, `rg_residual`) are always available. Presets
+persist server-side under `.claude/presets/`.
+
+The palette carries the two archetypes `rg` introduced. An **RG** node is an exogenous
+source: it owns an input `pixel` and *cannot be the target of any edge* — the editor
+will refuse the wiring and `validate_spec` rejects the graph. An **Encoder** is a
+plastic noncompetitive excitatory cell: it learns feedforward afferents with the shared
+accumulating rule but never joins L2's winner-take-all, and it carries a `grid` tag
+(display / receptive-field only) rather than owning a pixel.
 
 ## Architecture summary (predictive-inhibition topology, `topology='pi'`)
 
@@ -146,11 +195,11 @@ Behavioural `pytest` suite under `tests/`:
 ```
 
 Coverage: conductance/trace dynamics and local PI plasticity
-(`test_conductance_neuron.py`), the excitatory weight rule, both presets' exact
-neuron/edge counts (`test_direct_topology.py`, `test_old_topology.py`), the
+(`test_conductance_neuron.py`), the excitatory weight rule, all built-ins' exact
+neuron/edge counts (including `test_residual_topology.py`), the
 graph-driven engine + `NetworkSpec` validation + custom-graph execution + bidirectional
 edges (`test_network_spec.py`), preset persistence (`test_presets.py`), a bit-exact
-behavioural regression for both presets (`test_golden_topology.py`), the synchronous
+behavioural regression for all four presets (`test_golden_topology.py`), the synchronous
 causal WTA step, engine-level predictive inhibition + the symmetry-breaking causal
 controls (`test_predictive_inhibition.py`), serialization/API, and the legacy
 frequency model.

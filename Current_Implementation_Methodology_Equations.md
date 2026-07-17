@@ -9,12 +9,13 @@ topology, the synchronous timestep, and serialization live in
 
 The network is defined by a **`NetworkSpec`** (typed nodes + typed edges, in
 `backend/network_spec.py`); the engine executes whatever graph it is given via
-per-edge-kind dispatch. The fixed vocabulary is four node archetypes
-(`e_sensory`, `e_competitor`, `i_relay`, `predictor`) and four edge kinds
-(`feedforward`, `relay_excitation`, `inhibition`, `predictive_inhibition`). Two
+per-edge-kind dispatch. The fixed vocabulary is eight node archetypes
+(`rg_source`, `e_sensory`, `e_encoder`, `e_residual`, `e_competitor`, `i_relay`,
+`predictor`, `switch`) and six edge kinds (`feedforward`, `fixed_excitation`,
+`trace_excitation`, `relay_excitation`, `inhibition`, `predictive_inhibition`). Two
 intrinsic population rules are NOT edges: `e_sensory` — every threshold crosser
 fires; `e_competitor` — deterministic single-winner WTA (one winner fires + learns
-its feedforward weights). Two built-in presets ship, selected by the `topology`
+its feedforward weights). Four built-in presets ship, selected by the `topology`
 parameter, and arbitrary graphs can be built/saved/loaded live in the browser
 Topology Editor:
 
@@ -28,16 +29,31 @@ Topology Editor:
   projecting a paired inhibitory conductance onto its own `L1E_s`. The single L2
   winner drives all nine `L1I`, so every `L1E_s` is shunted — winner-gated global
   inhibition. Its inhibition is conductance too (no hard wipes anywhere).
+* **`topology='rg'` — old cortex with explicit RG sources.** 36 neurons. Plastic
+  paired RG→L1E afferents precede the unchanged old dense-feedback topology.
+* **`topology='rg_residual'` — classification-preserving residual/error circuit.**
+  52 neurons. L1E remains complete and uninhibited; learned prediction targets a
+  separate ErrorE sheet, whose unexplained events drive locally traced incumbent
+  switches before ordinary L2 WTA re-competition.
 
 ## Populations and topology
 
 | Population | Count | IDs | Type | In topology |
 | --- | --- | --- | --- | --- |
-| L1E_s (sensory source) | 9 | `L1E0..8` | E | both |
-| L2E (competitors) | 8 | `L2E0..7` | E | both |
-| L2I_WTA (winner-take-all relay) | 1 | `L2I` | I | both |
-| PI (predictive interneurons) | 8 | `PI0..7` | I | pi only |
-| L1I (paired relays) | 9 | `L1I0..8` | I | old only |
+| RG (retinal ganglion sources) | 9 | `RG0..8` | S | rg, rg_residual |
+| L1E_s (sensory source) | 9 | `L1E0..8` | E | pi, old |
+| L1E (plastic noncompetitive encoder) | 9 | `L1E0..8` | E | rg, rg_residual |
+| ErrorE (residual sheet) | 9 | `ErrorE0..8` | E | rg_residual only |
+| L2E (competitors) | 8 | `L2E0..7` | E | all |
+| L2I_WTA (winner-take-all relay) | 1 | `L2I` | I | all |
+| PI (predictive interneurons) | 8 | `PI0..7` | I | pi, rg_residual |
+| L1I (paired relays) | 9 | `L1I0..8` | I | old, rg |
+| SwitchI (local incumbent gates) | 8 | `SwitchI0..7` | I | rg_residual only |
+
+`L1E0..8` is the same *id* in all four presets but not the same *archetype*: in
+`pi`/`old` it is an `e_sensory` cell with one fixed, non-plastic external afferent; in
+`rg`/`rg_residual` it is an `e_encoder` — a plastic noncompetitive accumulator whose only afferent is
+a learned `RG_i → L1E_i` synapse.
 
 **PI-preset edges — 168 total:** 72 feedforward `L1E_s→L2E` · 8
 `relay_excitation L2E[j]→PI[j]` (paired 1:1) · 8 `relay_excitation L2E→L2I` · 72
@@ -47,6 +63,35 @@ Topology Editor:
 **Old-preset edges — 169 total:** 72 feedforward `L1E_s→L2E` · 72
 `relay_excitation L2E→L1I` (DENSE, every L2E→every L1I) · 8 `relay_excitation L2E→L2I`
 · 9 `inhibition L1I[i]→L1E_s[i]` (paired) · 8 `inhibition L2I→L2E` (WTA conductance).
+
+**RG-preset — 36 nodes, 178 internal edges:** 9 RG + 9 L1E + 9 L1I + 8 L2E + 1 L2I.
+Edges: 9 feedforward `RG_i→L1E_i` (plastic, paired 1:1) · 72 feedforward `L1E→L2E`
+(dense) · 8 `relay_excitation L2E→L2I` · 8 `inhibition L2I→L2E` · 72
+`relay_excitation L2E→L1I` (DENSE) · 9 `inhibition L1I[i]→L1E[i]` (paired). The
+cortical half is byte-for-byte `old`'s. External pixel presentation drives each RG cell
+and is not serialized as a tenth edge category. There are no PI cells and no
+predictive-inhibition edges in `rg`.
+
+**RG-residual preset — 52 nodes, 274 internal edges:** 9 plastic paired `RG→L1E` ·
+9 fixed paired `L1E→ErrorE` · 72 plastic dense `L1E→L2E` · 8 paired `L2E→PI` ·
+72 learned `PI→ErrorE` inhibitory outputs · 72 dense `ErrorE→SwitchI` broadcasts ·
+8 paired `L2E→SwitchI` trace events · 8 paired `SwitchI→L2E` inhibition · 8
+`L2E→L2I` · 8 `L2I→L2E`. No inhibitory edge targets RG or L1E.
+
+Each `SwitchI_j` is a numerically charged two-branch interneuron. Every ErrorE event
+adds `0.55 θ_I` to its residual branch; the branch saturates at `0.90 θ_I`, so even
+repeated residual activity alone cannot spike it. Its paired local trace `x_j` decays
+as `x_j ← 0.97 x_j`; once `x_j ≥ 0.5`, it opens priming charge up to `0.90 θ_I`, also
+strictly subthreshold alone. The visible SwitchI potential is the sum of these two
+branch charges, and firing requires both branch predicates plus `V ≥ θ_I`.
+
+Residual broadcasts are evaluated against the trace carried into the boundary.
+Coincidence fires the switch, consumes `x_j`, and schedules paired L2 inhibition for
+the next boundary. Only after that resolution does a current real `L2E_j` spike set
+`x_j ← 1` for future boundaries. Thus residual alone, trace alone, and a brand-new
+same-boundary winner are insufficient; no global winner id is consulted. Dynamic
+state exposes `residual_events`, `residual_charge`, `trace_charge`, and `winner_trace`
+so arriving ErrorE events visibly charge SwitchI even when it does not fire.
 
 The four center-crossing patterns on the 3×3 surface: `row 1`, `col 1`, `diag \`,
 `diag /`.
@@ -171,8 +216,10 @@ double-buffered arrivals):
 1. Deliver arrivals scheduled at `t-1` (inhibitory conductance first, then excitatory
    charge) and deposit external input.
 2. Integrate every excitatory neuron once (joint exc/inh).
-3. Threshold test + fire: L1E_s crossers; L1E_new crossers (enew, each learns);
-   deterministic L2E WTA (one winner fires + learns feedforward).
+3. Threshold test + fire: exogenous RG sources assert their spike (rg); L1E_s
+   crossers; plastic `e_encoder` crossers (rg — every crosser fires and learns its own
+   delivered volley, no WTA); deterministic L2E WTA (one winner fires + learns
+   feedforward).
 4. Update every excitatory neuron's local activity trace.
 5. Emit spikes into delay-1 queues: L1E_s→L2E feedforward (+ enew local sensory);
    winner→`L2I_WTA` conductance (all L2E) and, per topology, winner→paired `PI`
@@ -182,6 +229,107 @@ double-buffered arrivals):
 6. Decay each `g_inh` once; count down refractory; PI passive weight decay.
 7. Serialize the frame.
 
+### The `rg` two-hop chain
+
+`rg` has two feedforward hops, so the same delay-1 rule produces:
+
+```text
+t    : active RG_i emits (exogenous; nothing in the cortex can veto it)
+t+1  : RG_i -> L1E_i charge arrives; L1E_i integrates it jointly with any L1
+       inhibitory conductance; every L1E crosser fires and learns its OWN RG
+       afferent; its L1E -> L2E events are queued
+t+2  : L1E -> L2E charge arrives; L2 WTA selects at most one crosser; the winner
+       learns only from the L1 afferents delivered to IT in this volley, and drives
+       L2I plus all nine L1I relays
+t+3  : L1I -> L1E and L2I -> L2E conductance arrives, before integration
+```
+
+RG keeps emitting at `t+1`, `t+2` and onward while the edge is held; queued RG events
+are never cancelled by a cortical winner. Feedforward dispatch is generic: any
+permitted source spike schedules weighted charge to its plastic targets for the next
+boundary, and **causal participation is recorded per postsynaptic target per arrival
+boundary**, so an L1E update can never see an L2E's volley (or an adjacent boundary's).
+Measured on the live engine: RG at `t=1`, L1E at `t=2`, L2E winner + all nine L1I at
+`t=3`, inhibitory pulses at `t=4`.
+
+## RG semantics (`topology='rg'`)
+
+An RG cell is a real, visible network node — it appears in dynamic state, raster,
+firing-frequency, topology, renderer and emitted-edge views — but it is a
+`SourceNeuron`, not a conductance LIF:
+
+```text
+RG_i_spike(t) = input_arrives(t) AND input_vec[i] > 0.5
+```
+
+* It owns no membrane, no `g_inh`, no refractory timer, and no learning rule, so
+  there is literally nothing for L1I / L2I / PI / WTA to act on. Every edge kind's
+  target rule already forbids an RG target, and `validate_spec` rejects such a graph
+  with an explicit structural error.
+* It does not learn. The plastic weight on the path is the **postsynaptic** `RG_i →
+  L1E_i` afferent, owned by L1E.
+* "Uninhibited" means uninhibited **by this modelled cortical feedback loop**. It is
+  not a claim that the biological retina lacks inhibitory circuitry — retinal
+  amacrine/horizontal inhibition is simply outside this model's scope.
+* A held edge produces one RG spike per `input_period` boundary — no more, and no
+  spontaneous background firing.
+
+**Retinal evidence persisting is not the same thing as L1 continuing to spike.** In
+`rg` the retina keeps delivering evidence while L1I shunts `L1E`; the *cortical* L1
+cell still goes silent for the duration of the shunt. What the source layer buys is
+that the evidence is still arriving when the shunt decays, rather than having been
+consumed by a single external injection.
+
+### L1E is layer-invariant with L2E
+
+`L1E` in `rg` uses the *same* `ExcitatoryNeuron` class and the *same*
+`update_acc_weights()` rule as `L2E`, with `participation = [True]` when its RG afferent
+supplied the charge — and the update runs only when that L1E actually fires. It shares
+L2E's excitatory threshold, resting potential/reset, baseline leak, refractory
+behaviour, `eta`, positive weight cap, activity-trace equation, and accumulating-weight
+implementation. A test pins this numerically: the encoder's post-spike weight is
+*bit-identical* to a bare `ExcitatoryNeuron` configured as a competitor and given the
+same participation.
+
+The one thing that differs is inhibitory-conductance retention: L1E keeps
+`alpha_inh_l1` (0.95) and L2E keeps `alpha_inh` (0.6). That is an **inhibitory circuit
+timescale keyed to which relay population targets the cell** (L1I→L1E vs L2I→L2E), not
+a second L1 excitatory learning rule, and it is exactly the split `old` already used.
+It is not silently changed by adding RG.
+
+L1E is **noncompetitive**: every threshold crosser fires in the same boundary. It is
+not an `e_competitor` special-cased out of WTA by id or layer string — `e_encoder` is a
+distinct archetype whose `wta` flag is false.
+
+### RG→L1E initialization, cap, and developmental cadence
+
+The built-in preset uses the shared seeded policy, not a hand-authored pixel-specific
+pattern:
+
+```text
+FF_INIT_MEAN = 0.55 * theta / 9   = ~61.1     (the L2 per-afferent scale, literally)
+jitter       = uniform(0.96, 1.04)            (the same seeded narrow jitter)
+cap          = e_weight_cap = theta/2 = 500   (shared)
+eta          = 0.01                           (shared)
+```
+
+With one afferent, `sum(w) <= 500 < theta`, so `p = theta - sum(w)` stays positive and
+the weight rises monotonically toward the cap via the saturation term `(1-(w/w_max)^2)`.
+**This is expected**: L1E is a temporal *accumulator* whose cadence accelerates during
+training, not a one-event threshold relay. Analytic targets under `V_n = (w/g_L)·(1 -
+(1-leak)^n)` with `leak=0.03`, `g_L = -ln(0.97)`:
+
+| | analytic | measured |
+| --- | --- | --- |
+| first spike at `w≈61` | 23 active RG events | first L1E spike at boundary **24** (= 23 events + the delay-1 hop) |
+| mature cadence at `w≈500` | ~1 L1 spike / 3 RG events | mean L1 ISI **3.5–3.7** boundaries |
+| weight at cap | — | active channels reach **450–471** of 500; inactive stay at **~61** |
+
+No recalibration was needed or applied: the built-in preset ships the shared
+initialization, cap and `eta` unchanged. `enc_w_init` / `enc_init_jitter` /
+`enc_plasticity_enabled` are explicit **projection-level** parameters used only by the
+experiment's controls; they are never pixel-, pattern-, or winner-specific.
+
 Causal reading — *first encounter:* `L1 activity → L2 winner → PI event → local
 inhibitory learning` (the original L1 spike is **not** cancelled). *Later encounter:*
 `L2 winner → PI event → persistent g_inh → a later L1 sensory interval is shunted`.
@@ -189,10 +337,13 @@ inhibitory learning` (the original L1 spike is **not** cancelled). *Later encoun
 ## Configuration
 
 Editable keys (`apply_config` rebuilds; unknown keys rejected): `leak_rate`,
-`refractory_steps`, `eta`, `e_weight_cap`, `input_period`, `topology` (`'pi'`|`'old'`),
-`alpha_inh`, `alpha_inh_l1`, `alpha_a`, `beta_v`, `beta_s`, `a_max`, `e_inh`,
-`pi_eta`, `pi_w_max`, `pi_lt_decay`, `pi_g_scale`, `l2i_g_scale`,
-`pi_conductance_enabled`, `pi_plasticity_enabled`. Arbitrary custom graphs are applied
+`refractory_steps`, `eta`, `e_weight_cap`, `input_period`, `topology`
+(`'pi'`|`'old'`|`'rg'`|`'rg_residual'`), `alpha_inh`, `alpha_inh_l1`, `alpha_a`, `beta_v`, `beta_s`,
+`a_max`, `e_inh`, `pi_eta`, `pi_w_max`, `pi_lt_decay`, `pi_g_scale`, `l2i_g_scale`,
+`pi_conductance_enabled`, `pi_plasticity_enabled`, `enc_plasticity_enabled`,
+`enc_init_jitter`, `enc_w_init`, `residual_exc_scale`, `switch_trace_decay`,
+`switch_trace_threshold`, `switch_residual_charge_frac`, `switch_trace_charge_frac`,
+`switch_g_scale`, `switch_conductance_enabled`. Arbitrary custom graphs are applied
 via `apply_topology(spec)` / `POST /api/topology` (validated `NetworkSpec`), bypassing
 the preset selector. Fixed/derived: `e_threshold=1000`,
 `i_threshold=θ/3` (reported invariant), `synaptic_delay=1`, distance exponent 2.
@@ -251,6 +402,91 @@ drive before a rival can accumulate; increasing `pi_g_scale` alone does **not** 
 this. `pi_eta` has a working band: too fast contaminates the incumbent's novel-feature
 synapses and erodes reliability; too slow fails to mature the incumbent PI within the
 window.
+
+## RG timing/symmetry results (`experiments/rg_timing_symmetry.py`)
+
+5 seeds × 3 schedules × 1500 boundaries per pattern phase. All conditions share
+bit-identical L2E initialization at a given seed (the engine draws competitor jitter
+before encoder jitter), so nothing below is a reshuffled L2 seed. Raw per-run counts
+(boundaries, RG events, L1 spikes, L2 winner events) are in
+`experiments/rg_timing_results.json`.
+
+The two frozen controls are deliberately kept apart:
+
+* **`rg_frozen`** freezes RG→L1E at the new ~61-unit init. It changes topology + delay
+  **and** L1 cadence.
+* **`rg_frozen_matched`** freezes RG→L1E at the old `SENSORY_WEIGHT` (θ/3 = 333),
+  reproducing `old`'s per-event L1 charge. This isolates **only** topology + delay.
+
+### Headline: the RG layer itself is behaviourally free; RG *plasticity* is a regression
+
+`row 1 → col 1 → row 1`, means over 5 seeds:
+
+| condition | first L1 | first L2 | L1 ISI early→mature | L1 sync (mature) | winner dominance | row/col owners distinct | recover | strong afferents / L2 | verdict |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | --- |
+| `old` | 4.0 | 35.4 | 3.77 → 8.14 | 1.00 | 0.67 | **1.00** | **1.00** | **0.42** | useful assembly symmetry breaking |
+| `rg_frozen_matched` | 5.0 | 36.4 | 3.77 → 8.14 | 1.00 | 0.67 | **1.00** | **1.00** | **0.42** | useful assembly symmetry breaking |
+| `rg_frozen` | 23.2 | — | 7.46 → 7.55 | 0.01 | 0.00 | 0.00 | 0.00 | 0.00 | **developmental deadlock** |
+| `rg_plastic` | 23.2 | 221.2 | 3.47 → 4.01 | 0.00 | 0.86 | 0.40 | 1.00 | 0.12 | **temporal phase breaking** |
+| `rg_plastic_equal_init` | 24.0 | 219.8 | 3.49 → 3.83 | 0.00 | 0.74 | 0.20 | 0.60 | 0.10 | **temporal phase breaking** |
+| `rg_plastic_symmetric` | 24.0 | 209.0 | 3.52 → 4.45 | 0.00 | 1.00 | 0.00 | 1.00 | 0.12 | **winner tyranny + temporal phase breaking** |
+
+1. **`rg_frozen_matched` reproduces `old` exactly** on every symmetry measure
+   (row/col distinctness 1.00, recovery 1.00, 0.42 strong afferents per L2, 75-boundary
+   escape latency), with first-L1 at 5 vs 4 — precisely the one extra hop. So the RG
+   layer's *structure and delay* cost exactly one boundary and change nothing else. This
+   is the control that validates the implementation.
+2. **`rg_frozen` deadlocks.** At `w≈61` frozen, L1 fires every ~7.5 boundaries, the
+   three active channels desynchronize (dispersion 5.8 boundaries, sync 0.01), and L2
+   **never fires at all** across every seed and schedule (0 L2 updates, 8/8 dead L2).
+   Without coincident L1 arrivals there is nothing for a competitor to integrate, and
+   leak drains the membrane between the staggered arrivals. This is **structural, not a
+   horizon artifact**: at 20 000 boundaries on sustained `row 1` (4.4× the experiment's
+   horizon) L1 has fired 2575 times and the best L2E membrane has still only reached
+   **322.8 / 1000**. Lengthening training does not rescue it — the failure is that a
+   frozen ~61-unit afferent cannot make L1 fast enough to produce L2 coincidence.
+3. **`rg_plastic` bootstraps but degrades the science.** RG→L1E learns a genuine sensory
+   selectivity — driven channels saturate to 450–471/500 by t≈3480, undriven stay at
+   ~61 — and L1 cadence accelerates 23 → ~3.5, matching the analytic prediction. But
+   relative to `old`: row/col owner distinctness collapses **1.00 → 0.40**, strong L2
+   afferents per cell **0.42 → 0.12**, and 57% of L2 updates are driven by a **single**
+   active feature. Exact-volley learning plus desynchronized L1 means the winner
+   specializes to whichever channel escapes first. **`rg` is worse than `old` at the
+   task `old` already does.**
+
+### Does init jitter create artificial feature priority? No — the geometry does
+
+`rg_plastic_equal_init` (all nine RG→L1E weights identical at init) behaves like the
+jittered preset: same first-L1 (24.0), same saturation time (3480), same final weight
+spread (438.8 vs 440.8), same verdict. **Weight jitter is not the source of L1 phase
+splitting.**
+
+The `rg_plastic_symmetric` condition removes the last per-synapse asymmetry — the 1/d²
+geometric learning-rate factor, which still differs per channel because the L1E end of
+the layout is jittered — and settles the attribution:
+
+* Under **sustained** single-pattern drive, the three active channels become *perfectly
+  locked* (sync **1.000**, identical weights 450.56/450.56/450.56, identical spike
+  counts 99/99/99). The phase split under sustained drive is therefore **entirely a
+  geometric artifact**: a fixed per-synapse learning-rate difference that the
+  accumulating rule integrates into a weight difference and hence a cadence difference.
+  It is not learned or dynamic symmetry breaking.
+* Under a **changing** schedule the channels still desynchronize (sync 0.00) even when
+  fully symmetric, because they accumulate different drive *histories*. That desync is
+  genuinely dynamic — but it produces **winner tyranny** (dominance 1.00, dwell 45.4,
+  row/col distinctness 0.00), not useful assembly formation.
+
+### Verdict
+
+Across all three schedules `rg` yields **temporal phase breaking, not useful assembly
+symmetry breaking**, with substantial **single-feature collapse**, and it degrades the
+row/column owner distinction that `old` achieves. The one condition that reproduces
+`old`'s useful behaviour (`rg_frozen_matched`) is precisely the one where RG learns
+nothing and delivers `old`'s charge — i.e. where the RG layer is a pure relabelling.
+
+As predicted in the design, `rg` shows **no contextual explaining-away**, and it was
+never expected to: the dense `L2E→L1I` feedback erases winner identity because every
+winner drives every `L1I`.
 
 ## Failure modes and honest limitations
 

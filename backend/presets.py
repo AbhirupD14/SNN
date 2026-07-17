@@ -1,6 +1,7 @@
 """Server-side persistence for topology presets.
 
-Built-in presets ('pi', 'old') are generated on demand from ``network_spec``. User
+Built-in presets ('pi', 'old', 'rg', 'rg_residual') are generated on demand from
+``network_spec``. User
 presets are NetworkSpec JSON files under ``.claude/presets/`` (next to the persisted
 dashboard seed), so a saved topology survives a server restart and can be reloaded.
 """
@@ -13,7 +14,7 @@ import re
 
 import numpy as np
 
-from .network_spec import preset_spec, validate_spec
+from .network_spec import preset_spec, validate_spec, PRESETS
 from .layout import generate_layout
 
 
@@ -30,7 +31,7 @@ def _with_layout_positions(spec: dict, n_pix: int, n_out: int) -> dict:
 _STATE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), ".claude")
 PRESET_DIR = os.path.join(_STATE_DIR, "presets")
 
-BUILTINS = ("pi", "old")
+BUILTINS = PRESETS                 # single source of truth for built-in names
 _SAFE_NAME = re.compile(r"[^A-Za-z0-9 _-]+")
 MAX_NAME = 48
 

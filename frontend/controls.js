@@ -214,7 +214,7 @@ export class Controls {
   // ---------------------------------------------------------------- filters
   _wireFilters() {
     const map = { 'f-active': 'active', 'f-weak': 'weak', 'f-assembly': 'assembly',
-                  'f-l1': 'l1', 'f-l2': 'l2', 'f-inh': 'inh' };
+                  'f-rg': 'rg', 'f-l1': 'l1', 'f-l2': 'l2', 'f-inh': 'inh' };
     for (const [elId, key] of Object.entries(map)) {
       const el = document.getElementById(elId);
       el.addEventListener('change', () => this.renderer.setFilters({ [key]: el.checked }));

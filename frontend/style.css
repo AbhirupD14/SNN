@@ -12,6 +12,7 @@
   --accent-2: #7c9cff;      /* indigo */
   --exc: #5eead4;           /* excitatory */
   --inh: #f0788c;           /* inhibitory */
+  --rg: #fbbf24;            /* exogenous retinal-ganglion source layer */
   --win: #ffce5c;           /* winner */
   --ff: #4cc38a;            /* feedforward edge */
   --in: #f0788c;            /* inhibition edge */
@@ -167,6 +168,7 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .legend > div { display: flex; align-items: center; gap: 7px; }
 .sw { width: 11px; height: 11px; border-radius: 50%; }
 .sw.exc { background: var(--exc); } .sw.inh { background: var(--inh); } .sw.win { background: var(--win); }
+.sw.rg { background: var(--rg); }
 .ln { width: 16px; height: 2px; border-radius: 2px; }
 .ln.ff { background: var(--ff); } .ln.in { background: var(--in); } .ln.ex { background: var(--ex); }
 .ln.pi { background: #e066c0; }

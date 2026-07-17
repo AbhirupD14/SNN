@@ -13,7 +13,7 @@ from backend.network_spec import (
 
 # --------------------------------------------------------------- preset specs
 def test_preset_specs_match_engine_counts():
-    for name, n in (('pi', 26), ('old', 27)):
+    for name, n in (('pi', 26), ('old', 27), ('rg', 36), ('rg_residual', 52)):
         spec = preset_spec(name, N_PIX, 8)
         assert len(spec['nodes']) == n
         norm = validate_spec(spec, N_PIX)          # presets are valid specs
@@ -192,6 +192,30 @@ def test_sensory_pixel_in_meta():
 
 
 def test_edge_kind_vocabulary_is_fixed():
+    # The vocabulary is a contract: growing it is a deliberate act, not a side effect.
+    # Residual/error behavior deliberately grows the fixed vocabulary with a
+    # nonplastic E->ErrorE copy and a paired L2E->SwitchI trace event.
     assert set(EDGE_KINDS) == {'feedforward', 'relay_excitation', 'inhibition',
-                               'predictive_inhibition'}
-    assert set(ARCHETYPES) == {'e_sensory', 'e_competitor', 'i_relay', 'predictor'}
+                               'predictive_inhibition', 'fixed_excitation',
+                               'trace_excitation'}
+    assert set(ARCHETYPES) == {'rg_source', 'e_sensory', 'e_encoder', 'e_residual',
+                               'e_competitor', 'i_relay', 'predictor', 'switch'}
+
+
+def test_competitor_spike_dispatches_valid_downstream_feedforward_edge():
+    """A competitor is an E-class feedforward source; its winning spike must emit."""
+    e = SimulationEngine(seed=1, topology='pi', leak_rate=0.0)
+    e.apply_topology({
+        'name': 'deep',
+        'nodes': [{'id': 'S', 'archetype': 'e_sensory', 'pixel': 0},
+                  {'id': 'C', 'archetype': 'e_competitor'},
+                  {'id': 'E', 'archetype': 'e_encoder'}],
+        'edges': [{'id': 's-c', 'source': 'S', 'target': 'C', 'kind': 'feedforward'},
+                  {'id': 'c-e', 'source': 'C', 'target': 'E', 'kind': 'feedforward'}]})
+    e.clear_input()
+    e.competitors[0].V = 1.2 * e.params['e_threshold']
+    e.encoders[0].acc_weights[0] = 1.2 * e.params['e_threshold']
+    d1 = e.step()
+    assert d1['winner'] == 'C' and 'c-e' in d1['emitted']
+    d2 = e.step()
+    assert next(n for n in d2['neurons'] if n['id'] == 'E')['spiked'] is True

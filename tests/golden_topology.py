@@ -40,6 +40,11 @@ def _frame_fingerprint(dyn):
         if "g_inh" in n:
             rec += [_round(n["g_inh"]), _round(n.get("trace", 0.0)),
                     _round(n.get("v_pre_reset", 0.0))]
+        if "winner_trace" in n:
+            rec += [_round(n["winner_trace"]), int(bool(n.get("residual_received", False))),
+                    int(n.get("residual_events", 0)), _round(n.get("residual_charge", 0.0)),
+                    _round(n.get("trace_charge", 0.0)),
+                    _round(n.get("v_pre_reset", 0.0))]
         neurons.append(rec)
     changed = sorted((c["id"], _round(c["weight"])) for c in dyn.get("changed_synapses", []))
     return {
@@ -97,6 +102,12 @@ def digests(blob):
 TOPOS = {
     "pi": dict(topology="pi"),
     "old": dict(topology="old"),
+    # 'rg' bootstraps through TWO plastic hops (RG->L1E, then L1E->L2E) and its L1E
+    # must accumulate ~23 RG events before its first spike, so the shared SCHEDULE's
+    # per-pattern dwell is long enough to reach L2 development but this golden is
+    # deliberately the same schedule as the others for comparability.
+    "rg": dict(topology="rg"),
+    "rg_residual": dict(topology="rg_residual"),
 }
 
 

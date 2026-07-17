@@ -1,0 +1,341 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1100" viewBox="0 0 1600 1100" role="img" aria-labelledby="svg-title svg-desc">
+  <title id="svg-title">Implemented RG residual error pathway for sparse single-winner classification</title>
+  <desc id="svg-desc">A 52-cell spiking neural circuit with nine retinal sources, a nine-cell L1 evidence sheet, a separate nine-cell residual sheet, eight L2 competitors, eight predictors, eight incumbent switch interneurons, and one shared L2 inhibitory relay. Representative indexed paths and counted bundles show all 274 directed projections.</desc>
+  <defs>
+    <linearGradient id="page" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f8fafc"/>
+      <stop offset="1" stop-color="#edf3f7"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="2" stdDeviation="3" flood-color="#0f172a" flood-opacity="0.14"/>
+    </filter>
+    <marker id="arrow-green" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#15803d"/>
+    </marker>
+    <marker id="arrow-amber" markerWidth="10" markerHeight="8" refX="9" refY="4" orient="auto" markerUnits="strokeWidth">
+      <path d="M0,0 L10,4 L0,8 Z" fill="#b45309"/>
+    </marker>
+    <marker id="tbar-red" markerWidth="8" markerHeight="14" refX="7" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M7,0 L7,14" fill="none" stroke="#be123c" stroke-width="3"/>
+    </marker>
+    <marker id="tbar-purple" markerWidth="8" markerHeight="14" refX="7" refY="7" orient="auto" markerUnits="strokeWidth">
+      <path d="M7,0 L7,14" fill="none" stroke="#7e22ce" stroke-width="3"/>
+    </marker>
+    <style>
+      text { font-family: Inter, "Segoe UI", Arial, sans-serif; fill: #172033; }
+      .title { font-size: 27px; font-weight: 800; letter-spacing: .2px; }
+      .subtitle { font-size: 14px; fill: #475569; }
+      .panel { fill: #ffffff; stroke: #a8b6c5; stroke-width: 1.5; rx: 14; filter: url(#shadow); }
+      .panel-title { font-size: 17px; font-weight: 800; }
+      .panel-sub { font-size: 11.5px; fill: #526276; }
+      .cell { stroke-width: 1.6; }
+      .source { fill: #fbbf24; stroke: #a16207; }
+      .exc { fill: #5eead4; stroke: #0f766e; }
+      .inh { fill: #f9a8d4; stroke: #be185d; }
+      .relay { fill: #fda4af; stroke: #be123c; }
+      .cell-label { font-size: 10.5px; font-weight: 700; text-anchor: middle; dominant-baseline: central; }
+      .edge-exc { fill: none; stroke: #15803d; stroke-width: 3; marker-end: url(#arrow-green); }
+      .edge-plastic { fill: none; stroke: #15803d; stroke-width: 5; marker-end: url(#arrow-green); }
+      .edge-inh { fill: none; stroke: #be123c; stroke-width: 3; marker-end: url(#tbar-red); }
+      .edge-pred { fill: none; stroke: #7e22ce; stroke-width: 5; marker-end: url(#tbar-purple); }
+      .edge-trace { fill: none; stroke: #b45309; stroke-width: 2.7; stroke-dasharray: 7 5; marker-end: url(#arrow-amber); }
+      .edge-label-bg { fill: #ffffff; stroke: #d7e0e8; stroke-width: 1; rx: 5; }
+      .edge-label { font-size: 11px; font-weight: 750; text-anchor: middle; }
+      .small { font-size: 10.5px; }
+      .tiny { font-size: 9.5px; }
+      .badge { fill: #fff4e5; stroke: #d97706; stroke-width: 1.5; rx: 13; }
+      .badge-text { fill: #9a3412; font-size: 12px; font-weight: 800; text-anchor: middle; }
+      .section { font-size: 15px; font-weight: 800; }
+      .scenario { fill: #ffffff; stroke: #b9c7d5; stroke-width: 1.4; rx: 14; filter: url(#shadow); }
+      .stepbox { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1.1; rx: 9; }
+      .stepnum { fill: #0f766e; font-size: 12px; font-weight: 850; text-anchor: middle; }
+      .scenario-text { font-size: 10.5px; text-anchor: middle; }
+      .scenario-head { font-size: 16px; font-weight: 850; }
+      .note { fill: #f8fafc; stroke: #cbd5e1; stroke-width: 1; rx: 8; }
+    </style>
+  </defs>
+
+  <rect width="1600" height="1100" fill="url(#page)"/>
+  <text x="32" y="43" class="title">Residual/error pathway: full evidence + local incumbent release</text>
+  <text x="33" y="68" class="subtitle">Predictive inhibition is moved off L1E and onto a separate residual sheet; ordinary L2 WTA still selects exactly one category.</text>
+  <rect x="1180" y="24" width="388" height="38" class="badge"/>
+  <text x="1374" y="48" class="badge-text">RG_RESIDUAL PRESET — separate from the legacy “rg” preset</text>
+
+  <!-- MAIN EVIDENCE PATH LABEL -->
+  <rect x="28" y="91" width="852" height="38" rx="10" fill="#e8fff7" stroke="#5bbf9d"/>
+  <text x="48" y="116" class="section">MAIN EVIDENCE PATH</text>
+  <text x="234" y="116" font-size="13">RG → L1E → L2E keeps the complete input available for classification</text>
+
+  <!-- RG GRID -->
+  <g id="population-rg">
+    <rect x="30" y="150" width="210" height="244" class="panel"/>
+    <text x="48" y="177" class="panel-title">Retinal sources</text>
+    <text x="48" y="195" class="panel-sub">9 Source (S) · exogenous · uninhibitable</text>
+    <g transform="translate(57,216)">
+      <rect x="0" y="0" width="42" height="42" rx="9" class="cell source"/><text x="21" y="21" class="cell-label">RG0</text>
+      <rect x="48" y="0" width="42" height="42" rx="9" class="cell source"/><text x="69" y="21" class="cell-label">RG1</text>
+      <rect x="96" y="0" width="42" height="42" rx="9" class="cell source"/><text x="117" y="21" class="cell-label">RG2</text>
+      <rect x="0" y="48" width="42" height="42" rx="9" class="cell source"/><text x="21" y="69" class="cell-label">RG3</text>
+      <rect x="48" y="48" width="42" height="42" rx="9" class="cell source"/><text x="69" y="69" class="cell-label">RG4</text>
+      <rect x="96" y="48" width="42" height="42" rx="9" class="cell source"/><text x="117" y="69" class="cell-label">RG5</text>
+      <rect x="0" y="96" width="42" height="42" rx="9" class="cell source"/><text x="21" y="117" class="cell-label">RG6</text>
+      <rect x="48" y="96" width="42" height="42" rx="9" class="cell source"/><text x="69" y="117" class="cell-label">RG7</text>
+      <rect x="96" y="96" width="42" height="42" rx="9" class="cell source"/><text x="117" y="117" class="cell-label">RG8</text>
+    </g>
+    <text x="135" y="376" class="panel-sub" text-anchor="middle">edge detector broadcast; no inhibitory input</text>
+  </g>
+
+  <!-- L1E GRID -->
+  <g id="population-l1e">
+    <rect x="294" y="150" width="210" height="244" class="panel"/>
+    <text x="312" y="177" class="panel-title">Main evidence grid</text>
+    <text x="312" y="195" class="panel-sub">9 Excitatory (E) · plastic encoders</text>
+    <g transform="translate(321,216)">
+      <rect x="0" y="0" width="42" height="42" rx="9" class="cell exc"/><text x="21" y="21" class="cell-label">L1E0</text>
+      <rect x="48" y="0" width="42" height="42" rx="9" class="cell exc"/><text x="69" y="21" class="cell-label">L1E1</text>
+      <rect x="96" y="0" width="42" height="42" rx="9" class="cell exc"/><text x="117" y="21" class="cell-label">L1E2</text>
+      <rect x="0" y="48" width="42" height="42" rx="9" class="cell exc"/><text x="21" y="69" class="cell-label">L1E3</text>
+      <rect x="48" y="48" width="42" height="42" rx="9" class="cell exc"/><text x="69" y="69" class="cell-label">L1E4</text>
+      <rect x="96" y="48" width="42" height="42" rx="9" class="cell exc"/><text x="117" y="69" class="cell-label">L1E5</text>
+      <rect x="0" y="96" width="42" height="42" rx="9" class="cell exc"/><text x="21" y="117" class="cell-label">L1E6</text>
+      <rect x="48" y="96" width="42" height="42" rx="9" class="cell exc"/><text x="69" y="117" class="cell-label">L1E7</text>
+      <rect x="96" y="96" width="42" height="42" rx="9" class="cell exc"/><text x="117" y="117" class="cell-label">L1E8</text>
+    </g>
+    <text x="399" y="376" class="panel-sub" text-anchor="middle">full evidence remains intact</text>
+  </g>
+
+  <!-- L2E BANK -->
+  <g id="population-l2e">
+    <rect x="640" y="150" width="250" height="244" class="panel"/>
+    <text x="658" y="177" class="panel-title">Categorical pool</text>
+    <text x="658" y="195" class="panel-sub">8 Excitatory (E) · deterministic single-winner WTA</text>
+    <g transform="translate(662,216)">
+      <rect x="0" y="0" width="92" height="31" rx="10" class="cell exc"/><text x="46" y="16" class="cell-label">L2E0</text>
+      <rect x="112" y="0" width="92" height="31" rx="10" class="cell exc"/><text x="158" y="16" class="cell-label">L2E1</text>
+      <rect x="0" y="38" width="92" height="31" rx="10" class="cell exc"/><text x="46" y="54" class="cell-label">L2E2</text>
+      <rect x="112" y="38" width="92" height="31" rx="10" class="cell exc"/><text x="158" y="54" class="cell-label">L2E3</text>
+      <rect x="0" y="76" width="92" height="31" rx="10" class="cell exc"/><text x="46" y="92" class="cell-label">L2E4</text>
+      <rect x="112" y="76" width="92" height="31" rx="10" class="cell exc"/><text x="158" y="92" class="cell-label">L2E5</text>
+      <rect x="0" y="114" width="92" height="31" rx="10" class="cell exc"/><text x="46" y="130" class="cell-label">L2E6</text>
+      <rect x="112" y="114" width="92" height="31" rx="10" class="cell exc"/><text x="158" y="130" class="cell-label">L2E7</text>
+    </g>
+    <text x="765" y="376" class="panel-sub" text-anchor="middle">ordinary WTA chooses replacement</text>
+  </g>
+
+  <!-- L2I SHARED RELAY -->
+  <g id="population-l2i">
+    <rect x="945" y="205" width="202" height="135" class="panel"/>
+    <text x="963" y="232" class="panel-title">Shared WTA relay</text>
+    <text x="963" y="251" class="panel-sub">1 Inhibitory (I) · fast global competition</text>
+    <circle cx="1046" cy="292" r="31" class="cell relay"/>
+    <text x="1046" y="292" class="cell-label" font-size="13">L2I</text>
+  </g>
+
+  <!-- MAIN PATH BUNDLES -->
+  <path d="M240,270 C260,270 274,270 294,270" class="edge-plastic"/>
+  <rect x="242" y="229" width="51" height="34" class="edge-label-bg"/>
+  <text x="267" y="244" class="edge-label">9 (+)</text><text x="267" y="257" class="tiny" text-anchor="middle">paired · plastic</text>
+  <text x="267" y="292" class="tiny" text-anchor="middle">RG_i → L1E_i</text>
+
+  <path d="M504,270 C548,270 590,270 640,270" class="edge-plastic"/>
+  <rect x="523" y="220" width="99" height="42" class="edge-label-bg"/>
+  <text x="572" y="236" class="edge-label">dense 9×8 (+)</text>
+  <text x="572" y="250" class="tiny" text-anchor="middle">72 plastic weights</text>
+  <text x="572" y="292" class="tiny" text-anchor="middle">L1E_i → L2E_j</text>
+  <text x="539" y="312" class="tiny" fill="#0f766e">example: L1E4 → L2E3</text>
+
+  <path d="M890,252 C915,252 927,265 945,278" class="edge-exc"/>
+  <rect x="892" y="215" width="57" height="32" class="edge-label-bg"/>
+  <text x="920" y="229" class="edge-label">8 (+)</text><text x="920" y="241" class="tiny" text-anchor="middle">L2E_j → L2I</text>
+  <path d="M945,310 C925,328 914,348 890,348" class="edge-inh"/>
+  <rect x="891" y="350" width="88" height="30" class="edge-label-bg"/>
+  <text x="935" y="364" class="edge-label">8 (−) global</text><text x="935" y="376" class="tiny" text-anchor="middle">L2I ─| L2E_j</text>
+
+  <!-- RESIDUAL PATH HEADER -->
+  <rect x="28" y="419" width="1162" height="36" rx="10" fill="#fff1f6" stroke="#d779a6"/>
+  <text x="48" y="443" class="section">RESIDUAL / ERROR PATH</text>
+  <text x="252" y="443" font-size="13">ErrorE ≈ present evidence − predicted evidence (conductance-based cancellation, not engine arithmetic)</text>
+
+  <!-- ErrorE GRID -->
+  <g id="population-errore">
+    <rect x="294" y="475" width="210" height="206" class="panel"/>
+    <text x="312" y="502" class="panel-title">Residual/error grid</text>
+    <text x="312" y="520" class="panel-sub">9 Excitatory (E) · paired feature-error cells</text>
+    <g transform="translate(321,537)">
+      <rect x="0" y="0" width="42" height="34" rx="8" class="cell exc"/><text x="21" y="17" class="cell-label">ErrorE0</text>
+      <rect x="48" y="0" width="42" height="34" rx="8" class="cell exc"/><text x="69" y="17" class="cell-label">ErrorE1</text>
+      <rect x="96" y="0" width="42" height="34" rx="8" class="cell exc"/><text x="117" y="17" class="cell-label">ErrorE2</text>
+      <rect x="0" y="40" width="42" height="34" rx="8" class="cell exc"/><text x="21" y="57" class="cell-label">ErrorE3</text>
+      <rect x="48" y="40" width="42" height="34" rx="8" class="cell exc"/><text x="69" y="57" class="cell-label">ErrorE4</text>
+      <rect x="96" y="40" width="42" height="34" rx="8" class="cell exc"/><text x="117" y="57" class="cell-label">ErrorE5</text>
+      <rect x="0" y="80" width="42" height="34" rx="8" class="cell exc"/><text x="21" y="97" class="cell-label">ErrorE6</text>
+      <rect x="48" y="80" width="42" height="34" rx="8" class="cell exc"/><text x="69" y="97" class="cell-label">ErrorE7</text>
+      <rect x="96" y="80" width="42" height="34" rx="8" class="cell exc"/><text x="117" y="97" class="cell-label">ErrorE8</text>
+    </g>
+    <text x="399" y="670" class="panel-sub" text-anchor="middle">distributed residual; no NoveltyE cell</text>
+  </g>
+
+  <!-- PI BANK -->
+  <g id="population-pi">
+    <rect x="640" y="475" width="250" height="206" class="panel"/>
+    <text x="658" y="502" class="panel-title">Predictors</text>
+    <text x="658" y="520" class="panel-sub">8 Inhibitory (I) · one paired with each L2E</text>
+    <g transform="translate(662,537)">
+      <rect x="0" y="0" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="13" class="cell-label">PI0</text>
+      <rect x="112" y="0" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="13" class="cell-label">PI1</text>
+      <rect x="0" y="31" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="44" class="cell-label">PI2</text>
+      <rect x="112" y="31" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="44" class="cell-label">PI3</text>
+      <rect x="0" y="62" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="75" class="cell-label">PI4</text>
+      <rect x="112" y="62" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="75" class="cell-label">PI5</text>
+      <rect x="0" y="93" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="106" class="cell-label">PI6</text>
+      <rect x="112" y="93" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="106" class="cell-label">PI7</text>
+    </g>
+    <text x="765" y="670" class="panel-sub" text-anchor="middle">predicts features onto ErrorE—not onto L1E</text>
+  </g>
+
+  <!-- SWITCH BANK -->
+  <g id="population-switchi">
+    <rect x="940" y="475" width="250" height="206" class="panel"/>
+    <text x="958" y="502" class="panel-title">Incumbent switch cells</text>
+    <text x="958" y="520" class="panel-sub">8 Inhibitory (I) · temporal coincidence detectors</text>
+    <g transform="translate(962,537)">
+      <rect x="0" y="0" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="13" class="cell-label">SwitchI0</text>
+      <rect x="112" y="0" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="13" class="cell-label">SwitchI1</text>
+      <rect x="0" y="31" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="44" class="cell-label">SwitchI2</text>
+      <rect x="112" y="31" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="44" class="cell-label">SwitchI3</text>
+      <rect x="0" y="62" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="75" class="cell-label">SwitchI4</text>
+      <rect x="112" y="62" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="75" class="cell-label">SwitchI5</text>
+      <rect x="0" y="93" width="92" height="25" rx="8" class="cell inh"/><text x="46" y="106" class="cell-label">SwitchI6</text>
+      <rect x="112" y="93" width="92" height="25" rx="8" class="cell inh"/><text x="158" y="106" class="cell-label">SwitchI7</text>
+    </g>
+    <text x="1065" y="670" class="panel-sub" text-anchor="middle">suppresses paired incumbent only</text>
+  </g>
+
+  <!-- RESIDUAL PROJECTION BUNDLES -->
+  <path d="M399,394 C399,420 399,445 399,475" class="edge-exc"/>
+  <rect x="407" y="401" width="92" height="32" class="edge-label-bg"/>
+  <text x="453" y="415" class="edge-label">9 (+) paired 1:1</text><text x="453" y="427" class="tiny" text-anchor="middle">L1E_i → ErrorE_i</text>
+
+  <path d="M765,394 C765,420 765,445 765,475" class="edge-exc"/>
+  <rect x="773" y="401" width="93" height="32" class="edge-label-bg"/>
+  <text x="819" y="415" class="edge-label">8 (+) paired 1:1</text><text x="819" y="427" class="tiny" text-anchor="middle">L2E_j → PI_j</text>
+
+  <path d="M640,583 C596,583 552,583 504,583" class="edge-pred"/>
+  <rect x="516" y="535" width="111" height="39" class="edge-label-bg"/>
+  <text x="572" y="550" class="edge-label">dense 8×9 (−)</text>
+  <text x="572" y="563" class="tiny" text-anchor="middle">72 learned w_ji</text>
+  <text x="572" y="608" class="tiny" text-anchor="middle">PI_j ─| ErrorE_i · example PI3 ─| ErrorE4</text>
+
+  <path d="M504,624 C640,714 805,714 940,624" class="edge-exc"/>
+  <rect x="666" y="684" width="158" height="34" class="edge-label-bg"/>
+  <text x="745" y="699" class="edge-label">dense 9×8 (+) · 72</text>
+  <text x="745" y="712" class="tiny" text-anchor="middle">all ErrorE events broadcast to all SwitchI</text>
+
+  <path d="M820,394 C850,431 899,480 940,552" class="edge-trace"/>
+  <rect x="851" y="423" width="135" height="38" class="edge-label-bg"/>
+  <text x="918" y="438" class="edge-label">8 paired (+) · trace x_j</text>
+  <text x="918" y="452" class="tiny" text-anchor="middle">spike: x_j←1 · else: x_j←ρx_j</text>
+
+  <path d="M1048,475 C1005,428 930,382 880,352" class="edge-inh"/>
+  <rect x="952" y="383" width="140" height="35" class="edge-label-bg"/>
+  <text x="1022" y="398" class="edge-label">8 paired incumbent-only (−)</text>
+  <text x="1022" y="411" class="tiny" text-anchor="middle">SwitchI_j ─| L2E_j</text>
+
+  <!-- RIGHT SIDEBAR -->
+  <g id="counts-and-legend">
+    <rect x="1220" y="91" width="350" height="590" class="panel"/>
+    <text x="1240" y="120" class="panel-title">Circuit inventory</text>
+    <rect x="1240" y="134" width="310" height="64" class="note"/>
+    <text x="1254" y="156" font-size="15" font-weight="800">52 cells total</text>
+    <text x="1254" y="176" font-size="12">35 E/S main cells + 17 inhibitory interneurons</text>
+    <text x="1254" y="190" class="tiny">9 RG · 9 L1E · 9 ErrorE · 8 L2E · 8 PI · 8 SwitchI · 1 L2I</text>
+
+    <rect x="1240" y="208" width="310" height="80" class="note"/>
+    <text x="1254" y="230" font-size="15" font-weight="800">274 directed internal projections</text>
+    <text x="1254" y="249" class="small">9 + 9 + 72 + 8 + 72 + 72 + 8 + 8 + 8 + 8</text>
+    <text x="1254" y="268" class="tiny">Every multiplicity appears beside its counted bundle.</text>
+    <text x="1254" y="281" class="tiny">No global NoveltyE cell; novelty stays distributed.</text>
+
+    <text x="1240" y="318" class="panel-title">Signal legend</text>
+    <rect x="1240" y="330" width="310" height="112" class="note"/>
+    <rect x="1253" y="344" width="22" height="16" rx="5" class="cell source"/><text x="1284" y="357" class="small">RG source (cannot be inhibited)</text>
+    <rect x="1253" y="369" width="22" height="16" rx="5" class="cell exc"/><text x="1284" y="382" class="small">Excitatory E cell</text>
+    <rect x="1253" y="394" width="22" height="16" rx="5" class="cell inh"/><text x="1284" y="407" class="small">Inhibitory I cell</text>
+    <line x1="1254" y1="426" x2="1291" y2="426" class="edge-exc"/><text x="1302" y="430" class="small">+ excitation</text>
+    <line x1="1403" y1="426" x2="1440" y2="426" class="edge-inh"/><text x="1451" y="430" class="small">− inhibition</text>
+
+    <text x="1240" y="474" class="panel-title">Local temporal AND at SwitchI_j</text>
+    <rect x="1240" y="486" width="310" height="105" class="note"/>
+    <text x="1264" y="506" class="tiny" font-weight="800">winner trace x_j</text><text x="1370" y="506" class="tiny" font-weight="800">residual</text><text x="1460" y="506" class="tiny" font-weight="800">SwitchI_j</text>
+    <line x1="1252" y1="513" x2="1538" y2="513" stroke="#cbd5e1"/>
+    <text x="1301" y="528" class="tiny">0</text><text x="1391" y="528" class="tiny">0</text><text x="1486" y="528" class="tiny">silent</text>
+    <text x="1301" y="545" class="tiny">1</text><text x="1391" y="545" class="tiny">0</text><text x="1486" y="545" class="tiny">silent</text>
+    <text x="1301" y="562" class="tiny">0</text><text x="1391" y="562" class="tiny">1</text><text x="1486" y="562" class="tiny">silent</text>
+    <rect x="1252" y="568" width="286" height="18" rx="5" fill="#fff4e5"/>
+    <text x="1301" y="581" class="tiny" font-weight="800">1</text><text x="1391" y="581" class="tiny" font-weight="800">1</text><text x="1486" y="581" class="tiny" font-weight="800" fill="#be123c">FIRES</text>
+
+    <rect x="1240" y="604" width="310" height="58" rx="8" fill="#fff7ed" stroke="#f59e0b"/>
+    <text x="1253" y="622" class="small" font-weight="800" fill="#9a3412">TIMING ASSUMPTION TO VALIDATE</text>
+    <text x="1253" y="640" class="tiny">Reject repeated activity on either branch alone.</text>
+    <text x="1253" y="654" class="tiny">Never consult a global or sticky winner ID.</text>
+  </g>
+
+  <!-- SCENARIO A -->
+  <g id="scenario-familiar">
+    <rect x="30" y="742" width="750" height="323" class="scenario"/>
+    <text x="50" y="772" class="scenario-head">A. Familiar row {3,4,5}: stable single-owner classification</text>
+    <text x="50" y="790" class="panel-sub">Prediction cancels residual activity without removing the complete L1 evidence.</text>
+    <g transform="translate(50,812)">
+      <rect x="0" y="0" width="105" height="72" class="stepbox"/><circle cx="16" cy="16" r="11" fill="#d5f5ea"/><text x="16" y="16" class="stepnum">1</text><text x="53" y="37" class="scenario-text"><tspan x="53">RG3,4,5</tspan><tspan x="53" dy="14">→ L1E3,4,5</tspan></text>
+      <path d="M108,36 L128,36" class="edge-exc"/>
+      <rect x="132" y="0" width="105" height="72" class="stepbox"/><circle cx="148" cy="16" r="11" fill="#d5f5ea"/><text x="148" y="16" class="stepnum">2</text><text x="185" y="37" class="scenario-text"><tspan x="185">L2E3 wins</tspan><tspan x="185" dy="14">ordinary WTA</tspan></text>
+      <path d="M240,36 L260,36" class="edge-exc"/>
+      <rect x="264" y="0" width="105" height="72" class="stepbox"/><circle cx="280" cy="16" r="11" fill="#d5f5ea"/><text x="280" y="16" class="stepnum">3</text><text x="317" y="30" class="scenario-text"><tspan x="317">PI3 predicts</tspan><tspan x="317" dy="14">ErrorE3,4,5</tspan><tspan x="317" dy="14">and shunts them</tspan></text>
+      <path d="M372,36 L392,36" class="edge-pred"/>
+      <rect x="396" y="0" width="105" height="72" class="stepbox"/><circle cx="412" cy="16" r="11" fill="#d5f5ea"/><text x="412" y="16" class="stepnum">4</text><text x="449" y="37" class="scenario-text"><tspan x="449">Residual sheet</tspan><tspan x="449" dy="14">quiet</tspan></text>
+      <path d="M504,36 L524,36" class="edge-exc"/>
+      <rect x="528" y="0" width="105" height="72" class="stepbox"/><circle cx="544" cy="16" r="11" fill="#d5f5ea"/><text x="544" y="16" class="stepnum">5</text><text x="581" y="37" class="scenario-text"><tspan x="581">No SwitchI</tspan><tspan x="581" dy="14">gets both inputs</tspan></text>
+      <path d="M636,36 L656,36" class="edge-exc"/>
+      <rect x="660" y="0" width="70" height="72" rx="9" fill="#e8fff7" stroke="#0f766e"/><circle cx="676" cy="16" r="11" fill="#d5f5ea"/><text x="676" y="16" class="stepnum">6</text><text x="695" y="37" class="scenario-text"><tspan x="695">L2E3</tspan><tspan x="695" dy="14">remains</tspan></text>
+    </g>
+    <rect x="50" y="906" width="710" height="136" class="note"/>
+    <text x="66" y="929" class="section">Causal reading</text>
+    <text x="66" y="950" font-size="11.5">• L1E sends the full row to all eight L2 competitors through the dense recognition path.</text>
+    <text x="66" y="970" font-size="11.5">• L2E3’s real spike primes local trace x_3 and excites its paired PI3.</text>
+    <text x="66" y="990" font-size="11.5">• Learned PI3 inhibition targets ErrorE3, ErrorE4, ErrorE5—not L1E3, L1E4, L1E5.</text>
+    <text x="66" y="1010" font-size="11.5">• With no residual broadcast, SwitchI3 stays silent and the incumbent remains the unique owner.</text>
+    <text x="66" y="1030" class="tiny" fill="#64748b">Stable classification is intended; initial smoke runs have not established it robustly across seeds.</text>
+  </g>
+
+  <!-- SCENARIO B -->
+  <g id="scenario-overlap">
+    <rect x="800" y="742" width="770" height="323" class="scenario"/>
+    <text x="820" y="772" class="scenario-head">B. New overlapping column {1,4,7}: release incumbent, then re-compete</text>
+    <text x="820" y="790" class="panel-sub">The switch circuit removes only L2E3; it does not choose the rival.</text>
+    <g transform="translate(820,812)">
+      <rect x="0" y="0" width="94" height="72" class="stepbox"/><circle cx="15" cy="15" r="10" fill="#d5f5ea"/><text x="15" y="15" class="stepnum">1</text><text x="47" y="30" class="scenario-text"><tspan x="47">L1E1,4,7</tspan><tspan x="47" dy="14">full column</tspan><tspan x="47" dy="14">to all L2E</tspan></text>
+      <path d="M97,36 L111,36" class="edge-exc"/>
+      <rect x="115" y="0" width="94" height="72" class="stepbox"/><circle cx="130" cy="15" r="10" fill="#d5f5ea"/><text x="130" y="15" class="stepnum">2</text><text x="162" y="30" class="scenario-text"><tspan x="162">PI3 explains</tspan><tspan x="162" dy="14">shared</tspan><tspan x="162" dy="14">ErrorE4</tspan></text>
+      <path d="M212,36 L226,36" class="edge-pred"/>
+      <rect x="230" y="0" width="94" height="72" class="stepbox"/><circle cx="245" cy="15" r="10" fill="#d5f5ea"/><text x="245" y="15" class="stepnum">3</text><text x="277" y="30" class="scenario-text"><tspan x="277">Novel</tspan><tspan x="277" dy="14">ErrorE1 +</tspan><tspan x="277" dy="14">ErrorE7 fire</tspan></text>
+      <path d="M327,36 L341,36" class="edge-exc"/>
+      <rect x="345" y="0" width="94" height="72" class="stepbox"/><circle cx="360" cy="15" r="10" fill="#d5f5ea"/><text x="360" y="15" class="stepnum">4</text><text x="392" y="30" class="scenario-text"><tspan x="392">Residuals</tspan><tspan x="392" dy="14">broadcast to</tspan><tspan x="392" dy="14">all SwitchI</tspan></text>
+      <path d="M442,36 L456,36" class="edge-exc"/>
+      <rect x="460" y="0" width="94" height="72" class="stepbox"/><circle cx="475" cy="15" r="10" fill="#d5f5ea"/><text x="475" y="15" class="stepnum">5</text><text x="507" y="30" class="scenario-text"><tspan x="507">Only traced</tspan><tspan x="507" dy="14">SwitchI3</tspan><tspan x="507" dy="14">fires</tspan></text>
+      <path d="M557,36 L571,36" class="edge-inh"/>
+      <rect x="575" y="0" width="94" height="72" class="stepbox"/><circle cx="590" cy="15" r="10" fill="#d5f5ea"/><text x="590" y="15" class="stepnum">6</text><text x="622" y="30" class="scenario-text"><tspan x="622">SwitchI3</tspan><tspan x="622" dy="14">inhibits only</tspan><tspan x="622" dy="14">L2E3</tspan></text>
+      <path d="M672,36 L686,36" class="edge-exc"/>
+      <rect x="690" y="0" width="60" height="72" rx="9" fill="#e8fff7" stroke="#0f766e"/><circle cx="704" cy="15" r="10" fill="#d5f5ea"/><text x="704" y="15" class="stepnum">7</text><text x="720" y="30" class="scenario-text"><tspan x="720">WTA</tspan><tspan x="720" dy="14">selects</tspan><tspan x="720" dy="14">1 rival</tspan></text>
+    </g>
+    <rect x="820" y="906" width="730" height="136" class="note"/>
+    <text x="836" y="929" class="section">Critical timing/race questions — unresolved</text>
+    <text x="836" y="950" font-size="11.5">• Can SwitchI implement strict temporal AND without either branch firing it alone?</text>
+    <text x="836" y="970" font-size="11.5">• Does incumbent inhibition arrive before L2E3 contaminates its weights with novel features?</text>
+    <text x="836" y="990" font-size="11.5">• After a rival wins, can its predictor learn the complete pattern quickly enough to silence residuals?</text>
+    <text x="836" y="1010" font-size="11.5">• Does the circuit settle to one stable final winner instead of oscillating between owners?</text>
+    <text x="836" y="1030" class="tiny" fill="#9a3412">These remain open dynamical questions, not solved properties of the implementation.</text>
+  </g>
+
+  <text x="800" y="1090" class="tiny" text-anchor="middle" fill="#64748b">Representative indexed paths + counted fanout/fanin bundles are used in place of 274 overlapping individual lines.</text>
+</svg>

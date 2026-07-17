@@ -12,6 +12,12 @@ const MARGIN = 66;        // pinned left gutter: id label + rate bar
 const AXIS = 16;          // top axis strip
 const HISTORY = 1500;     // timesteps retained
 
+// Lane colour by neuron class: 'E' cortical excitatory, 'S' exogenous RG source,
+// anything else inhibitory.
+function laneColor(type, cExc, cInh, cRg) {
+  return type === 'E' ? cExc : type === 'S' ? cRg : cInh;
+}
+
 export class Raster {
   constructor(store) {
     this.store = store;
@@ -98,7 +104,8 @@ export class Raster {
     this._draw();
   }
 
-  _lanes() { return this.showL1 ? this.order : this.order.filter(n => !n.group.startsWith('L1')); }
+  _lanes() { return this.showL1 ? this.order
+    : this.order.filter(n => !n.group.startsWith('L1') && !n.group.startsWith('ERR')); }
 
   _draw() {
     if (!this._open() || !this.built) return;
@@ -132,6 +139,7 @@ export class Raster {
     const css = getComputedStyle(document.documentElement);
     const cExc = css.getPropertyValue('--exc').trim() || '#5eead4';
     const cInh = css.getPropertyValue('--inh').trim() || '#f0788c';
+    const cRg = css.getPropertyValue('--rg').trim() || '#fbbf24';
     const cLine = css.getPropertyValue('--line').trim() || '#242b3a';
     const cTxt = css.getPropertyValue('--txt-1').trim() || '#c7d0e0';
     const cMut = css.getPropertyValue('--txt-2').trim() || '#5f6b82';
@@ -162,7 +170,7 @@ export class Raster {
     // Spikes (discrete marks), lane-outer so fillStyle is set once per lane.
     for (let i = 0; i < n; i++) {
       const idx = this.index.get(lanes[i].id);
-      ctx.fillStyle = lanes[i].type === 'E' ? cExc : cInh;
+      ctx.fillStyle = laneColor(lanes[i].type, cExc, cInh, cRg);
       const yc = y0 + i * laneH + (laneH - tickH) / 2;
       for (let c = cFrom; c < cTo; c++) if (this.spike[c][idx]) ctx.fillRect(xOf(c), yc, barW, tickH);
     }
@@ -176,7 +184,7 @@ export class Raster {
       ctx.font = `${labelPx}px ui-monospace, monospace`;
       ctx.fillStyle = cTxt; ctx.fillText(lanes[i].id, 5, cy);
       const f = Math.max(0, Math.min(1, this.rate.get(lanes[i].id) ?? 0));
-      ctx.fillStyle = lanes[i].type === 'E' ? cExc : cInh; ctx.globalAlpha = 0.5;
+      ctx.fillStyle = laneColor(lanes[i].type, cExc, cInh, cRg); ctx.globalAlpha = 0.5;
       ctx.fillRect(MARGIN - 15, cy - 1.5, 12 * f, 3); ctx.globalAlpha = 1;
     }
     ctx.strokeStyle = cLine; ctx.beginPath(); ctx.moveTo(MARGIN + .5, 0); ctx.lineTo(MARGIN + .5, vh); ctx.stroke();

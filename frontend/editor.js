@@ -10,20 +10,36 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const NODE_COLOR = {
-  e_sensory: 0x5eead4, e_competitor: 0x38bdf8, i_relay: 0xf0788c, predictor: 0xe066c0,
+  rg_source: 0xfbbf24, e_sensory: 0x5eead4, e_encoder: 0x34d399,
+  e_residual: 0x2dd4bf, e_competitor: 0x38bdf8, i_relay: 0xf0788c,
+  predictor: 0xe066c0, switch: 0xfb7185,
 };
 const NODE_COLOR_CSS = {
-  e_sensory: '#5eead4', e_competitor: '#38bdf8', i_relay: '#f0788c', predictor: '#e066c0',
+  rg_source: '#fbbf24', e_sensory: '#5eead4', e_encoder: '#34d399',
+  e_residual: '#2dd4bf', e_competitor: '#38bdf8', i_relay: '#f0788c',
+  predictor: '#e066c0', switch: '#fb7185',
 };
 const EDGE_COLOR = {
-  feedforward: 0x4cc38a, relay_excitation: 0x7c9cff, inhibition: 0xf0788c, predictive_inhibition: 0xe066c0,
+  feedforward: 0x4cc38a, fixed_excitation: 0x22c55e, trace_excitation: 0xf59e0b,
+  relay_excitation: 0x7c9cff, inhibition: 0xf0788c, predictive_inhibition: 0xe066c0,
 };
 const EDGE_COLOR_CSS = {
-  feedforward: '#4cc38a', relay_excitation: '#7c9cff', inhibition: '#f0788c', predictive_inhibition: '#e066c0',
+  feedforward: '#4cc38a', fixed_excitation: '#22c55e', trace_excitation: '#f59e0b',
+  relay_excitation: '#7c9cff', inhibition: '#f0788c', predictive_inhibition: '#e066c0',
 };
-const ARCH_PREFIX = { e_sensory: 'S', e_competitor: 'C', i_relay: 'I', predictor: 'P' };
+const ARCH_PREFIX = {
+  rg_source: 'RG', e_sensory: 'S', e_encoder: 'EN', e_residual: 'ERR',
+  e_competitor: 'C', i_relay: 'I', predictor: 'P', switch: 'SW',
+};
 // Default z for a freshly added node, so new nodes land in a sensible 3D band.
-const ARCH_Z = { e_sensory: 0, e_competitor: 8, i_relay: 8, predictor: 8 };
+// RG sits below L1 (upstream of it); L1 at 0; L2 at 8.
+const ARCH_Z = { rg_source: -6, e_sensory: 0, e_encoder: 0, e_residual: 3.2,
+  e_competitor: 8, i_relay: 8, predictor: 8, switch: 8 };
+// Layer a freshly added node is filed under (matches network_spec._default_layer).
+const ARCH_LAYER = {
+  rg_source: 'RG', e_sensory: 'L1', e_encoder: 'L1', e_residual: 'ERR',
+  e_competitor: 'L2', i_relay: 'L2', predictor: 'L2', switch: 'L2',
+};
 const NODE_R = 0.7;
 
 export class Editor {
@@ -169,7 +185,7 @@ export class Editor {
     mesh.position.copy(this._v(n));
     mesh.userData.nodeId = n.id;
     this.group.add(mesh);
-    const label = this._makeLabel(n.label || n.id, n.pixel);
+    const label = this._makeLabel(n.label || n.id, n.pixel ?? n.grid);
     label.position.copy(mesh.position).add(new THREE.Vector3(0, 0, NODE_R + 0.9));
     this.group.add(label);
     this.nodeObjs.set(n.id, { mesh, label, node: n });
@@ -308,7 +324,10 @@ export class Editor {
 
   // ------------------------------------------------------------- connect edge
   _archClass(arch) { return this.vocab.archetypes[arch]?.cls; }
+  // A requirement is an archetype name, a class letter ('E'/'I'/'S'), or an array of
+  // alternatives (satisfied if any one matches). Mirrors network_spec._arch_matches.
   _matches(arch, req) {
+    if (Array.isArray(req)) return req.some(r => this._matches(arch, r));
     if (this.vocab.archetypes[req]) return arch === req;
     return this._archClass(arch) === req;
   }
@@ -345,8 +364,11 @@ export class Editor {
     const c = this.three.controls.target.clone();
     const pos = [c.x + (Math.random() - 0.5) * 4, c.y + (Math.random() - 0.5) * 4, ARCH_Z[archetype] ?? 4];
     const id = this._uniqueNodeId(archetype);
-    const node = { id, archetype, layer: archetype === 'e_sensory' ? 'L1' : 'L2', label: id, pos };
-    if (archetype === 'e_sensory') {
+    const node = { id, archetype, layer: ARCH_LAYER[archetype] ?? 'L2', label: id, pos };
+    // Only an input-sink archetype may own a pixel, and ownership is unique, so claim
+    // the first free one. Other archetypes get no pixel (an encoder may still be given
+    // a display 'grid' tag by hand).
+    if (this.vocab.archetypes[archetype]?.input_sink) {
       const used = new Set(this.spec.nodes.filter(n => n.pixel != null).map(n => n.pixel));
       for (let px = 0; px < 9; px++) if (!used.has(px)) { node.pixel = px; break; }
     }
@@ -413,14 +435,23 @@ export class Editor {
         <div class="ed-row"><span>position</span><b>${n.pos.map(x => (+x).toFixed(1)).join(', ')}</b></div>
         <div class="ed-row"><span>edges</span><b>${inCount} in · ${outCount} out</b></div>
         <p class="ed-desc">${arch.desc}</p>
-        ${n.archetype === 'e_sensory' ? `
-          <label class="ed-field"><span>input pixel (0–8, blank = none)</span>
-            <input id="ed-pixel" type="number" min="0" max="8" value="${n.pixel ?? ''}" /></label>` : ''}
+        ${arch.input_sink ? `
+          <label class="ed-field"><span>input pixel (0–8, blank = none) — external drive, unique</span>
+            <input id="ed-pixel" type="number" min="0" max="8" value="${n.pixel ?? ''}" /></label>` : `
+          <label class="ed-field"><span>grid cell (0–8, blank = none) — display / receptive field only</span>
+            <input id="ed-grid" type="number" min="0" max="8" value="${n.grid ?? ''}" /></label>`}
         <button class="btn sm danger" id="ed-del-node">Delete node</button>`;
+      const clampCell = v => Math.max(0, Math.min(8, parseInt(v, 10) || 0));
       const px = document.getElementById('ed-pixel');
       px?.addEventListener('change', () => {
         const v = px.value.trim();
-        if (v === '') delete n.pixel; else n.pixel = Math.max(0, Math.min(8, parseInt(v, 10) || 0));
+        if (v === '') delete n.pixel; else n.pixel = clampCell(v);
+        this._rebuild();
+      });
+      const gd = document.getElementById('ed-grid');
+      gd?.addEventListener('change', () => {
+        const v = gd.value.trim();
+        if (v === '') delete n.grid; else n.grid = clampCell(v);
         this._rebuild();
       });
       document.getElementById('ed-del-node')?.addEventListener('click', () => this.deleteSelected());

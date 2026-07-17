@@ -14,8 +14,13 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const COLORS = {
-  E: 0x5eead4, I: 0xf0788c, winner: 0xffce5c,
+  // Per neuron-class body/emissive colour. 'S' is the exogenous retinal-ganglion
+  // source: amber, deliberately unlike the teal cortical excitatory cells, because it
+  // is a sensory event source rather than an inhibitable integrator.
+  E: 0x5eead4, I: 0xf0788c, S: 0xfbbf24, winner: 0xffce5c,
   feedforward: 0x4cc38a, inhibition: 0xf0788c, feedback: 0xc084fc,
+  fixed_excitation: 0x22c55e,
+  trace_excitation: 0xf59e0b,
   // Paired local sensory afferent L1E_s[i] -> L1E_new[i] (coincidence input): a real
   // weighted excitatory synapse, distinct green-yellow.
   coincidence_local: 0x9be15d,
@@ -46,7 +51,7 @@ const BETWEEN_LAYER_SPACING = 4.0;
 // pulse, winner halo); the four BASE_RADII keep the populations intentionally
 // distinct relative to one another.
 const VISUAL_SCALE = WITHIN_LAYER_SPACING;
-const BASE_RADII = { L1E: 0.44, L1I: 0.34, L2E: 0.55, L2I: 0.62 };
+const BASE_RADII = { RGS: 0.40, L1E: 0.44, ERRE: 0.42, L1I: 0.34, L2E: 0.55, L2I: 0.62 };
 const RING_GAP = 0.18;          // base gap between sphere surface and charge ring
 const HALO_RADIUS = 1.05;       // base winner-halo torus radius (encloses winner)
 const HALO_TUBE = 0.06;         // base winner-halo tube radius
@@ -81,7 +86,7 @@ export class NeuronRenderer {
     // id -> {mesh, ring, meta, pulse, spiked, act, freq, assembly}
     this.neurons = new Map();
     this.edges = new Map();       // id -> {line, mat, syn, weight, pulse}
-    this.filters = { active: false, weak: true, assembly: false, l1: true, l2: true, inh: true };
+    this.filters = { active: false, weak: true, assembly: false, rg: true, l1: true, l2: true, inh: true };
     this._last = null;
     this._selected = null;
 
@@ -301,7 +306,9 @@ export class NeuronRenderer {
       let vis = true;
       const t = e.meta.type, layer = e.meta.layer;
       if (t === 'I' && !F.inh) vis = false;
+      if (layer === 'RG' && !F.rg) vis = false;
       if (layer === 'L1' && !F.l1) vis = false;
+      if (layer === 'ERR' && !F.l1) vis = false;
       if (layer === 'L2' && !F.l2) vis = false;
       if (F.active && e.act < 0.05 && !e.spiked) vis = false;
       if (F.assembly && win && !assemblyNeurons.has(id)) vis = false;

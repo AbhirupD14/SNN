@@ -129,7 +129,8 @@ export class ChargeChart {
     this._draw();
   }
 
-  _lanes() { return this.showL1 ? this.order : this.order.filter(n => !n.group.startsWith('L1')); }
+  _lanes() { return this.showL1 ? this.order
+    : this.order.filter(n => !n.group.startsWith('L1') && !n.group.startsWith('ERR')); }
 
   _draw() {
     if (!this._open() || !this.built) return;

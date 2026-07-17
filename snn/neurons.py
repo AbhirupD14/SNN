@@ -6,14 +6,22 @@ excitatory charge and its own inhibitory conductance *jointly* in one step, befo
 any threshold test. Inhibition therefore shunts an otherwise-instant spike within
 the same integration boundary, and it *persists* (decaying) across voltage resets.
 
-Three neuron abstractions live here:
+Five neuron abstractions live here:
 
 * ``ExcitatoryNeuron`` -- conductance-based LIF with a local post-synaptic activity
   trace (a "calcium" trace) that survives voltage reset, plus the one nonnegative
-  accumulating-weight learning rule.
+  accumulating-weight learning rule. Used for BOTH roles that learn feedforward
+  weights: the competitors (``L2E``, winner-take-all) and, in the ``rg`` topology,
+  the noncompetitive ``L1E`` encoders. The learning rule and intrinsic configuration
+  are identical; only WTA membership and fan-in differ.
+* ``SourceNeuron`` -- an exogenous binary spike source (the retinal ganglion cell in
+  the ``rg`` topology). No membrane, no inhibition, no plasticity.
 * ``InhibitoryNeuron`` -- a stateless Boolean relay (``L2I_WTA`` and, in the
   ``enew_enabled=True`` comparison topology, the paired ``L1I`` cells). Its output
   is turned into a conductance pulse by the engine; the relay owns no membrane.
+* ``SwitchInterneuron`` -- a charged two-branch coincidence interneuron. Bounded
+  residual and paired-trace charge are each subthreshold alone and cross threshold
+  only together; no global winner id is consulted.
 * ``PredictiveInterneuron`` -- a pattern-specific relay paired one-to-one with an
   ``L2E`` competitor. It owns a nonnegative output weight vector onto the sensory
   ``L1E_s`` cells; each output synapse learns **strictly locally** from its own
@@ -238,6 +246,52 @@ class ExcitatoryNeuron:
         np.clip(w + delta, 0.0, self.w_max, out=w)
 
 
+class SourceNeuron:
+    """An exogenous binary spike source -- the retinal ganglion (RG) cell.
+
+    Deliberately NOT an ``ExcitatoryNeuron``: it owns no membrane, no inhibitory
+    conductance, no refractory state, and no learning rule, so there is nothing for
+    cortical feedback to act on. Its spike is a pure function of the external input::
+
+        spiked(t) = input_arrives(t) AND input_vec[pixel] > 0.5
+
+    The engine sets that Boolean via ``present`` each boundary. The plastic weight on
+    the RG -> L1E path is owned by the *postsynaptic* encoder, not by this cell, so RG
+    supplies the presynaptic event and nothing else.
+
+    "Uninhibited" here means uninhibited *by the modelled cortical feedback loop*
+    (L1I / L2I / PI). It is not a claim that a biological retina lacks inhibitory
+    circuitry -- retinal amacrine/horizontal inhibition is simply outside this model.
+    """
+
+    def __init__(self, nid, role='rg_source', *, threshold=E_THRESHOLD):
+        self.id = nid
+        self.role = role
+        self.type = 'S'
+        self.threshold = float(threshold)      # reported/visual invariant only
+        self.spiked = False
+
+    def present(self, active: bool):
+        """Set this boundary's exogenous spike. The only way an RG cell ever fires."""
+        self.spiked = bool(active)
+        return self.spiked
+
+    def clear(self):
+        self.spiked = False
+
+    @property
+    def potential(self):
+        return self.threshold if self.spiked else 0.0
+
+    @property
+    def activation(self):
+        return 1.0 if self.spiked else 0.0
+
+    @property
+    def refractory_timer(self):
+        return 0
+
+
 class InhibitoryNeuron:
     """A stateless instant relay (``L2I_WTA`` and the comparison-topology ``L1I``).
 
@@ -274,6 +328,117 @@ class InhibitoryNeuron:
     @property
     def activation(self):
         return 1.0 if self.spiked else 0.0
+
+    @property
+    def refractory_timer(self):
+        return 0
+
+
+class SwitchInterneuron:
+    """Charged two-branch local incumbent-release coincidence detector.
+
+    Each switch is paired with exactly one L2 competitor. ``x`` is a scalar local
+    eligibility trace written by a real spike from that competitor. ErrorE events add
+    numeric ``residual_charge``. A sufficiently mature ``x`` opens a second local
+    priming branch, ``trace_charge``. Both branch charges are individually capped below
+    threshold, so repeated activity on either branch alone can never fire the cell;
+    their sum is the visible membrane/coincidence potential.
+
+    The engine resolves residual charge against the trace carried into the boundary,
+    then records the current competitor spike for a future boundary. Consequently a
+    new winner cannot combine with same-boundary residual activity and inhibit itself.
+
+    A successful coincidence consumes the old trace, making the gate one-shot until
+    another paired L2 spike primes it. This rejects either branch alone and avoids a
+    sticky global winner variable while retaining a tunable local memory window.
+    """
+
+    def __init__(self, nid, role='switch', *, trace_decay=0.97,
+                 trace_threshold=0.5, residual_charge_frac=0.55,
+                 trace_charge_frac=0.90, branch_cap_frac=0.90,
+                 threshold=I_THRESHOLD):
+        self.id = nid
+        self.role = role
+        self.type = 'I'
+        self.threshold = float(threshold)          # reported invariant only
+        self.trace_decay = float(np.clip(trace_decay, 0.0, 1.0))
+        self.trace_threshold = float(np.clip(trace_threshold, 0.0, 1.0))
+        self.residual_charge_frac = max(0.0, float(residual_charge_frac))
+        self.trace_charge_frac = max(0.0, float(trace_charge_frac))
+        # Structural safety invariant: neither branch can reach threshold alone,
+        # even if a programmatic caller bypasses the dashboard's bounded controls.
+        safe_cap_frac = float(np.clip(branch_cap_frac, 0.0, 1.0 - 1e-9))
+        self.branch_cap = safe_cap_frac * self.threshold
+        self.x = 0.0
+        self.residual_charge = 0.0
+        self.trace_charge = 0.0
+        self.V = 0.0
+        self.v_pre_reset = 0.0
+        self.residual_events = 0
+        self.received_residual = False
+        self.spiked = False
+
+    def _refresh_potential(self):
+        """Combine bounded branch charge without weakening the strict AND.
+
+        The biochemical eligibility trace becomes electrical priming only after its
+        own threshold. Below that threshold the residual branch remains visible but
+        cannot be pushed supra-threshold by an ineligible trace.
+        """
+        if self.x >= self.trace_threshold:
+            self.trace_charge = min(self.branch_cap,
+                                    self.x * self.trace_charge_frac * self.threshold)
+        else:
+            self.trace_charge = 0.0
+        self.V = self.residual_charge + self.trace_charge
+
+    def begin_boundary(self):
+        """Decay local eligibility and clear this boundary's transient state."""
+        self.x *= self.trace_decay
+        self.residual_charge = 0.0                    # current-boundary residual branch
+        self.residual_events = 0
+        self.received_residual = False
+        self.spiked = False
+        self.v_pre_reset = 0.0
+        self._refresh_potential()
+
+    def receive_residual(self):
+        """Add one explicit ErrorE event as bounded numeric branch charge."""
+        self.received_residual = True
+        self.residual_events += 1
+        dq = self.residual_charge_frac * self.threshold
+        self.residual_charge = min(self.branch_cap, self.residual_charge + dq)
+        self._refresh_potential()
+
+    def resolve_residual(self):
+        """Evaluate strict temporal AND against the pre-existing local trace."""
+        if (self.received_residual and self.x >= self.trace_threshold
+                and self.V >= self.threshold):
+            self.spiked = True
+            self.v_pre_reset = self.V
+            self.x = 0.0                              # consume: one release per trace
+            self.residual_charge = 0.0
+            self.trace_charge = 0.0
+            self.V = 0.0
+        return self.spiked
+
+    def prime(self):
+        """Record an actual spike from this switch's paired L2 competitor."""
+        self.x = 1.0
+        # Do not refresh V here: current L2 spikes are recorded only for a future
+        # boundary and must not combine electrically with same-boundary residuals.
+
+    def clear(self):
+        """Compatibility with relay cleanup; the engine calls begin_boundary()."""
+        self.begin_boundary()
+
+    @property
+    def potential(self):
+        return self.threshold if self.spiked else self.V
+
+    @property
+    def activation(self):
+        return self.potential / self.threshold if self.threshold else 0.0
 
     @property
     def refractory_timer(self):

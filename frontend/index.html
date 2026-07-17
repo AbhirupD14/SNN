@@ -118,7 +118,8 @@
           <label class="check"><input type="checkbox" id="f-active" /> Only active neurons</label>
           <label class="check"><input type="checkbox" id="f-weak" checked /> Hide weak synapses</label>
           <label class="check"><input type="checkbox" id="f-assembly" /> Isolate winning assembly</label>
-          <label class="check"><input type="checkbox" id="f-l1" checked /> Show Layer 1</label>
+          <label class="check"><input type="checkbox" id="f-rg" checked /> Show RG layer</label>
+          <label class="check"><input type="checkbox" id="f-l1" checked /> Show L1 + residual</label>
           <label class="check"><input type="checkbox" id="f-l2" checked /> Show Layer 2</label>
           <label class="check"><input type="checkbox" id="f-inh" checked /> Show inhibitory</label>
         </div>
@@ -129,6 +130,7 @@
     <section class="viewport">
       <div id="scene"></div>
       <div class="legend">
+        <div><span class="sw rg"></span>RG source</div>
         <div><span class="sw exc"></span>excitatory</div>
         <div><span class="sw inh"></span>inhibitory</div>
         <div><span class="sw win"></span>winner</div>
@@ -293,10 +295,14 @@
       </span>
       <span class="ed-group">
         <label>Add</label>
+        <button class="btn sm" data-add="rg_source" title="Retinal ganglion cell: exogenous, uninhibitable spike source for one pixel">＋RG</button>
         <button class="btn sm" data-add="e_sensory" title="Sensory excitatory source">＋Sensory</button>
+        <button class="btn sm" data-add="e_encoder" title="Plastic noncompetitive excitatory encoder (learns its feedforward afferents, no WTA)">＋Encoder</button>
+        <button class="btn sm" data-add="e_residual" title="Noncompetitive excitatory residual/error cell">＋Residual</button>
         <button class="btn sm" data-add="e_competitor" title="Competitor (WTA) excitatory">＋Competitor</button>
         <button class="btn sm" data-add="i_relay" title="Inhibitory relay">＋Relay</button>
         <button class="btn sm" data-add="predictor" title="Predictive interneuron">＋Predictor</button>
+        <button class="btn sm" data-add="switch" title="Local traced temporal-AND incumbent switch interneuron">＋Switch</button>
       </span>
       <span class="ed-group">
         <button class="btn sm primary" id="ed-apply" title="Rebuild the live network from this graph (resets learned state)">Apply</button>

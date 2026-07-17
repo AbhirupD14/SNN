@@ -97,7 +97,15 @@ def test_config_accepts_editable_keys(engine):
     assert keys == set(config_values(engine.params))
     assert keys == {'leak_rate', 'refractory_steps', 'eta', 'e_weight_cap', 'topology',
                     'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'pi_eta', 'pi_g_scale',
-                    'l2i_g_scale', 'pi_conductance_enabled', 'pi_plasticity_enabled'}
+                    'l2i_g_scale', 'pi_conductance_enabled', 'pi_plasticity_enabled',
+                    # 'rg' topology controls: the RG->L1E projection's ablation toggle
+                    # and its initialization-jitter control.
+                    'enc_plasticity_enabled', 'enc_init_jitter',
+                    # residual topology timing/expression controls
+                    'residual_exc_scale', 'switch_trace_decay',
+                    'switch_trace_threshold', 'switch_residual_charge_frac',
+                    'switch_trace_charge_frac', 'switch_g_scale',
+                    'switch_conductance_enabled'}
 
 
 def test_reset_and_reseed_cycle(engine):

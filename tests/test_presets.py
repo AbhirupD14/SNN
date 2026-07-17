@@ -24,12 +24,12 @@ def _mini():
 
 def test_builtins_always_listed_first():
     lst = ps.list_presets(N_PIX, N_OUT)
-    assert [p['name'] for p in lst[:2]] == ['pi', 'old']
-    assert all(p['builtin'] for p in lst[:2])
+    assert [p['name'] for p in lst[:4]] == ['pi', 'old', 'rg', 'rg_residual']
+    assert all(p['builtin'] for p in lst[:4])
 
 
 def test_builtin_specs_loadable():
-    for name in ('pi', 'old'):
+    for name in ('pi', 'old', 'rg', 'rg_residual'):
         spec = ps.load_spec(name, N_PIX, N_OUT)
         assert spec['name'] == name and spec['nodes']
 
@@ -60,8 +60,8 @@ def test_invalid_spec_not_saved():
 
 
 def test_builtins_cannot_be_deleted():
-    assert ps.delete_preset('pi') is False
-    assert ps.delete_preset('old') is False
+    for name in ('pi', 'old', 'rg', 'rg_residual'):
+        assert ps.delete_preset(name) is False
 
 
 def test_missing_preset_raises_keyerror():
