@@ -228,6 +228,41 @@ def test_clipping_and_saturation_at_cap():
     assert c.basal_weight == pytest.approx(500.0, abs=1e-6)   # saturates at cap
 
 
+def test_fe_toggle_drops_fullness_error_factor():
+    # use_fe=False removes the (theta - w) factor; dw uses 1.0 in its place.
+    w, w_max, eta, phi = 300.0, 500.0, 0.02, 0.8
+    c = make_c(basal_weight=w, w_max=w_max, eta_c=eta, basal_distance_factor=phi,
+               threshold=1000.0, use_fe=False)
+    c.begin_event_boundary(); c.gather_basal('L1E0'); c.gather_apical('L2E0')
+    c.resolve_dendrites()
+    w_after = c.update_basal_weight()
+    dw = eta * 1.0 * (1.0 - (w / w_max) ** 2) * 1.0 * phi     # NO (theta - w) term
+    assert w_after == pytest.approx(w + dw)
+
+
+def test_both_fe_variants_share_cap_fixed_point_fe_off_is_slower():
+    # The (1 - (w/w_max)^2) term is the real bound: BOTH variants are bounded by and
+    # monotonically approach w_max. With w_max << theta, FE is a near-constant ~(theta-w)
+    # gain, so dropping it makes maturation much slower for the same eta -- but the
+    # saturation point is unchanged.
+    finals = {}
+    for use_fe in (True, False):
+        c = make_c(basal_weight=490.0, w_max=500.0, eta_c=0.9, threshold=1000.0,
+                   use_fe=use_fe)
+        prev = c.basal_weight
+        for _ in range(2000):
+            c.begin_event_boundary(); c.gather_basal('L1E0'); c.gather_apical('L2E0')
+            c.resolve_dendrites(); c.apical_active = True; c._deposit_signal = 1.0
+            c.update_basal_weight()
+            assert c.basal_weight <= 500.0 + 1e-9        # never exceeds the cap
+            assert c.basal_weight >= prev - 1e-12        # monotonic non-decreasing
+            prev = c.basal_weight
+        finals[use_fe] = c.basal_weight
+    assert finals[True] == pytest.approx(500.0, abs=1e-6)   # FE ON reaches the cap
+    assert 490.0 < finals[False] < 500.0                    # FE OFF still climbing (slower)
+    assert finals[True] > finals[False]
+
+
 def test_no_apical_weight_vector():
     c = make_c()
     assert c.apical.weights is None

@@ -1,0 +1,2156 @@
+{
+  "plus_pixels": [
+    1,
+    3,
+    4,
+    5,
+    7
+  ],
+  "washout_note": "learning is DISABLED during both probes (E/L2E + C weights frozen and asserted unchanged); the controlled probe also zeros each L2E V and g_inh before every plus boundary; both capture the FIRST plus-driven boundary; production untouched",
+  "runs": [
+    {
+      "cond": "A",
+      "seed": 1,
+      "row_owner": "L2E2",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.95,
+      "col_plus_wsum": 999.87,
+      "carried": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 358.4206,
+          "frozen_excitation": 358.4206,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 716.8411,
+          "active_input_wsum": 999.951,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 999.8678,
+          "frozen_excitation": 999.8678,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.7356,
+          "active_input_wsum": 999.868,
+          "refractory": 0,
+          "tau": 0.000132196,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 358.4206,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 358.4206,
+          "active_input_wsum": 999.951,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.8678,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.8678,
+          "active_input_wsum": 999.868,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "A",
+      "seed": 2,
+      "row_owner": "L2E6",
+      "col_owner": "L2E3",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.93,
+      "col_plus_wsum": 809.61,
+      "carried": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 336.5576,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 336.5576,
+          "active_input_wsum": 999.932,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 809.613,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 809.613,
+          "active_input_wsum": 809.613,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 336.5576,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 336.5576,
+          "active_input_wsum": 999.932,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 809.613,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 809.613,
+          "active_input_wsum": 809.613,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "A",
+      "seed": 3,
+      "row_owner": "L2E3",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.94,
+      "col_plus_wsum": 999.79,
+      "carried": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 344.7877,
+          "frozen_excitation": 344.7877,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 689.5755,
+          "active_input_wsum": 999.942,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 999.7906,
+          "frozen_excitation": 999.7906,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.5812,
+          "active_input_wsum": 999.791,
+          "refractory": 0,
+          "tau": 0.000209435,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 344.7877,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 344.7877,
+          "active_input_wsum": 999.942,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.7906,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.7906,
+          "active_input_wsum": 999.791,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "A",
+      "seed": 4,
+      "row_owner": "L2E4",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.78,
+      "col_plus_wsum": 835.04,
+      "carried": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 339.5196,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 339.5196,
+          "active_input_wsum": 999.777,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 835.0412,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 835.0412,
+          "active_input_wsum": 835.041,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 339.5196,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 339.5196,
+          "active_input_wsum": 999.777,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 835.0412,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 835.0412,
+          "active_input_wsum": 835.041,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "A",
+      "seed": 5,
+      "row_owner": "L2E0",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.93,
+      "col_plus_wsum": 999.71,
+      "carried": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 346.6754,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 346.6754,
+          "active_input_wsum": 999.925,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.713,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.713,
+          "active_input_wsum": 999.713,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 346.6754,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 346.6754,
+          "active_input_wsum": 999.925,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.713,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.713,
+          "active_input_wsum": 999.713,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "A",
+      "seed": 6,
+      "row_owner": "L2E7",
+      "col_owner": "L2E5",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.96,
+      "col_plus_wsum": 999.81,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 352.0466,
+          "frozen_excitation": 352.0466,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 704.0931,
+          "active_input_wsum": 999.963,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 999.815,
+          "frozen_excitation": 999.815,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.63,
+          "active_input_wsum": 999.815,
+          "refractory": 0,
+          "tau": 0.000185056,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 352.0466,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 352.0466,
+          "active_input_wsum": 999.963,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.815,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.815,
+          "active_input_wsum": 999.815,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "A",
+      "seed": 7,
+      "row_owner": "L2E7",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.99,
+      "col_plus_wsum": 999.82,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 350.7179,
+          "frozen_excitation": 350.7179,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 701.4358,
+          "active_input_wsum": 999.987,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 999.8202,
+          "frozen_excitation": 999.8202,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.6403,
+          "active_input_wsum": 999.82,
+          "refractory": 0,
+          "tau": 0.00017987,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 350.7179,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 350.7179,
+          "active_input_wsum": 999.987,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.8202,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.8202,
+          "active_input_wsum": 999.82,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "A",
+      "seed": 8,
+      "row_owner": "L2E1",
+      "col_owner": "L2E5",
+      "distinct_owners": true,
+      "row_plus_wsum": 999.96,
+      "col_plus_wsum": 841.01,
+      "carried": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 346.8223,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 346.8223,
+          "active_input_wsum": 999.964,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 841.0129,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 841.0129,
+          "active_input_wsum": 841.013,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 346.8223,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 346.8223,
+          "active_input_wsum": 999.964,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 841.0129,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 841.0129,
+          "active_input_wsum": 841.013,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 1,
+      "row_owner": "L2E2",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 364.4006,
+          "frozen_excitation": 364.4006,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 728.8013,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 999.9995,
+          "frozen_excitation": 999.9995,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.999,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 4.79e-07,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 364.4006,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 364.4006,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9995,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9995,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 2,
+      "row_owner": "L2E6",
+      "col_owner": "L2E3",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 859.88,
+      "carried": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 344.3356,
+          "frozen_excitation": 344.3356,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 688.6712,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 859.8836,
+          "frozen_excitation": 205.1537,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1065.0373,
+          "active_input_wsum": 859.884,
+          "refractory": 0,
+          "tau": 0.682982436,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 344.3356,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 344.3356,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 205.1537,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 205.1537,
+          "active_input_wsum": 859.884,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 3,
+      "row_owner": "L2E3",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 900.65,
+      "carried": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 347.6317,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 347.6317,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 900.6525,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 900.6525,
+          "active_input_wsum": 900.652,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 347.6317,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 347.6317,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 900.6525,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 900.6525,
+          "active_input_wsum": 900.652,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 4,
+      "row_owner": "L2E4",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 913.74,
+      "carried": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 333.7622,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 333.7622,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 913.7424,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 913.7424,
+          "active_input_wsum": 913.742,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 333.7622,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 333.7622,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 913.7424,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 913.7424,
+          "active_input_wsum": 913.742,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 5,
+      "row_owner": "L2E0",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 935.44,
+      "carried": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 342.1108,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 342.1108,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 935.4434,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 935.4434,
+          "active_input_wsum": 935.443,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 342.1108,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 342.1108,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 935.4434,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 935.4434,
+          "active_input_wsum": 935.443,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 6,
+      "row_owner": "L2E7",
+      "col_owner": "L2E5",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 355.1768,
+          "frozen_excitation": 355.1768,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 710.3536,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 999.9996,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.9992,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 3.78e-07,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 355.1768,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 355.1768,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9996,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 7,
+      "row_owner": "L2E7",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 914.2,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 349.2126,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 349.2126,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 914.1972,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 914.1972,
+          "active_input_wsum": 914.197,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 349.2126,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 349.2126,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 914.1972,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 914.1972,
+          "active_input_wsum": 914.197,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "B",
+      "seed": 8,
+      "row_owner": "L2E1",
+      "col_owner": "L2E5",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 898.95,
+      "carried": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 346.9279,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 346.9279,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 898.9545,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 898.9545,
+          "active_input_wsum": 898.955,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 346.9279,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 346.9279,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 898.9545,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 898.9545,
+          "active_input_wsum": 898.955,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 1,
+      "row_owner": "L2E2",
+      "col_owner": "L2E2",
+      "distinct_owners": false,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 350.913,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 701.8259,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 350.913,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 701.8259,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 350.913,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 350.913,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 2,
+      "row_owner": "L2E6",
+      "col_owner": "L2E3",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 799.02,
+      "carried": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 362.6072,
+          "frozen_excitation": 362.607,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 725.2143,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 799.0203,
+          "frozen_excitation": 204.2449,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1003.2652,
+          "active_input_wsum": 799.02,
+          "refractory": 0,
+          "tau": 0.984013095,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 362.607,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 362.607,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 204.2449,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 204.2449,
+          "active_input_wsum": 799.02,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 3,
+      "row_owner": "L2E3",
+      "col_owner": "L2E3",
+      "distinct_owners": false,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 705.2714,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1057.9071,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 0.835787887,
+          "finite": true
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 705.2714,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1057.9071,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 0.835787887,
+          "finite": true
+        },
+        "n_finite_crossings": 2,
+        "tau_gap": 0.0,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 352.6357,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 352.6357,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 4,
+      "row_owner": "L2E4",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 335.2331,
+          "frozen_excitation": 335.2331,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 670.4663,
+          "active_input_wsum": 999.999,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 999.9996,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.9993,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 3.75e-07,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 335.2331,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 335.2331,
+          "active_input_wsum": 999.999,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9996,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 5,
+      "row_owner": "L2E0",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 810.11,
+      "carried": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 331.6678,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 331.6678,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 810.1149,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 810.1149,
+          "active_input_wsum": 810.115,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 331.6678,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 331.6678,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 810.1149,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 810.1149,
+          "active_input_wsum": 810.115,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 6,
+      "row_owner": "L2E7",
+      "col_owner": "L2E7",
+      "distinct_owners": false,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 351.0703,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 702.1406,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E7",
+          "v_before_drive": 351.0703,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 702.1406,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 351.0703,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 351.0703,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 7,
+      "row_owner": "L2E7",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 343.9806,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 343.9806,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9996,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 343.9806,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 343.9806,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9996,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "D",
+      "seed": 8,
+      "row_owner": "L2E1",
+      "col_owner": "L2E5",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 799.77,
+      "carried": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 348.8828,
+          "frozen_excitation": 348.8827,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 697.7655,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 799.7733,
+          "frozen_excitation": 203.3026,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1003.076,
+          "active_input_wsum": 799.773,
+          "refractory": 0,
+          "tau": 0.984870091,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 348.8827,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 348.8827,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 203.3026,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 203.3026,
+          "active_input_wsum": 799.773,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 1,
+      "row_owner": "L2E2",
+      "col_owner": "L2E2",
+      "distinct_owners": false,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 350.913,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 701.8259,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 350.913,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 701.8259,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 350.913,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 350.913,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 350.913,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 2,
+      "row_owner": "L2E6",
+      "col_owner": "L2E3",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 799.02,
+      "carried": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 362.6072,
+          "frozen_excitation": 362.607,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 725.2143,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 799.0203,
+          "frozen_excitation": 204.2449,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1003.2652,
+          "active_input_wsum": 799.02,
+          "refractory": 0,
+          "tau": 0.984013095,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E6",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 362.607,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 362.607,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 204.2449,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 204.2449,
+          "active_input_wsum": 799.02,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 3,
+      "row_owner": "L2E3",
+      "col_owner": "L2E3",
+      "distinct_owners": false,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 705.2714,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1057.9071,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 0.835787887,
+          "finite": true
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 705.2714,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1057.9071,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 0.835787887,
+          "finite": true
+        },
+        "n_finite_crossings": 2,
+        "tau_gap": 0.0,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 352.6357,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E3",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 352.6357,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 352.6357,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 4,
+      "row_owner": "L2E4",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 335.2331,
+          "frozen_excitation": 335.2331,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 670.4663,
+          "active_input_wsum": 999.999,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 999.9996,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1999.9993,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": 3.75e-07,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 335.2331,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 335.2331,
+          "active_input_wsum": 999.999,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9996,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 5,
+      "row_owner": "L2E0",
+      "col_owner": "L2E2",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 810.11,
+      "carried": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 331.6678,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 331.6678,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 810.1149,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 810.1149,
+          "active_input_wsum": 810.115,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E0",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 331.6678,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 331.6678,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E2",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 810.1149,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 810.1149,
+          "active_input_wsum": 810.115,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 6,
+      "row_owner": "L2E7",
+      "col_owner": "L2E7",
+      "distinct_owners": false,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 351.0703,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 702.1406,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E7",
+          "v_before_drive": 351.0703,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 702.1406,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 351.0703,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 351.0703,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 351.0703,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 1,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 7,
+      "row_owner": "L2E7",
+      "col_owner": "L2E4",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 1000.0,
+      "carried": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 343.9806,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 343.9806,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9996,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E7",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 343.9806,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 343.9806,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E4",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 999.9996,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 999.9996,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    },
+    {
+      "cond": "F",
+      "seed": 8,
+      "row_owner": "L2E1",
+      "col_owner": "L2E5",
+      "distinct_owners": true,
+      "row_plus_wsum": 1000.0,
+      "col_plus_wsum": 799.77,
+      "carried": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 348.8828,
+          "frozen_excitation": 348.8827,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 697.7655,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 799.7733,
+          "frozen_excitation": 203.3026,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 1003.076,
+          "active_input_wsum": 799.773,
+          "refractory": 0,
+          "tau": 0.984870091,
+          "finite": true
+        },
+        "n_finite_crossings": 1,
+        "tau_gap": null,
+        "earlier": "col",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      },
+      "controlled": {
+        "row": {
+          "owner": "L2E1",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 348.8827,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 348.8827,
+          "active_input_wsum": 1000.0,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "col": {
+          "owner": "L2E5",
+          "v_before_drive": 0.0,
+          "frozen_excitation": 203.3026,
+          "g_inh": 0.0,
+          "projected_uninhibited_end_v": 203.3026,
+          "active_input_wsum": 799.773,
+          "refractory": 0,
+          "tau": null,
+          "finite": false
+        },
+        "n_finite_crossings": 0,
+        "tau_gap": null,
+        "earlier": "neither",
+        "captured_boundary": 0,
+        "learned_weights_unchanged": true
+      }
+    }
+  ]
+}

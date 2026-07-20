@@ -46,6 +46,16 @@ DEFAULT_ETA = 0.01
 DEFAULT_LEAK = 0.0
 DEFAULT_REFRACTORY = 0
 
+# --- Accumulating weight-update modes ----------------------------------------
+# The ordinary E/L2E PRODUCTION default is now `linear_bounded` (promoted after a
+# 32/32 fresh-seed confirmation): the per-synapse (1 - (w/w_max)^2) multiplier is
+# dropped from the default E update, and the E hard cap is retained. `quadratic_bounded`
+# is the HISTORICAL E rule, kept as a headless mode; `linear_nonnegative` is a cap-free
+# diagnostic only. The C basal rule is UNCHANGED (default `c_quadratic_bounded`, the
+# multiplier retained). None of these are dashboard controls.
+E_UPDATE_MODES = ('quadratic_bounded', 'linear_bounded', 'linear_nonnegative')
+C_UPDATE_MODES = ('c_quadratic_bounded', 'c_linear_bounded', 'c_linear_nonnegative')
+
 # --- Conductance / trace defaults (documented, engine may override) ---------
 # Membrane: C dV/dt = -g_L (V - E_L) - g_inh (V - E_inh) + I_exc, with C = 1,
 # E_L = V_rest = 0, dt = 1. The existing per-step leak maps to a baseline leak
@@ -347,9 +357,9 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
     """
 
     def __init__(self, nid, role, *, acc_weights, acc_distance_factor,
-                 threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP,
+                 threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP, w_floor=0.0,
                  leak_rate=DEFAULT_LEAK, refractory_steps=DEFAULT_REFRACTORY,
-                 eta=DEFAULT_ETA, learn=True,
+                 eta=DEFAULT_ETA, learn=True, update_mode='linear_bounded',
                  e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
                  alpha_a=DEFAULT_ALPHA_A, beta_v=DEFAULT_BETA_V,
                  beta_s=DEFAULT_BETA_S, a_max=DEFAULT_A_MAX):
@@ -358,21 +368,43 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
                          alpha_inh=alpha_inh, alpha_a=alpha_a, beta_v=beta_v,
                          beta_s=beta_s, a_max=a_max)
         self.w_max = float(w_max)
+        self.w_floor = float(w_floor)            # lower clip on learned weights (default 0)
+        if update_mode not in E_UPDATE_MODES:
+            raise ValueError(f'update_mode must be one of {E_UPDATE_MODES}, got {update_mode!r}')
+        self.update_mode = update_mode
         self.acc_weights = np.asarray(acc_weights, dtype=float)
         self.acc_distance_factor = np.asarray(acc_distance_factor, dtype=float)
         if self.acc_weights.shape != self.acc_distance_factor.shape:
             raise ValueError('acc_weights and acc_distance_factor must align')
         self.eta = float(eta)
         self.learn = bool(learn)
+        # --- opt-in learning-event instrumentation (off = byte-identical) ---
+        self.record_updates = False
+        self.update_log = []
 
     # -------------------------------------------------------------- learning
     def update_acc_weights(self, participation):
         """The one accumulating-weight rule. Runs when this neuron fires.
 
+        PRODUCTION default is ``linear_bounded``:
+
             p          = threshold - sum(acc_weights)          # pre-update, signed
             signal_i   = +1 if afferent i spiked in the causal volley else -1
-            delta_i    = eta * p * signal_i * distance_factor_i * (1 - (w_i/w_max)**2)
-            w_i        = clip(w_i + delta_i, 0, w_max)
+            base_i     = eta * p * signal_i * distance_factor_i
+            delta_i    = base_i                                # linear_bounded (default)
+            w_i        = clip(w_i + delta_i, w_floor, w_max)   # E cap retained, floor 0
+
+        ``update_mode`` selects the variant:
+          * ``linear_bounded``     -- delta = base; clip [w_floor, w_max]. **PRODUCTION
+            default** (promoted after a 32/32 fresh-seed confirmation); no quadratic term;
+          * ``quadratic_bounded``  -- delta = base * (1 - (w/w_max)^2); clip [w_floor, w_max].
+            The HISTORICAL rule, kept as a headless mode;
+          * ``linear_nonnegative`` -- delta = base; floor only (NO upper cap). Cap-free
+            diagnostic only.
+
+        ``w_floor`` (default 0) sets the lower clip: at 0 a fully depressed afferent can
+        still recover additively if it later participates, but it holds no charge and is
+        maximally plastic; a positive floor keeps a residual weight on every afferent.
         """
         if not self.learn:
             return
@@ -380,8 +412,36 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
         participation = np.asarray(participation, dtype=bool)
         p = self.threshold - float(w.sum())
         signal = np.where(participation, 1.0, -1.0)
-        delta = self.eta * p * signal * self.acc_distance_factor * (1.0 - (w / self.w_max) ** 2)
-        np.clip(w + delta, 0.0, self.w_max, out=w)
+        base = self.eta * p * signal * self.acc_distance_factor
+        if self.update_mode == 'quadratic_bounded':
+            delta = base * (1.0 - (w / self.w_max) ** 2)
+        else:                                        # linear_bounded / linear_nonnegative
+            delta = base
+        w_before = w.copy() if self.record_updates else None
+        if self.update_mode == 'linear_nonnegative':
+            np.maximum(w + delta, self.w_floor, out=w)     # floor only; cap-free probe
+        else:
+            np.clip(w + delta, self.w_floor, self.w_max, out=w)
+        if self.record_updates:
+            self._log_acc_update(w_before, delta, p)
+
+    def _log_acc_update(self, w_before, raw_delta, fe_pre):
+        """Append one learning-event record (opt-in; never affects dynamics)."""
+        w_after = self.acc_weights
+        pre_sum, post_sum = float(w_before.sum()), float(w_after.sum())
+        applied = w_after - w_before
+        bounded = self.update_mode != 'linear_nonnegative'
+        self.update_log.append(dict(
+            cell=self.id, mode=self.update_mode,
+            pre_sum=pre_sum, post_sum=post_sum,
+            fe_pre=float(fe_pre), fe_post=float(self.threshold - post_sum),
+            min_w=float(w_after.min()), max_w=float(w_after.max()),
+            n_zero=int((w_after <= self.w_floor + 1e-12).sum()),
+            n_at_max=int((w_after >= self.w_max - 1e-9).sum()) if bounded else 0,
+            raw_delta_norm=float(np.linalg.norm(raw_delta)),
+            applied_delta_norm=float(np.linalg.norm(applied)),
+            crossed_theta=bool((pre_sum <= self.threshold < post_sum)
+                               or (post_sum <= self.threshold < pre_sum))))
 
 
 class DendriticCompartment:
@@ -449,7 +509,8 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
 
     def __init__(self, nid, basal_source, basal_edge_id, *, apical_sources=(),
                  apical_edge_ids=(), basal_weight=0.0, basal_distance_factor=1.0,
-                 w_max=E_WEIGHT_CAP, eta_c=DEFAULT_ETA, learn=True, role='coincidence',
+                 w_max=E_WEIGHT_CAP, eta_c=DEFAULT_ETA, learn=True, use_fe=True,
+                 update_mode='c_quadratic_bounded', role='coincidence',
                  threshold=E_THRESHOLD, leak_rate=DEFAULT_LEAK,
                  refractory_steps=DEFAULT_REFRACTORY,
                  e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
@@ -462,6 +523,12 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         self.w_max = float(w_max)                     # C-specific basal cap (NOT e_weight_cap)
         self.eta_c = float(eta_c)
         self.learn = bool(learn)
+        self.use_fe = bool(use_fe)                    # include the (theta - w) fullness-error factor
+        if update_mode not in C_UPDATE_MODES:
+            raise ValueError(f'update_mode must be one of {C_UPDATE_MODES}, got {update_mode!r}')
+        self.update_mode = update_mode
+        self.record_updates = False                   # opt-in instrumentation (off = byte-identical)
+        self.update_log = []
         self.basal = DendriticCompartment(
             'basal', [basal_source], [basal_edge_id],
             weights=[float(basal_weight)], distance_factors=[float(basal_distance_factor)])
@@ -579,23 +646,45 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         """The exact basal update, applied ONLY immediately after this cell fires and
         using the causal firing-boundary dendritic state and the PRE-update weight:
 
-            FE = theta - w
+            FE = theta - w                       (fullness error; dropped if use_fe=False)
             dw = eta_C * FE * A * (1 - (w / w_max)^2) * s * phi
             w  <- clip(w + dw, 0, w_max)
 
         A is the Boolean apical gate (1 at a causal C spike), s the active basal signal
         of the causal deposit, phi the basal distance influence. There is no apical
-        weight and no negative-participation update."""
+        weight and no negative-participation update.
+
+        ``update_mode`` selects the linear-ablation variant (default reproduces the
+        production rule byte-for-byte):
+          * ``c_quadratic_bounded``  -- dw = base * (1 - (w/w_max)^2); clip [0, w_max];
+          * ``c_linear_bounded``     -- dw = base (drop the multiplier); clip [0, w_max];
+          * ``c_linear_nonnegative`` -- dw = base; floor 0 only, NO cap (diagnostic probe).
+
+        ``use_fe=False`` additionally drops the (theta - w) factor, leaving the soft bound
+        to (1 - (w/w_max)^2) alone. FE is deliberately preserved by the ablation modes."""
         if not self.learn:
             return self.basal_weight
         w = float(self.basal.weights[0])
         A = 1.0 if self.apical_active else 0.0
         s = self._deposit_signal
         phi = float(self.basal.distance_factors[0])
-        fe = self.threshold - w
-        dw = self.eta_c * fe * A * (1.0 - (w / self.w_max) ** 2) * s * phi
-        w_new = min(self.w_max, max(0.0, w + dw))
+        fe = (self.threshold - w) if self.use_fe else 1.0
+        base = self.eta_c * fe * A * s * phi
+        if self.update_mode == 'c_quadratic_bounded':
+            dw = base * (1.0 - (w / self.w_max) ** 2)
+        else:                                        # c_linear_bounded / c_linear_nonnegative
+            dw = base
+        if self.update_mode == 'c_linear_nonnegative':
+            w_new = max(0.0, w + dw)                  # floor only; cap-free diagnostic
+        else:
+            w_new = min(self.w_max, max(0.0, w + dw))
         self.basal.weights[0] = w_new
+        if self.record_updates:
+            self.update_log.append(dict(
+                cell=self.id, mode=self.update_mode, w_pre=w, w_post=w_new,
+                fe_pre=float(self.threshold - w), raw_dw=float(dw),
+                applied_dw=float(w_new - w), at_cap=bool(
+                    self.update_mode != 'c_linear_nonnegative' and w_new >= self.w_max - 1e-9)))
         return w_new
 
 

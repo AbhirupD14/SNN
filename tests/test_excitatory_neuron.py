@@ -1,10 +1,10 @@
 """Excitatory neuron: charge delivery, geometry-invariance of delivered charge,
-threshold/reset, the exact nonlinear accumulating-weight rule, the signed ``p``
-boundary, weight cap, and the refractory off-by-one convention.
+threshold/reset, the production linear-bounded accumulating-weight rule, the historical
+quadratic mode, signed ``p`` boundary, weight cap, and refractory off-by-one convention.
 
 Conductance / trace / persistent-inhibition dynamics are covered separately in
-tests/test_conductance_neuron.py. The one accumulating-weight learning rule is
-unchanged by the conductance rewrite.
+tests/test_conductance_neuron.py. The accumulating-weight mechanics remain independent
+of the conductance rewrite.
 """
 
 import numpy as np
@@ -67,19 +67,44 @@ def test_threshold_and_reset():
 
 # --------------------------------------------------------------- the weight rule
 def test_weight_rule_participate_potentiates_absent_depresses():
+    # Direction of the rule is mode-agnostic (holds for the new linear-bounded DEFAULT).
     w0 = 200.0
     n = make_neuron(acc_weights=np.array([w0, w0, w0]), acc_distance_factor=np.ones(3), eta=0.01)
     n.fire()
-    participation = np.array([True, False, True])
+    n.update_acc_weights(np.array([True, False, True]))
+    assert n.acc_weights[0] > w0 and n.acc_weights[2] > w0    # participating potentiate
+    assert n.acc_weights[1] < w0                              # absent depresses
+
+
+def test_default_update_is_linear_bounded_exact():
+    # The PROMOTED production default: dw = eta*(theta - sum(w))*s*influence, clip [0, cap].
+    # No quadratic multiplier.
+    w0 = 200.0
+    n = make_neuron(acc_weights=np.array([w0, w0, w0]),
+                    acc_distance_factor=np.array([1.0, 0.5, 1.0]), eta=0.01)
+    assert n.update_mode == 'linear_bounded'                  # engine-independent default
+    n.fire()
     w_before = n.acc_weights.copy()
-    p = E_THRESHOLD - w_before.sum()                 # 1000 - 600 = 400 > 0
-    n.update_acc_weights(participation)
+    p = E_THRESHOLD - w_before.sum()
+    n.update_acc_weights(np.array([True, False, True]))
+    expected = np.clip(w_before + 0.01 * p * np.array([1.0, -1.0, 1.0])
+                       * np.array([1.0, 0.5, 1.0]), 0, E_WEIGHT_CAP)   # NO (1-(w/wmax)^2)
+    assert n.acc_weights == pytest.approx(expected)
+
+
+def test_historical_quadratic_mode_exact():
+    # The historical quadratic rule stays available under an explicit mode request.
+    w0 = 200.0
+    n = make_neuron(acc_weights=np.array([w0, w0, w0]), acc_distance_factor=np.ones(3),
+                    eta=0.01, update_mode='quadratic_bounded')
+    n.fire()
+    w_before = n.acc_weights.copy()
+    p = E_THRESHOLD - w_before.sum()
+    n.update_acc_weights(np.array([True, False, True]))
     expected = np.clip(
         w_before + 0.01 * p * np.array([1.0, -1.0, 1.0]) * (1 - (w_before / E_WEIGHT_CAP) ** 2),
         0, E_WEIGHT_CAP)
     assert n.acc_weights == pytest.approx(expected)
-    assert n.acc_weights[0] > w0 and n.acc_weights[2] > w0
-    assert n.acc_weights[1] < w0
 
 
 @pytest.mark.parametrize('total,sign', [(600.0, +1), (1000.0, 0), (1500.0, -1)])
@@ -106,6 +131,28 @@ def test_weight_cap_clip():
     n.fire()
     n.update_acc_weights(np.array([True]))
     assert 0.0 <= n.acc_weights[0] <= E_WEIGHT_CAP
+
+
+def test_weight_floor_clips_depression():
+    # A non-participating afferent is depressed; w_floor sets its lower clip.
+    # floor=0 (default): can reach exactly 0. floor>0: holds a residual weight.
+    for floor, lo in ((0.0, 0.0), (1.0, 1.0)):
+        n = make_neuron(acc_weights=np.array([600.0, 5.0]), acc_distance_factor=np.ones(2),
+                        eta=10.0, learn=True, w_floor=floor)
+        n.fire()
+        n.update_acc_weights(np.array([True, False]))   # afferent 1 absent -> depressed hard
+        assert n.acc_weights[1] == pytest.approx(lo)     # clipped exactly at the floor
+        assert n.acc_weights[0] >= floor
+
+
+def test_weight_floor_default_is_zero_byte_compatible():
+    a = make_neuron(acc_weights=np.array([300.0, 300.0]), acc_distance_factor=np.ones(2),
+                    eta=0.1, learn=True)
+    b = make_neuron(acc_weights=np.array([300.0, 300.0]), acc_distance_factor=np.ones(2),
+                    eta=0.1, learn=True, w_floor=0.0)
+    for n in (a, b):
+        n.fire(); n.update_acc_weights(np.array([True, False]))
+    assert np.array_equal(a.acc_weights, b.acc_weights)  # explicit 0 == default
 
 
 def test_learn_flag_freezes_weights():

@@ -20,6 +20,8 @@ from snn.neurons import (
     DEFAULT_ETA,
     DEFAULT_LEAK,
     DEFAULT_REFRACTORY,
+    E_UPDATE_MODES,
+    C_UPDATE_MODES,
     leak_to_conductance,
 )
 
@@ -37,5 +39,7 @@ __all__ = [
     "DEFAULT_ETA",
     "DEFAULT_LEAK",
     "DEFAULT_REFRACTORY",
+    "E_UPDATE_MODES",
+    "C_UPDATE_MODES",
     "leak_to_conductance",
 ]

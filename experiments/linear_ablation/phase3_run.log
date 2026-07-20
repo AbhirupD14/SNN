@@ -1,0 +1,11 @@
+
+=== Phase 3: factorial network (seeds mean); replay_ok=True ===
+cond E-mode/C-mode          row_dom col_dom ret_dom  maxW  negFE overshoot capHits >cap  Cfromrest maxCw  L1E/RG  aborts
+A quadratic_bo/quadratic_bo    1.0    1.0    1.0 389.23   0.0      0.0    0.0   0.0        0 544.628  0.813  0
+B linear_bound/quadratic_bo    1.0    1.0    1.0 425.426   0.0      0.0    0.0   0.0        0 544.861  0.808  0
+C quadratic_bo/linear_bound    1.0    1.0    1.0 366.705   0.0      0.0    0.0   0.0        0  550.0  0.805  0
+D linear_bound/linear_bound    1.0    1.0    1.0 380.356   0.0      0.0    0.0   0.0        0  550.0   0.81  0
+E linear_nonne/quadratic_bo    1.0    1.0    1.0 425.426   0.0      0.0    0.0   0.0        0 544.861  0.808  0
+F linear_nonne/linear_bound    1.0    1.0    1.0 380.356   0.0      0.0    0.0   0.0        0  550.0   0.81  0
+G quadratic_bo/linear_nonne    1.0    1.0    1.0 366.705   0.0      0.0    0.0   0.0        0 849.539  0.805  0
+H linear_nonne/linear_nonne    1.0    1.0    1.0 380.356   0.0      0.0    0.0   0.0        0 845.465   0.81  0

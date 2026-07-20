@@ -155,21 +155,29 @@ Defaults `alpha_a = 0.85`, `beta_v = 0.30`, `beta_s = 1.00`, `a_max = 1.0`. The
 trace means only "this cell was recently depolarized/firing"; it carries **no**
 information about which afferent supplied the charge.
 
-## The one accumulating excitatory weight rule (unchanged)
+## The one accumulating excitatory weight rule (production: linear-bounded)
 
-Runs when an excitatory neuron fires, on `acc_weights` only:
+Runs when an excitatory neuron fires, on `acc_weights` only. The **production default is
+linear-bounded** — the per-synapse `(1 - (w_i/w_max)^2)` multiplier was removed after a
+32/32 fresh-seed confirmation (see `docs/LINEAR_WEIGHT_ABLATION_REPORT.md`). The E hard
+cap and the zero floor are retained:
 
 ```text
 p        = threshold - sum(acc_weights)               # pre-update, signed
 signal_i = +1 if afferent i spiked in the causal volley else -1
-delta_i  = eta · p · signal_i · distance_factor_i · (1 - (w_i/w_max)**2)
-w_i      = clip(w_i + delta_i, 0, w_max)
+delta_i  = eta · p · signal_i · distance_factor_i     # linear_bounded (production)
+w_i      = clip(w_i + delta_i, 0, w_max)              # E cap retained, floor 0
 ```
 
 Geometry is a per-synapse learning-rate multiplier only; it never scales delivered
-charge. `p` is signed, so a projection self-limits as its total approaches
-threshold. L2E feedforward and (in the comparison branch) L1E_new coincidence
-weights learn by this rule; sensory `L1E_s` weights are frozen.
+charge. `p` (the neuron-wide FE) is signed, so a projection self-limits as its total
+approaches threshold. L2E feedforward weights learn by this rule; sensory `L1E_s` weights
+are frozen.
+
+The **historical** rule multiplied `delta_i` by `(1 - (w_i/w_max)^2)`; it remains
+available as the headless `e_weight_update_mode='quadratic_bounded'` for regression
+comparison. Note this is the ORDINARY E/L2E rule; the **coincidence C basal rule is
+unchanged and still keeps its `(1 - (w_b/w_C_max)^2)` term** (see the C section / spec).
 
 ## Strictly-local predictive-inhibition plasticity
 
@@ -314,7 +322,9 @@ eta          = 0.01                           (shared)
 ```
 
 With one afferent, `sum(w) <= 500 < theta`, so `p = theta - sum(w)` stays positive and
-the weight rises monotonically toward the cap via the saturation term `(1-(w/w_max)^2)`.
+the weight rises monotonically toward the cap (under the production linear-bounded rule,
+`dw = eta·p·s·influence`, clipped at `w_max`; the historical rule additionally damped
+this near the cap with `(1-(w/w_max)^2)`).
 **This is expected**: L1E is a temporal *accumulator* whose cadence accelerates during
 training, not a one-event threshold relay. Analytic targets under `V_n = (w/g_L)·(1 -
 (1-leak)^n)` with `leak=0.03`, `g_L = -ln(0.97)`:

@@ -116,7 +116,7 @@ PATTERNS = {
 N_PIX = 9
 N_OUT = 8
 
-# --- Excitatory initialization (unchanged learning rule) --------------------
+# --- Excitatory initialization (production learning rule: linear-bounded) ---
 SENSORY_WEIGHT = E_THRESHOLD / 3.0                 # frozen sensory afferent weight
 FF_INIT_TOTAL_FRAC = 0.55                          # legacy ordinary-E mean scale, / theta
 FF_INIT_MEAN = FF_INIT_TOTAL_FRAC * E_THRESHOLD / N_PIX   # ~61
@@ -133,6 +133,10 @@ DEFAULTS = dict(
     seed=1,
     e_threshold=E_THRESHOLD,
     e_weight_cap=E_THRESHOLD / 2.0,                # 500 (shared accumulating cap)
+    e_weight_floor=0.0,                            # lower clip on learned weights (0 = legacy)
+    # --- linear weight-update ablation (headless; defaults reproduce production) ---
+    e_weight_update_mode='linear_bounded',         # PRODUCTION default (promoted); also: quadratic_bounded (historical) | linear_nonnegative (cap-free diagnostic)
+    c_weight_update_mode='c_quadratic_bounded',    # c_quadratic_bounded | c_linear_bounded | c_linear_nonnegative
     eta=0.01,                                      # excitatory accumulating learning rate
     leak_rate=LEAK_DEFAULT,                        # -> baseline leak conductance g_L
     refractory_steps=0,
@@ -198,6 +202,7 @@ DEFAULTS = dict(
     # than ordinary E learning: the row->column->row sweep found eta_c=0.001 retained
     # the novelty window and produced turnover/recovery in 8/8 seeds.
     c_eta=0.001,                                   # separately controlled basal learning rate
+    c_fe_enabled=True,                             # include the (theta - w) fullness-error factor in the C rule
     l2_init_total_frac=L2_INIT_TOTAL_FRAC,          # normalized latency-WTA afferent total / theta
     c_basal_weight_init=None,                      # None -> 1.01 * w_2(T)
     c_basal_weight_max=None,                       # None -> 1.10 * w_2(T)
@@ -215,7 +220,8 @@ EDITABLE_KEYS = {
     'residual_exc_scale', 'switch_trace_decay', 'switch_trace_threshold',
     'switch_residual_charge_frac', 'switch_trace_charge_frac',
     'switch_g_scale', 'switch_conductance_enabled',
-    'c_eta', 'l2_init_total_frac',
+    'c_eta', 'c_fe_enabled', 'l2_init_total_frac', 'e_weight_floor',
+    'e_weight_update_mode', 'c_weight_update_mode',
 }
 VALID_TOPOLOGIES = ('pi', 'old', 'rg', 'rg_residual', 'rg_coincidence')
 
@@ -302,6 +308,8 @@ class SimulationEngine:
         return ExcitatoryNeuron(
             nid, role, acc_weights=acc_weights, acc_distance_factor=acc_distance_factor,
             threshold=float(p['e_threshold']), w_max=float(p['e_weight_cap']),
+            w_floor=float(p['e_weight_floor']),
+            update_mode=str(p['e_weight_update_mode']),
             leak_rate=float(p['leak_rate']), refractory_steps=int(p['refractory_steps']),
             eta=float(p['eta']), learn=learn,
             e_inh=float(p['e_inh']), alpha_inh=float(alpha_inh),
@@ -394,6 +402,7 @@ class SimulationEngine:
         # Event-path per-boundary diagnostics (exposed via dynamic state in Phase 6).
         self.hard_reset_events = []
         self.latency_ties = []
+        self._crossing_capture = None       # opt-in counterfactual-crossing snapshot sink
 
     def _distance_factors(self, sources, targets):
         ds = np.array([[np.linalg.norm(self.pos[s] - self.pos[t]) for s in sources]
@@ -649,6 +658,8 @@ class SimulationEngine:
                     apical_edge_ids=[eid for (_, eid) in apical],
                     basal_weight=cpar['c_init'], basal_distance_factor=basal_phi.get(nid, 1.0),
                     w_max=cpar['c_max'], eta_c=cpar['c_eta'], learn=True,
+                    use_fe=bool(p['c_fe_enabled']),
+                    update_mode=str(p['c_weight_update_mode']),
                     threshold=thr, leak_rate=float(p['leak_rate']),
                     refractory_steps=int(p['refractory_steps']),
                     e_inh=float(p['e_inh']), alpha_inh=alpha_l1,
@@ -1071,6 +1082,24 @@ class SimulationEngine:
             c.resolve_dendrites()
         for n in self.exc.values():
             n.freeze_drive()
+
+        # Opt-in diagnostic (off = byte-identical): snapshot every latency competitor's
+        # full frozen boundary-start state, BEFORE the event loop lets the first winner
+        # reset the others. Records boundary-start V (carryover, pre-loop), the frozen
+        # drive packet, refractory state, and the counterfactual crossing time. Used by
+        # the composition probe; never affects dynamics.
+        if self._crossing_capture is not None:
+            snap = {}
+            for c in self.latency_competitors:
+                tau = c.crossing_time(1.0)
+                snap[c.id] = dict(
+                    v_before_drive=round(float(c.V), 6),
+                    frozen_excitation=round(float(c.remaining_excitation), 6),
+                    g_inh=round(float(c.g_inh), 6),
+                    refractory=int(c.refractory_timer),
+                    tau=(None if not math.isfinite(tau) else round(float(tau), 9)),
+                    finite=bool(math.isfinite(tau)))
+            self._crossing_capture.append(snap)
 
         # ---- sub-boundary event loop ----------------------------------------------
         membranes = [self.exc[nid] for nid in self.order if nid in self.exc]

@@ -546,8 +546,19 @@ Retain the current ordinary E behavior:
 
 - flat `acc_weights` and distance factors;
 - unconditionally summed delivered excitatory charge;
-- the existing signed accumulating-weight rule;
+- the signed accumulating-weight rule (see the production-rule note below);
 - current source, encoder, residual, and competitor uses.
+
+> **Production E rule (updated).** The ordinary/latency E accumulating rule is now
+> **linear-bounded** by default: `dw_i = eta·(θ−Σw)·s_i·influence_i`, clipped to
+> `[0, w_max]`. The historical `(1 − (w_i/w_max)²)` multiplier was **removed from the
+> default E update** after a 32/32 fresh-seed confirmation (row1→col1→row1, seeds
+> 2001–2032; all five success gates), because it converges faster with no loss of
+> turnover/recovery/determinism. **The E hard cap is retained** as a safety bound — under
+> the linear rule an individual weight can reach the cap (observed on seed 2005). The
+> historical quadratic rule stays available as the headless `quadratic_bounded` mode. The
+> **C basal rule is intentionally NOT changed** (it keeps its `(1 − (w_b/w_C_max)²)` term
+> and its temporal cap). See `docs/LINEAR_WEIGHT_ABLATION_REPORT.md`.
 
 `e_pretrained` uses this class with empty flat afferent arrays and `learn=False`.
 Fixed `pretrained_excitation` events enter through `gather_exc()` and are not stored
