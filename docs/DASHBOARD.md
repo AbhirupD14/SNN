@@ -33,11 +33,17 @@ from the same origin. Three.js is loaded from a CDN; all project code is local.
 | `serializer.py` | Wrap engine state in protocol envelopes. |
 | `simulation.py` | Own all model state and behavior. |
 
-`api.py` creates the engine from `DASHBOARD_OVERRIDES` (empty — plain defaults).
-`CONFIG_SPEC` is the only list of controls shown in the browser: `leak_rate`,
-`refractory_steps`, `eta`, and `e_weight_cap`. Applying configuration validates
-against a small allowlist (`EDITABLE_KEYS`), rejects any other key, and rebuilds
-the engine, so it also clears learned state.
+`api.py` creates the engine from `DASHBOARD_OVERRIDES`. The active browser preset is
+the validated `rg_coincidence` turnover configuration: zero leak/refractory,
+`eta=0.01`, `c_eta=0.001`, `l2_init_total_frac=0.95`, and weight cap 500.
+`CONFIG_SPEC` is the only list of controls shown in the browser. Applying configuration
+validates against a small allowlist (`EDITABLE_KEYS`), rejects any other key, and
+rebuilds the engine, so it also clears learned state.
+
+To watch the validated turnover, set the dashboard to 120 steps/s and present
+`row 1` for approximately 2500 steps, then `col 1` for 2500, then `row 1` again.
+The top-bar winner and raster/charge views show the original owner, replacement,
+and recovery respectively.
 
 ## REST API
 

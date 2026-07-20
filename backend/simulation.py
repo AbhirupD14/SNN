@@ -2,7 +2,7 @@
 double-buffered timestep with explicit integer synaptic delays, and state
 snapshots for the dashboard.
 
-Four topologies share one synchronous engine, selected by ``topology``:
+Five topologies share one engine, selected by ``topology``:
 
 ``topology='pi'`` -- the predictive-inhibition (PI) experiment (default here for the
 scientific question)::
@@ -78,6 +78,7 @@ per arrival boundary**. In `rg` that yields the two-hop chain
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 from collections import deque
@@ -87,6 +88,8 @@ import numpy as np
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from snn.neurons import (  # noqa: E402
+    ConductanceLIFNeuron,
+    CoincidencePyramidalNeuron,
     ExcitatoryNeuron,
     InhibitoryNeuron,
     PredictiveInterneuron,
@@ -95,6 +98,7 @@ from snn.neurons import (  # noqa: E402
     E_THRESHOLD,
     I_THRESHOLD,
     E_WEIGHT_CAP,
+    leak_to_conductance,
 )
 from backend.layout import generate_layout  # noqa: E402
 from backend.network_spec import (  # noqa: E402
@@ -114,8 +118,9 @@ N_OUT = 8
 
 # --- Excitatory initialization (unchanged learning rule) --------------------
 SENSORY_WEIGHT = E_THRESHOLD / 3.0                 # frozen sensory afferent weight
-FF_INIT_TOTAL_FRAC = 0.55                          # L2E ff sum(acc_weights) at init, / theta
+FF_INIT_TOTAL_FRAC = 0.55                          # legacy ordinary-E mean scale, / theta
 FF_INIT_MEAN = FF_INIT_TOTAL_FRAC * E_THRESHOLD / N_PIX   # ~61
+L2_INIT_TOTAL_FRAC = 0.95                          # latency-WTA row total / theta
 INIT_JITTER_FRAC = 0.04                            # deterministic narrow seeded jitter
 DISTANCE_POWER = 2.0                               # fixed exponent for the learning-rate factor
 
@@ -184,6 +189,21 @@ DEFAULTS = dict(
     switch_branch_cap_frac=0.90,                   # each branch alone stays subthreshold
     switch_g_scale=12.0,                           # paired incumbent inhibitory pulse
     switch_conductance_enabled=True,               # ablation: SwitchI may fire but not inhibit
+
+    # --- coincidence pyramidal cell (event-resolved 'rg_coincidence' topology) ---
+    # C threshold reads e_threshold, C leak reads leak_rate, C refractory reads
+    # refractory_steps directly (intrinsic parity with E). The basal weight scale is
+    # DERIVED from the resolved threshold + leak via the two-coincidence equations
+    # unless a headless experiment overrides it; None => derive. C learning is slower
+    # than ordinary E learning: the row->column->row sweep found eta_c=0.001 retained
+    # the novelty window and produced turnover/recovery in 8/8 seeds.
+    c_eta=0.001,                                   # separately controlled basal learning rate
+    l2_init_total_frac=L2_INIT_TOTAL_FRAC,          # normalized latency-WTA afferent total / theta
+    c_basal_weight_init=None,                      # None -> 1.01 * w_2(T)
+    c_basal_weight_max=None,                       # None -> 1.10 * w_2(T)
+    c_basal_window_steps=1,                        # basal eligibility window (fixed at 1)
+    pretrained_exc_margin=1.05,                    # RG->L1E fixed packet / (theta/kappa)
+    crossing_time_tolerance=1e-12,                 # fixed numeric tie tolerance (not a control)
 )
 # Keys a browser/experiment config-apply may change. Everything else is derived.
 EDITABLE_KEYS = {
@@ -195,8 +215,65 @@ EDITABLE_KEYS = {
     'residual_exc_scale', 'switch_trace_decay', 'switch_trace_threshold',
     'switch_residual_charge_frac', 'switch_trace_charge_frac',
     'switch_g_scale', 'switch_conductance_enabled',
+    'c_eta', 'l2_init_total_frac',
 }
-VALID_TOPOLOGIES = ('pi', 'old', 'rg', 'rg_residual')
+VALID_TOPOLOGIES = ('pi', 'old', 'rg', 'rg_residual', 'rg_coincidence')
+
+
+class BoundaryEventScheduler:
+    """Engine-owned helper that orders analytic sub-boundary threshold crossings within
+    one outer boundary. It owns NO scientific state beyond ``current_tau`` and the tie
+    log: every membrane computes its own local crossing time from the same equation, and
+    the scheduler merely picks the earliest and advances all membranes to it.
+
+    It never inspects learned weights, a global input pattern, or end-of-boundary
+    voltages to choose a winner -- selection is pure first-spike latency. Exact or
+    within-tolerance ties fall back to stable node order (recorded as a ``latency_tie``);
+    times that are merely close but distinguishable are NOT tie-broken by node order.
+    """
+
+    def __init__(self, membranes, tolerance):
+        self.membranes = list(membranes)     # fixed stable node order
+        self.tolerance = float(tolerance)
+        self.current_tau = 0.0
+        self.ties = []
+
+    def next_event(self):
+        """Return ``(cell, absolute_tau)`` for the earliest finite crossing in
+        ``[current_tau, 1]``, or ``(None, None)`` if none remains. Recomputed fresh from
+        live membrane state each call, so a hard reset that just changed a cell's state
+        automatically invalidates its previously-predicted crossing."""
+        remaining = 1.0 - self.current_tau
+        cands = []
+        for idx, cell in enumerate(self.membranes):
+            dtau = cell.crossing_time(remaining)
+            if math.isfinite(dtau):
+                cands.append((self.current_tau + dtau, idx, cell))
+        if not cands:
+            return None, None
+        min_tau = min(c[0] for c in cands)
+        tied = [c for c in cands if abs(c[0] - min_tau) <= self.tolerance]
+        winner = min(tied, key=lambda c: c[1])       # stable node order among true ties
+        if len(tied) > 1:
+            self.ties.append(dict(
+                tau=round(min_tau, 12), tolerance=self.tolerance,
+                ids=[c[2].id for c in sorted(tied, key=lambda c: c[1])],
+                chosen=winner[2].id))
+        return winner[2], winner[0]
+
+    def advance_all(self, target_tau):
+        """Advance EVERY membrane from ``current_tau`` to ``target_tau`` with the exact
+        segment trajectory (each under its own frozen drive)."""
+        dt = target_tau - self.current_tau
+        if dt < 0.0:
+            dt = 0.0
+        for cell in self.membranes:
+            cell.advance_segment(dt)
+        self.current_tau = target_tau
+
+    def advance_to_end(self):
+        if self.current_tau < 1.0:
+            self.advance_all(1.0)
 
 
 class SimulationEngine:
@@ -211,6 +288,10 @@ class SimulationEngine:
             params[k] = v
         if params['topology'] not in VALID_TOPOLOGIES:
             raise ValueError(f'topology must be one of {VALID_TOPOLOGIES}, got {params["topology"]!r}')
+        if not 0.0 < float(params['l2_init_total_frac']) < 1.0:
+            raise ValueError('l2_init_total_frac must satisfy 0 < rho < 1')
+        if params['c_eta'] is not None and float(params['c_eta']) < 0.0:
+            raise ValueError('c_eta must be non-negative or None')
         self.params = params
         self._custom_spec = None       # a user/editor NetworkSpec overrides the preset when set
         self._build()
@@ -226,6 +307,43 @@ class SimulationEngine:
             e_inh=float(p['e_inh']), alpha_inh=float(alpha_inh),
             alpha_a=float(p['alpha_a']), beta_v=float(p['beta_v']),
             beta_s=float(p['beta_s']), a_max=float(p['a_max']))
+
+    def _resolve_coincidence_params(self):
+        """Resolve the C-cell basal weight scale + pretrained packet from the shared
+        threshold and leak using the two-coincidence equations, honoring explicit
+        headless overrides. Rejects a configuration whose cap can fire on ONE deposit.
+
+            r = e^{-g_L},  kappa = (1 - e^{-g_L}) / g_L  (kappa = 1 at g_L = 0)
+            w_2(T) = theta / (kappa (1 + r^T))      # min weight crossing on 2nd deposit
+            w_1    = theta / kappa                   # min weight firing on ONE deposit
+            Q_pretrained = pretrained_exc_margin * theta / kappa
+        """
+        p = self.params
+        theta = float(p['e_threshold'])
+        g_L = leak_to_conductance(float(p['leak_rate']))
+        r = math.exp(-g_L)                                # == 1 - leak_rate
+        kappa = 1.0 if g_L == 0.0 else (1.0 - math.exp(-g_L)) / g_L
+        T = int(p['c_basal_window_steps'])
+        if T < 1:
+            raise ValueError(f'c_basal_window_steps must be >= 1, got {T}')
+        w2 = theta / (kappa * (1.0 + r ** T))
+        w1 = theta / kappa
+        c_init = (1.01 * w2 if p['c_basal_weight_init'] is None
+                  else float(p['c_basal_weight_init']))
+        c_max = (1.10 * w2 if p['c_basal_weight_max'] is None
+                 else float(p['c_basal_weight_max']))
+        if not c_max < w1:
+            raise ValueError(
+                f'c_basal_weight_max ({c_max:.4f}) must be < the one-deposit firing '
+                f'weight w_1 ({w1:.4f}); a C cell would fire on a single coincidence.')
+        if c_init > c_max:
+            raise ValueError(
+                f'c_basal_weight_init ({c_init:.4f}) must be <= c_basal_weight_max '
+                f'({c_max:.4f}).')
+        c_eta = float(p['eta']) if p['c_eta'] is None else float(p['c_eta'])
+        q_pretrained = float(p['pretrained_exc_margin']) * theta / kappa
+        return dict(w1=w1, w2=w2, kappa=kappa, c_init=c_init, c_max=c_max,
+                    c_eta=c_eta, q_pretrained=q_pretrained)
 
     def _build(self):
         p = self.params
@@ -270,6 +388,12 @@ class SimulationEngine:
         # target's update, and with two hops the L1E and L2E updates stay independent.
         self._ff_deliv_next = {}
         self._ff_deliv_now = {}
+        # Event-path delay-1 dendritic delivery buffers (basal/apical events for t+1).
+        self._basal_next = {}          # c_target_id -> [(source_id, signal) ...]
+        self._apical_next = {}         # c_target_id -> [source_id ...]
+        # Event-path per-boundary diagnostics (exposed via dynamic state in Phase 6).
+        self.hard_reset_events = []
+        self.latency_ties = []
 
     def _distance_factors(self, sources, targets):
         ds = np.array([[np.linalg.norm(self.pos[s] - self.pos[t]) for s in sources]
@@ -354,12 +478,45 @@ class SimulationEngine:
             j = rng.uniform(1.0 - INIT_JITTER_FRAC, 1.0 + INIT_JITTER_FRAC, size=size)
             return np.clip(mean * j, 0.0, cap)
 
+        def normalized_latency_row(raw):
+            """Preserve seeded direction while setting a common latency-WTA total.
+
+            A full coincidence bank has nine afferents and reaches exactly
+            ``l2_init_total_frac * theta``. A smaller custom bank cannot exceed its
+            physical ``n_afferents * cap`` capacity; the bounded proportional fill
+            handles that case without making valid editor graphs unbuildable.
+            """
+            raw = np.asarray(raw, dtype=float)
+            if raw.size == 0:
+                return raw
+            target = min(float(p['l2_init_total_frac']) * thr, raw.size * cap)
+            out = np.zeros_like(raw)
+            active = np.ones(raw.size, dtype=bool)
+            remaining = target
+            while np.any(active):
+                active_sum = float(raw[active].sum())
+                if active_sum <= 0.0:
+                    out[active] = remaining / int(active.sum())
+                    break
+                proposal = raw[active] * (remaining / active_sum)
+                over = proposal > cap
+                if not np.any(over):
+                    out[active] = proposal
+                    break
+                active_idx = np.flatnonzero(active)
+                capped_idx = active_idx[over]
+                out[capped_idx] = cap
+                remaining -= cap * len(capped_idx)
+                active[capped_idx] = False
+            return out
+
         enc_mean = FF_INIT_MEAN if p['enc_w_init'] is None else float(p['enc_w_init'])
         enc_jitter = bool(p['enc_init_jitter'])
 
         # ---- plastic feedforward initialization, drawn up front -------------------
-        # Both plastic archetypes use the same per-afferent scale and the same seeded
-        # narrow jitter, so an encoder afferent is initialized literally like an L2 one.
+        # Ordinary competitors and encoders retain the historical per-afferent scale.
+        # Latency competitors start from the same seeded narrow jitter directions, then
+        # normalize each row to l2_init_total_frac * theta for equal initial free energy.
         #
         # Draw order is BY ARCHETYPE (all competitors in node order, then all encoders
         # in node order) rather than raw node order. Two consequences, both deliberate:
@@ -370,8 +527,11 @@ class SimulationEngine:
         #     confounding the RG layer with a reshuffled competitor init.
         # The equal-init control still DRAWS (then discards) its jitter, so toggling
         # enc_init_jitter changes only the encoder weights and nothing downstream.
+        # A third pass initializes e_latency_competitor LAST. It only draws for graphs
+        # that contain latency competitors, so presets without them keep a bit-identical
+        # RNG draw order (and therefore identical goldens).
         ff_w = {}
-        for arch_pass in ('e_competitor', 'e_encoder'):
+        for arch_pass in ('e_competitor', 'e_encoder', 'e_latency_competitor'):
             for n in nodes:
                 if n['archetype'] != arch_pass:
                     continue
@@ -381,14 +541,44 @@ class SimulationEngine:
                     continue
                 if arch_pass == 'e_competitor':
                     ff_w[n['id']] = jitter(FF_INIT_MEAN, len(srcs))
+                elif arch_pass == 'e_latency_competitor':
+                    ff_w[n['id']] = normalized_latency_row(
+                        jitter(FF_INIT_MEAN, len(srcs)))
                 else:
                     j = jitter(enc_mean, len(srcs))
                     ff_w[n['id']] = j if enc_jitter else np.clip(
                         np.full(len(srcs), enc_mean), 0.0, cap)
 
+        # ---- coincidence dendrite wiring: one basal + >=1 apical afferent per C cell.
+        # d_ref for the basal distance influence is the smallest positive basal-edge
+        # distance across the whole e_coincidence target population (geometry changes
+        # learning rate only, never delivered charge).
+        basal_in_map = {}        # c_target_id -> (source_id, edge_id)
+        apical_in_map = {}       # c_target_id -> [(source_id, edge_id) ...]
+        basal_dist = {}          # c_target_id -> functional L1E->L1C distance
+        for e in dedges:
+            if e['kind'] == 'basal_excitation':
+                basal_in_map[e['target']] = (e['source'], e['id'])
+                basal_dist[e['target']] = float(np.linalg.norm(pos[e['source']] - pos[e['target']]))
+            elif e['kind'] == 'apical_excitation':
+                apical_in_map.setdefault(e['target'], []).append((e['source'], e['id']))
+        _basal_positive = [d for d in basal_dist.values() if d > 0]
+        d_ref_basal = min(_basal_positive) if _basal_positive else 1.0
+        basal_phi = {t: (d_ref_basal / max(d, d_ref_basal)) ** DISTANCE_POWER
+                     for t, d in basal_dist.items()}
+
+        # Resolve C basal weight scale + pretrained packet only when this graph uses
+        # them; a legacy graph never pays the cost and never risks the invariant check.
+        has_coincidence = any(n['archetype'] == 'e_coincidence' for n in nodes)
+        has_pretrained = any(n['archetype'] == 'e_pretrained' for n in nodes)
+        cpar = (self._resolve_coincidence_params()
+                if (has_coincidence or has_pretrained) else None)
+        self._q_pretrained = cpar['q_pretrained'] if cpar else 0.0
+
         neurons = {}
         self.sensory, self.encoders, self.residuals, self.competitors = [], [], [], []
         self.sources, self.relays, self.switches, self.plastic = [], [], [], []
+        self.coincidence, self.latency_competitors, self.pretrained = [], [], []
         self._input_sinks = []                         # [(cell, pixel) ...] external drive
         for n in nodes:
             nid, arch = n['id'], n['archetype']
@@ -423,6 +613,48 @@ class SimulationEngine:
                 cell.ff_edge_ids = list(eids)
                 (self.competitors if is_comp else self.encoders).append(cell)
                 self.plastic.append(cell)
+                neurons[nid] = cell
+            elif arch == 'e_latency_competitor':
+                # Same flat feedforward bank + accumulating rule as a legacy competitor,
+                # but it competes by first-spike latency (event-resolved), so it is NOT
+                # registered in the deterministic-WTA self.competitors list.
+                srcs = ff_by_tgt.get(nid, [])
+                eids = ff_edge_ids.get(nid, [])
+                w = ff_w[nid]
+                dfac = np.array([ff_factor(eid) for eid in eids]) if eids else np.zeros(0)
+                cell = self._mkE(nid, 'competitor', w, dfac, learn=True, alpha_inh=alpha_l2)
+                cell.ff_src = list(srcs)
+                cell.ff_edge_ids = list(eids)
+                self.latency_competitors.append(cell)
+                self.plastic.append(cell)                # reuse ff delivery bookkeeping
+                neurons[nid] = cell
+            elif arch == 'e_pretrained':
+                # Fixed-input noncompetitive relay: empty plastic afferent arrays,
+                # learn=False. Its RG afferent is a fixed pretrained_excitation packet
+                # delivered via gather_exc, never an accumulating weight.
+                cell = self._mkE(nid, 'pretrained', np.zeros(0), np.zeros(0),
+                                 learn=False, alpha_inh=alpha_l1)
+                cell.ff_src = []
+                cell.ff_edge_ids = []
+                self.pretrained.append(cell)
+                neurons[nid] = cell
+            elif arch == 'e_coincidence':
+                basal = basal_in_map.get(nid)
+                if basal is None:
+                    raise ValueError(f'e_coincidence {nid!r} has no basal_excitation edge')
+                apical = apical_in_map.get(nid, [])
+                cell = CoincidencePyramidalNeuron(
+                    nid, basal[0], basal[1],
+                    apical_sources=[s for (s, _) in apical],
+                    apical_edge_ids=[eid for (_, eid) in apical],
+                    basal_weight=cpar['c_init'], basal_distance_factor=basal_phi.get(nid, 1.0),
+                    w_max=cpar['c_max'], eta_c=cpar['c_eta'], learn=True,
+                    threshold=thr, leak_rate=float(p['leak_rate']),
+                    refractory_steps=int(p['refractory_steps']),
+                    e_inh=float(p['e_inh']), alpha_inh=alpha_l1,
+                    alpha_a=float(p['alpha_a']), beta_v=float(p['beta_v']),
+                    beta_s=float(p['beta_s']), a_max=float(p['a_max']))
+                self.coincidence.append(cell)
                 neurons[nid] = cell
             elif arch == 'e_residual':
                 # ErrorE owns no plastic afferents. Fixed L1 evidence-copy events are
@@ -469,11 +701,20 @@ class SimulationEngine:
                 cell.pred_edge_ids = [eid for (_, eid) in outs]
 
         # ---- registries used across the engine ----
+        # C and latency/pretrained cells share the excitatory membrane registry so any
+        # membrane-bearing traversal (integration, trace, serialization) includes them.
         self.exc = {c.id: c for c in
-                    (*self.sensory, *self.encoders, *self.residuals, *self.competitors)}
+                    (*self.sensory, *self.encoders, *self.residuals, *self.competitors,
+                     *self.pretrained, *self.latency_competitors, *self.coincidence)}
         self.inh = {c.id: c for c in self.relays}
         self.src = {c.id: c for c in self.sources}
         self.neurons = {**self.exc, **self.inh, **self.src}
+        # This graph is event-resolved iff any node is an event-resolved archetype or any
+        # edge is an immediate hard reset (metadata-driven; never keyed to node ids or the
+        # preset name). Legacy graphs keep the byte-compatible synchronous step path.
+        self.event_resolved = (
+            any(ARCHETYPES[n['archetype']]['event_resolved'] for n in nodes)
+            or any(e['kind'] == 'hard_reset_inhibition' for e in edges))
         self.order = [n['id'] for n in nodes]
         # Back-compat handles used by tests / experiments (presets only need these):
         # l1e_s is "the L1 excitatory cells": the fixed-afferent sources in pi/old, the
@@ -495,6 +736,11 @@ class SimulationEngine:
         self._trace_out = {}           # paired L2E source -> SwitchI trace target
         self._fixedexc_out = {}        # E source -> fixed-charge residual targets
         self._inh_out = {}             # relay_id -> [(target_id, edge_id) ...]
+        # ---- event-resolved structured dispatch adjacency (coincidence topology) ----
+        self._pretrained_out = {}      # rg source -> [(e_pretrained target, edge_id) ...]
+        self._basal_out = {}           # L1E source -> [(e_coincidence target, edge_id) ...]
+        self._apical_out = {}          # L2E source -> [(e_coincidence target, edge_id) ...]
+        self._hardreset_out = {}       # i_relay -> [(E target, edge_id) ...] immediate reset
         for e in dedges:
             if e['kind'] == 'relay_excitation':
                 if node_by_id[e['target']]['archetype'] == 'switch':
@@ -509,6 +755,14 @@ class SimulationEngine:
                 self._fixedexc_out.setdefault(e['source'], []).append((e['target'], e['id']))
             elif e['kind'] == 'inhibition':
                 self._inh_out.setdefault(e['source'], []).append((e['target'], e['id']))
+            elif e['kind'] == 'pretrained_excitation':
+                self._pretrained_out.setdefault(e['source'], []).append((e['target'], e['id']))
+            elif e['kind'] == 'basal_excitation':
+                self._basal_out.setdefault(e['source'], []).append((e['target'], e['id']))
+            elif e['kind'] == 'apical_excitation':
+                self._apical_out.setdefault(e['source'], []).append((e['target'], e['id']))
+            elif e['kind'] == 'hard_reset_inhibition':
+                self._hardreset_out.setdefault(e['source'], []).append((e['target'], e['id']))
 
         # ---- meta + serialized synapse list ----
         meta = {}
@@ -543,6 +797,19 @@ class SimulationEngine:
         for cell in self.pi:
             for widx, eid in enumerate(cell.pred_edge_ids):
                 self._pred_weight_ref[eid] = (cell, widx)
+        # basal_excitation weight lookup: edge_id -> (c_cell, basal_index=0). Serves
+        # serialization and manual editing (clipped with the C-specific basal cap).
+        self._basal_weight_ref = {}
+        for cell in self.coincidence:
+            self._basal_weight_ref[cell.basal.edge_ids[0]] = (cell, 0)
+        # Source-indexed feedforward adjacency for the event path: a fired source
+        # schedules charge (owned by each target) onto its plastic targets for t+1.
+        self._ff_out = {}              # source_id -> [(target_id, widx, edge_id) ...]
+        for cell in self.plastic:
+            for widx, src in enumerate(cell.ff_src):
+                self._ff_out.setdefault(src, []).append(
+                    (cell.id, widx, cell.ff_edge_ids[widx]))
+        self._latency_ids = {c.id for c in self.latency_competitors}
 
     # ============================================================== stepping
     def _begin_step(self):
@@ -577,6 +844,11 @@ class SimulationEngine:
                            pulse['kind'], pulse['weight'], g_before, n.g_inh)
 
     def step(self) -> dict:
+        # Metadata-driven dispatch: an event-resolved graph runs the analytic
+        # sub-boundary scheduler; every legacy graph keeps the byte-compatible
+        # synchronous path below, unchanged.
+        if self.event_resolved:
+            return self._event_step()
         self.timestep += 1
         t = self.timestep
         self._begin_step()
@@ -736,6 +1008,175 @@ class SimulationEngine:
             self._spike_hist[nid].append(1 if self.spiked[nid] else 0)
         return self.dynamic_state()
 
+    # ============================================== event-resolved boundary step
+    def _event_step(self) -> dict:
+        """One outer boundary for an event-resolved graph: setup (deliver frozen
+        arrivals, resolve C gates, freeze drive), then an analytic sub-boundary event
+        loop (earliest crossing fires, drives zero-latency relays, applies immediate
+        hard resets, recomputes), then finalization (trace, conductance, refractory)."""
+        self.timestep += 1
+        t = self.timestep
+        p = self.params
+
+        # ---- outer-boundary setup -------------------------------------------------
+        self._begin_event_step()
+
+        # rotate delay-1 buffers (arrivals emitted at t-1 land now).
+        exc_now = self._exc_next
+        inh_now = self._inh_next
+        basal_now = self._basal_next
+        apical_now = self._apical_next
+        self._ff_deliv_now = self._ff_deliv_next
+        self._exc_next, self._inh_next = {}, []
+        self._basal_next, self._apical_next = {}, {}
+        self._ff_deliv_next = {}
+
+        for pulse in inh_now:                      # legacy conductance arrivals, if any
+            self._deliver_inhibition(pulse)
+        for nid, q in exc_now.items():             # feedforward + pretrained charge
+            n = self.exc.get(nid)
+            if n is not None:
+                n.gather_exc(q)
+        for cid, events in basal_now.items():      # basal dendritic events
+            c = self.exc.get(cid)
+            if isinstance(c, CoincidencePyramidalNeuron):
+                for src, sig in events:
+                    c.gather_basal(src, sig)
+        for cid, srcs in apical_now.items():       # apical dendritic events
+            c = self.exc.get(cid)
+            if isinstance(c, CoincidencePyramidalNeuron):
+                for src in srcs:
+                    c.gather_apical(src)
+
+        # external input to RG sources (delay 0); a fired RG schedules its fixed
+        # pretrained packet + any structural outputs for t+1 (it owns no membrane).
+        input_arrives = (t % max(1, int(p['input_period'])) == 0)
+        for n, pix in self._input_sinks:
+            active = bool(input_arrives and pix is not None and self.input_vec[pix] > 0.5)
+            if isinstance(n, SourceNeuron):
+                n.present(active)
+            elif active:
+                n.gather_exc(n.acc_weights[0])
+        for nid, mag in self._continuous.items():
+            n = self.exc.get(nid)
+            if n is not None:
+                n.gather_exc(mag)
+        for n in self.sources:
+            if n.spiked:
+                self.spiked[n.id] = True
+                self._emit_event_outputs(n.id)
+
+        # resolve every C dendritic gate, then freeze each membrane's gathered drive.
+        for c in self.coincidence:
+            c.resolve_dendrites()
+        for n in self.exc.values():
+            n.freeze_drive()
+
+        # ---- sub-boundary event loop ----------------------------------------------
+        membranes = [self.exc[nid] for nid in self.order if nid in self.exc]
+        sched = BoundaryEventScheduler(membranes, p['crossing_time_tolerance'])
+        while sched.current_tau < 1.0:
+            cell, tau = sched.next_event()
+            if cell is None:
+                sched.advance_to_end()
+                break
+            sched.advance_all(tau)                 # advance ALL membranes to the event
+            self._fire_event_cell(cell, tau)       # fire + learn + emit + relays + resets
+        self.latency_ties = sched.ties
+
+        # ---- boundary finalization ------------------------------------------------
+        for n in self.exc.values():
+            n.update_trace()
+            n.decay_conductance()
+            n.advance_refractory()
+        for nid in self.neurons:
+            self._spike_hist[nid].append(1 if self.spiked[nid] else 0)
+        return self.dynamic_state()
+
+    def _begin_event_step(self):
+        """Clear per-boundary reporting + transient membrane state for the event path."""
+        for nid in self.neurons:
+            self.spiked[nid] = False
+        for n in self.exc.values():
+            n.begin_event_boundary()
+        for n in self.inh.values():
+            n.clear()
+        for n in self.src.values():
+            n.clear()
+        self.changed_synapses = []
+        self.emitted = []
+        self.inhibitory_pulses = []
+        self.hard_reset_events = []
+        self.latency_ties = []
+        self.winner = None
+
+    def _fire_event_cell(self, cell, tau):
+        """Fire the selected E/C cell at ``tau``, run its immediate learning, schedule
+        its ordinary delay-1 outputs for t+1, then resolve its zero-latency relays and
+        apply their immediate hard resets at the same ``tau``."""
+        cell.fire(tau)
+        self.spiked[cell.id] = True
+        if isinstance(cell, CoincidencePyramidalNeuron):
+            cell.update_basal_weight()               # causal firing-boundary gate state
+            self.changed_synapses.append(
+                dict(id=cell.basal.edge_ids[0], weight=round(float(cell.basal_weight), 6)))
+        elif cell.id in self._latency_ids:
+            cell.update_acc_weights(self._participation(cell))
+            self._emit_ff_weight_changes(cell)
+            if self.winner is None:                  # report-only first latency spike
+                self.winner = cell.id
+        self._emit_event_outputs(cell.id)
+        self._drive_event_relays(cell.id, tau)
+
+    def _emit_event_outputs(self, source_id):
+        """Schedule a fired source's ordinary one-boundary-delay outputs for t+1:
+        feedforward charge (owned by the target), fixed pretrained packets, and basal /
+        apical dendritic events. These never arrive during the current event loop."""
+        for tgt, widx, eid in self._ff_out.get(source_id, []):
+            tgtcell = self.exc.get(tgt)
+            if tgtcell is None:
+                continue
+            self._sched_exc(tgt, float(tgtcell.acc_weights[widx]))
+            self._ff_deliv_next.setdefault(tgt, set()).add(source_id)
+            self.emitted.append(eid)
+        for tgt, eid in self._pretrained_out.get(source_id, []):
+            self._sched_exc(tgt, float(self._q_pretrained))
+            self.emitted.append(eid)
+        for tgt, eid in self._basal_out.get(source_id, []):
+            self._basal_next.setdefault(tgt, []).append((source_id, 1.0))
+            self.emitted.append(eid)
+        for tgt, eid in self._apical_out.get(source_id, []):
+            self._apical_next.setdefault(tgt, []).append(source_id)
+            self.emitted.append(eid)
+
+    def _drive_event_relays(self, source_id, tau):
+        """Resolve every stateless inhibitory relay driven by ``source_id`` at the same
+        ``tau``, then apply each relay's outgoing hard resets immediately. A relay emits
+        at most one spike per boundary; a second same-boundary input creates no burst and
+        no second reset event."""
+        for rid, re_eid in self._relayexc_out.get(source_id, []):
+            relay = self.inh.get(rid)
+            if relay is None or relay.spiked:        # already fired this boundary
+                continue
+            relay.receive()
+            if not relay.resolve():
+                continue
+            self.spiked[rid] = True
+            relay.spike_tau = tau                    # relay inherits its driver's tau
+            self.emitted.append(re_eid)
+            for tgt, hr_eid in self._hardreset_out.get(rid, []):
+                tgtcell = self.exc.get(tgt)
+                if tgtcell is None:
+                    continue
+                v_before = float(tgtcell.V)
+                drive_before = float(tgtcell.remaining_excitation)
+                tgtcell.hard_reset(tau)              # V <- rest, discard remaining drive
+                self.hard_reset_events.append(dict(
+                    source=rid, target=tgt, edge_id=hr_eid, kind='hard_reset',
+                    outer_boundary=int(self.timestep), tau=round(float(tau), 12),
+                    v_before=round(v_before, 6), drive_before=round(drive_before, 6)))
+                self.emitted.append(hr_eid)
+
     # --------------------------------------------------------- emission helpers
     def _participation(self, cell):
         """Causal participation for ONE plastic target's update: for each of its own
@@ -881,6 +1322,11 @@ class SimulationEngine:
             raise KeyError(neuron_id)
         if neuron_id in self.inh or neuron_id in self.src:
             return          # relays are event-driven; RG is driven only by its pixel
+        if isinstance(self.exc.get(neuron_id), CoincidencePyramidalNeuron):
+            raise ValueError(
+                f'{neuron_id!r} is a coincidence cell; scalar stimulation would bypass '
+                f'its basal/apical coincidence gate. Deliver explicit basal/apical '
+                f'events instead.')
         charge = float(magnitude) * self.params['e_threshold']
         if continuous:
             if magnitude <= 0:
@@ -914,7 +1360,13 @@ class SimulationEngine:
             w = float(np.clip(weight, 0.0, self.params['pi_w_max']))
             cell.w[widx] = w
             return w
-        raise KeyError(edge_id)
+        ref = self._basal_weight_ref.get(edge_id)
+        if ref is not None:
+            cell, _ = ref
+            w = float(np.clip(weight, 0.0, cell.w_max))     # C-specific basal cap
+            cell.basal.weights[0] = w
+            return w
+        raise KeyError(edge_id)                             # apical/pretrained/reset: not editable
 
     def apply_config(self, overrides: dict):
         applied = []
@@ -923,6 +1375,10 @@ class SimulationEngine:
                 continue
             if k == 'topology' and v not in VALID_TOPOLOGIES:
                 raise ValueError(f'topology must be one of {VALID_TOPOLOGIES}, got {v!r}')
+            if k == 'l2_init_total_frac' and not 0.0 < float(v) < 1.0:
+                raise ValueError('l2_init_total_frac must satisfy 0 < rho < 1')
+            if k == 'c_eta' and v is not None and float(v) < 0.0:
+                raise ValueError('c_eta must be non-negative or None')
             self.params[k] = v
             applied.append(k)
         # Selecting a named preset topology discards any applied custom graph.
@@ -987,6 +1443,13 @@ class SimulationEngine:
         if kind == 'predictive_inhibition':
             ref = self._pred_weight_ref.get(eid)
             return None if ref is None else float(ref[0].w[ref[1]])
+        if kind == 'basal_excitation':
+            ref = self._basal_weight_ref.get(eid)
+            return None if ref is None else float(ref[0].basal_weight)
+        if kind == 'pretrained_excitation':
+            # Report the fixed delivered charge (a named fixed magnitude, not a learned
+            # weight). Apical / hard-reset edges are unweighted -> None below.
+            return float(self._q_pretrained) if self._q_pretrained else None
         return None                                       # structural relay / conductance gate
 
     def topology(self) -> dict:
@@ -1035,6 +1498,8 @@ class SimulationEngine:
                    switch_branch_cap_frac=float(p['switch_branch_cap_frac']),
                    switch_g_scale=float(p['switch_g_scale']),
                    switch_conductance_enabled=bool(p['switch_conductance_enabled']),
+                   c_eta=(float(p['eta']) if p['c_eta'] is None else float(p['c_eta'])),
+                   l2_init_total_frac=float(p['l2_init_total_frac']),
                    ff_init_mean=float(FF_INIT_MEAN),
                    synaptic_delay=SYNAPTIC_DELAY,
                    i_threshold=round(thr / 3.0, 4),
@@ -1053,10 +1518,25 @@ class SimulationEngine:
                 spiked=bool(self.spiked[nid]), freq=round(self.firing_freq(nid), 4),
                 refractory=int(n.refractory_timer),
                 assembly=(self.winner if nid == self.winner else None))
-            if isinstance(n, ExcitatoryNeuron):
+            if isinstance(n, ConductanceLIFNeuron):
+                # Generalized to the shared membrane base so a sibling coincidence cell
+                # does not silently lose its conductance/trace/pre-reset state here.
                 rec['g_inh'] = round(float(n.g_inh), 6)
                 rec['trace'] = round(float(n.a), 6)
                 rec['v_pre_reset'] = round(float(n.v_pre_reset), 4)
+                # Optional, additive: an event-resolved E spike carries its sub-boundary
+                # tau. Guarded on event_resolved so legacy dynamic payloads are unchanged.
+                if self.event_resolved:
+                    rec['spike_tau'] = (None if n.spike_tau is None
+                                        else round(float(n.spike_tau), 9))
+                if isinstance(n, CoincidencePyramidalNeuron):
+                    rec['basal_weight'] = round(float(n.basal_weight), 6)
+                    rec['basal_received'] = bool(n.basal_received)
+                    rec['basal_eligible'] = bool(n.basal_eligible)
+                    rec['apical_active'] = bool(n.apical_active)
+                    rec['apical_sources'] = sorted(n.apical_sources)
+                    rec['coincidence_active'] = bool(n.coincidence_active)
+                    rec['coincidence_charge'] = round(float(n.coincidence_charge), 6)
             elif isinstance(n, SwitchInterneuron):
                 rec['winner_trace'] = round(float(n.x), 6)
                 rec['residual_received'] = bool(n.received_residual)
@@ -1069,6 +1549,11 @@ class SimulationEngine:
                     changed_synapses=self.changed_synapses,
                     emitted=self.emitted,
                     inhibitory_pulses=self.inhibitory_pulses,
+                    # Additive event-resolved diagnostics: immediate hard resets are
+                    # reported SEPARATELY from conductance pulses (never mislabeled), and
+                    # tolerance ties are auditable. Empty on legacy graphs.
+                    hard_reset_events=list(self.hard_reset_events),
+                    latency_ties=list(self.latency_ties),
                     input=self.input_vec.astype(int).tolist(),
                     winner=self.winner,
                     stats=self.stats(), log=list(self.event_log)[-12:])

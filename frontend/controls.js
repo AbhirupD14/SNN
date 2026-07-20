@@ -66,12 +66,15 @@ export class Controls {
         lab.className = 'field';
         const span = document.createElement('span');
         const b = document.createElement('b');
-        b.textContent = (+val).toFixed(3);
+        const decimals = s.decimals ?? 3;
+        b.textContent = (+val).toFixed(decimals);
         span.append(s.label + ' ', b);
         const range = document.createElement('input');
         range.type = 'range';
         range.min = s.min; range.max = s.max; range.step = s.step; range.value = val;
-        range.addEventListener('input', () => { b.textContent = (+range.value).toFixed(3); });
+        range.addEventListener('input', () => {
+          b.textContent = (+range.value).toFixed(decimals);
+        });
         lab.append(span, range);
         item.appendChild(lab);
         this.configInputs[s.key] = () => +range.value;

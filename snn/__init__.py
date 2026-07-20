@@ -7,7 +7,10 @@ Topology, causal event order, and serialization live in ``backend.simulation``.
 """
 
 from snn.neurons import (
+    ConductanceLIFNeuron,
     ExcitatoryNeuron,
+    CoincidencePyramidalNeuron,
+    DendriticCompartment,
     InhibitoryNeuron,
     PredictiveInterneuron,
     E_THRESHOLD,
@@ -21,7 +24,10 @@ from snn.neurons import (
 )
 
 __all__ = [
+    "ConductanceLIFNeuron",
     "ExcitatoryNeuron",
+    "CoincidencePyramidalNeuron",
+    "DendriticCompartment",
     "InhibitoryNeuron",
     "PredictiveInterneuron",
     "E_THRESHOLD",

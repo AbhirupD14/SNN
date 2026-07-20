@@ -7,11 +7,16 @@ excitatory cell carries a local activity trace, and the timestep is synchronous 
 explicit unit synaptic delays.
 
 The network is a **graph** built from a `NetworkSpec` (typed nodes + typed edges);
-the engine executes whatever graph it is given. **Four** built-in presets ship,
-selected by the `topology` parameter (`'pi'` default, `'old'`, `'rg'`, or
-`'rg_residual'`), and you can
+the engine executes whatever graph it is given. **Five** built-in presets ship,
+selected by the `topology` parameter (`'pi'` default, `'old'`, `'rg'`,
+`'rg_residual'`, or `'rg_coincidence'`), and you can
 build arbitrary graphs live in the browser **Topology Editor** (🧬 in the top bar) and
 save/load them as presets:
+
+The general `SimulationEngine` default remains `pi` for backwards compatibility, but
+the browser dashboard now opens on the validated `rg_coincidence` turnover preset:
+zero leak/refractory, L2 learning rate `0.01`, normalized L2 initial afferent total
+`0.95θ`, and C basal learning rate `0.001`.
 
 - **`topology='pi'` — the predictive-inhibition (PI) experiment (26 neurons).** Eight
   pattern-specific predictive interneurons `PI[j]`, paired 1:1 with the competitors
@@ -40,13 +45,59 @@ save/load them as presets:
   their charged coincidence can inhibit that incumbent, after
   which the ordinary shared-L2I WTA chooses one replacement. The exact graph has 274
   directed internal projections.
+- **`topology='rg_coincidence'` — the coincidence pyramidal / event-resolved
+  experiment (45 neurons, 196 edges).** The first **event-resolved** preset: membrane
+  arrivals stay on integer boundaries, but crossings and inhibitory resets are ordered
+  at *analytic sub-boundary times* `tau` (no micro-chunks). `RG_i` fires a fixed
+  **pretrained** `L1E_i` (one spike crosses next boundary). Each `L1E_i` feeds a
+  **coincidence** cell `L1C_i` on a single learned **basal** afferent, while every
+  `L2E_j` feeds all `L1C` on unweighted Boolean **apical** gates; `L1C` deposits basal
+  charge only when basal (current or one-boundary-carried) coincides with apical.
+  Inhibition is a **zero-latency hard reset** (`L1I` resets its paired `L1E`; `L2I`
+  resets every `L2E`). **L2 WTA is emergent**: the first `L2E` to reach threshold wins
+  and its `L2I` reset cancels the rest — no deterministic winner phase. See the
+  measured behavior below and `docs/COINCIDENCE_PYRAMIDAL_CELL_TECHNICAL_SPEC.md`.
 
-All four use the same synchronous event engine and differ in which typed edges exist.
-The fixed editor vocabulary is eight node archetypes (`rg_source`, `e_sensory`,
-`e_encoder`, `e_residual`, `e_competitor`, `i_relay`, `predictor`, `switch`) and six
-edge kinds (`feedforward`, `fixed_excitation`, `trace_excitation`,
-`relay_excitation`, `inhibition`, `predictive_inhibition`); see
+The first four use the same synchronous event engine; `rg_coincidence` uses the
+analytic sub-boundary scheduler (selected automatically from graph metadata, so legacy
+presets stay byte-for-byte identical). The fixed editor vocabulary is eleven node
+archetypes (`rg_source`, `e_sensory`, `e_encoder`, `e_residual`, `e_competitor`,
+`e_pretrained`, `e_coincidence`, `e_latency_competitor`, `i_relay`, `predictor`,
+`switch`) and ten edge kinds (`feedforward`, `fixed_excitation`, `trace_excitation`,
+`relay_excitation`, `inhibition`, `predictive_inhibition`, `pretrained_excitation`,
+`basal_excitation`, `apical_excitation`, `hard_reset_inhibition`); see
 `backend/network_spec.py`.
+
+### Measured `rg_coincidence` behavior (honest results)
+
+The row→column→row turnover sweep is in
+`experiments/coincidence_turnover_sweep.py` with complete results in
+`experiments/coincidence_turnover_results.json`. At `L2 init total = 0.95θ` and
+`C eta = 0.001`, all 8/8 seeds held a stable row owner, recruited a different column
+owner, and recovered the original owner when the row returned; reversing L2 scheduler
+order produced the same paired outcomes with zero L2 tie events. To watch that protocol
+in the dashboard, run **row 1** for roughly 2500 steps, **col 1** for 2500, then return
+to **row 1**. At 120 steps/s, each phase takes about 21 seconds.
+The rationale, equations, rejected alternatives, and complete tuning tables are in
+`docs/COINCIDENCE_TURNOVER_TUNING.md`.
+
+Run `PYTHONPATH=. .venv/bin/python experiments/coincidence_experiment.py`
+(→ `experiments/coincidence_results.json`). Mechanical correctness and the scientific
+target are reported **separately**:
+
+- **Mechanics (all hold).** The isolated C cell shows the **exact** two-coincidence
+  cadence — one spike per two valid coincidences (`[0,1,0,1,…]`). Calibrated crossings
+  match the spec: pretrained `L1E` τ≈0.952, C second-coincidence τ≈0.980 at init /
+  ≈0.813 at the cap. Under the full held-row preset, the deliberately slower C learning
+  rate moves active basal weights from ≈520.5 to ≈549–554 over 4000 steps; mean C spike
+  τ≈0.895 is already **<** mean `L1E` τ≈0.952. Winner identity follows drive without
+  any node reordering, and replay is bit-deterministic.
+- **Scientific target (measured, not forced).** The requested `L1E`/`RG` firing ratio
+  near **0.5** is **not** reached — it measures ≈**0.858** in this separate leak=0.03
+  held-row validation. Suppression is real: 2442 C spikes produce 2442 paired hard
+  resets, 1707 of which beat the paired L1E crossing. The exact halving remains a
+  property of the *isolated* valid-coincidence cadence, not the full circuit's aggregate
+  L1E/RG rate. No hidden constant is tuned to move this number.
 
 External input does **not** always target `L1E` directly: it is delivered to whichever
 cells own a `pixel` (the *input sinks*). In `pi`/`old` that is the nine `e_sensory`
@@ -105,7 +156,7 @@ neighbouring boundary's).
 | Path | Responsibility |
 | --- | --- |
 | `snn/neurons.py` | Excitatory/source/relay/predictor cells plus the local traced `SwitchInterneuron`. |
-| `backend/network_spec.py` | The `NetworkSpec` vocabulary, four built-in presets, and `validate_spec`. |
+| `backend/network_spec.py` | The `NetworkSpec` vocabulary, five built-in presets, and `validate_spec`. |
 | `backend/simulation.py` | Spec-driven construction (`_build_from_spec`), the generic edge-dispatched step, `current_spec`/`apply_topology`, state snapshots. |
 | `backend/presets.py` | Server-side preset persistence (built-ins + saved-graph JSON under `.claude/presets/`). |
 | `backend/dashboard_config.py` | The dashboard preset and the small control schema (topology selector + rules). |
@@ -142,7 +193,7 @@ drag one node onto another to wire an edge (the kind is inferred from the two
 archetypes), click an edge to toggle it directional/bidirectional or delete it, add
 neurons from the palette, and **Apply** to rebuild the live network (every view
 refreshes off the broadcast). Save the current graph as a named preset and load it
-back later; the four built-ins (`pi`, `old`, `rg`, `rg_residual`) are always available. Presets
+back later; the five built-ins (`pi`, `old`, `rg`, `rg_residual`, `rg_coincidence`) are always available. Presets
 persist server-side under `.claude/presets/`.
 
 The palette carries the two archetypes `rg` introduced. An **RG** node is an exogenous
@@ -199,10 +250,16 @@ Coverage: conductance/trace dynamics and local PI plasticity
 neuron/edge counts (including `test_residual_topology.py`), the
 graph-driven engine + `NetworkSpec` validation + custom-graph execution + bidirectional
 edges (`test_network_spec.py`), preset persistence (`test_presets.py`), a bit-exact
-behavioural regression for all four presets (`test_golden_topology.py`), the synchronous
-causal WTA step, engine-level predictive inhibition + the symmetry-breaking causal
-controls (`test_predictive_inhibition.py`), serialization/API, and the legacy
-frequency model.
+behavioural regression for the four legacy presets (`test_golden_topology.py`), the
+synchronous causal WTA step, engine-level predictive inhibition + the symmetry-breaking
+causal controls (`test_predictive_inhibition.py`), serialization/API, and the legacy
+frequency model. The event-resolved coincidence topology adds the shared LIF/segment
+primitives (`test_lif_segments.py`), the isolated C cell + learning rule
+(`test_coincidence_cell.py`), graph vocabulary/validation (`test_coincidence_spec.py`),
+the sub-boundary scheduler + emergent latency WTA (`test_event_scheduler.py`), the full
+`rg_coincidence` preset (`test_rg_coincidence.py`), its public protocol
+(`test_coincidence_protocol.py`), and the scientific-validation harness
+(`test_coincidence_experiment.py`).
 
 ## Overlap symmetry-breaking experiment
 

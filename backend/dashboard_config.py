@@ -1,15 +1,22 @@
-"""The dashboard preset and the controls exposed in the UI.
+"""The active dashboard preset and declarative controls exposed in the UI.
 
-This model has a richer surface than the earlier hard-wipe model: predictive
-inhibition deliberately separates several timescales (activity-trace decay,
-inhibitory *association* rate, inhibitory conductance *expression* magnitude, and
-inhibitory conductance decay), and the spec requires these to be inspectable and
-independently controllable, plus two ablation toggles (predictive conductance and
-inhibitory plasticity). The shared E threshold (1000), the inhibitory reversal
-(shunting, E_inh=0), and per-projection initialization stay structural.
+The browser starts on the validated RG coincidence turnover configuration. The
+same control surface retains the older topology-specific ablations so those presets
+remain selectable and inspectable without a second dashboard.
 """
 
-DASHBOARD_OVERRIDES: dict = {}
+# The browser opens directly on the validated coincidence turnover experiment.
+# SimulationEngine's general-purpose default remains ``pi`` so legacy callers/tests
+# retain their historical behavior; this dictionary is the explicit dashboard preset.
+DASHBOARD_OVERRIDES: dict = {
+    "topology": "rg_coincidence",
+    "eta": 0.01,
+    "c_eta": 0.001,
+    "l2_init_total_frac": 0.95,
+    "leak_rate": 0.0,
+    "refractory_steps": 0,
+    "e_weight_cap": 500.0,
+}
 
 
 CONFIG_SPEC = [
@@ -23,7 +30,16 @@ CONFIG_SPEC = [
      "desc": "Steps after firing during which an excitatory neuron cannot fire."},
     {"key": "eta", "label": "Excitatory learning rate", "kind": "range",
      "min": 0.001, "max": 0.05, "step": 0.001,
-     "desc": "Shared accumulating-weight (feedforward / coincidence) learning rate."},
+     "desc": "Accumulating feedforward learning rate for ordinary E/L2E cells."},
+    {"key": "c_eta", "label": "C basal learning rate", "kind": "range",
+     "min": 0.0005, "max": 0.01, "step": 0.0005, "decimals": 4,
+     "desc": "Coincidence-cell basal learning rate. The validated turnover regime "
+             "uses 0.001 so suppression matures without closing the novelty window."},
+    {"key": "l2_init_total_frac", "label": "L2 initial total / threshold", "kind": "range",
+     "min": 0.5, "max": 0.99, "step": 0.01,
+     "desc": "For latency-WTA L2E cells, normalize each seeded afferent row to this "
+             "fraction of theta. 0.95 gives equal positive initial FE=0.05*theta "
+             "while preserving within-row jitter that breaks symmetry."},
     {"key": "e_weight_cap", "label": "Excitatory weight cap", "kind": "range",
      "min": 200, "max": 2000, "step": 50,
      "desc": "The shared per-synapse accumulating-weight cap (theta = 1000)."},
@@ -31,7 +47,8 @@ CONFIG_SPEC = [
      "options": [{"value": "pi", "label": "Predictive inhibition (PI)"},
                  {"value": "old", "label": "Old dense global inhibition"},
                  {"value": "rg", "label": "Retinal ganglion source layer (RG)"},
-                 {"value": "rg_residual", "label": "RG residual/error pathway"}],
+                 {"value": "rg_residual", "label": "RG residual/error pathway"},
+                 {"value": "rg_coincidence", "label": "RG coincidence pyramidal (event-resolved)"}],
      "desc": "pi: the 26-neuron predictive-inhibition experiment -- eight "
              "pattern-specific PI cells paired 1:1 with L2E, each with 9 locally "
              "plastic inhibitory outputs onto L1E_s. old: the 27-neuron original "
@@ -43,6 +60,10 @@ CONFIG_SPEC = [
              "rg_residual: the 52-cell residual circuit -- L1E remains uninhibited, "
              "PI predicts onto a separate ErrorE sheet, and local traced SwitchI "
              "cells release only the incumbent before ordinary L2 WTA re-competes. "
+             "rg_coincidence: the 45-cell event-resolved coincidence circuit -- "
+             "pretrained RG->L1E, coincidence L1C cells (one learned basal + eight "
+             "unweighted apical), immediate hard-reset L1I/L2I relays, and an emergent "
+             "first-spike-latency L2 WTA (no deterministic winner phase). "
              "Applying rebuilds the network. (Use the Topology Editor for arbitrary "
              "graphs and presets.)"},
 

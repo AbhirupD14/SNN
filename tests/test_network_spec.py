@@ -193,13 +193,17 @@ def test_sensory_pixel_in_meta():
 
 def test_edge_kind_vocabulary_is_fixed():
     # The vocabulary is a contract: growing it is a deliberate act, not a side effect.
-    # Residual/error behavior deliberately grows the fixed vocabulary with a
-    # nonplastic E->ErrorE copy and a paired L2E->SwitchI trace event.
+    # Residual/error behavior deliberately grew it with a nonplastic E->ErrorE copy and a
+    # paired L2E->SwitchI trace event; the coincidence topology deliberately adds the
+    # pretrained/basal/apical excitation kinds and the immediate hard-reset inhibition.
     assert set(EDGE_KINDS) == {'feedforward', 'relay_excitation', 'inhibition',
                                'predictive_inhibition', 'fixed_excitation',
-                               'trace_excitation'}
+                               'trace_excitation', 'pretrained_excitation',
+                               'basal_excitation', 'apical_excitation',
+                               'hard_reset_inhibition'}
     assert set(ARCHETYPES) == {'rg_source', 'e_sensory', 'e_encoder', 'e_residual',
-                               'e_competitor', 'i_relay', 'predictor', 'switch'}
+                               'e_competitor', 'e_pretrained', 'e_coincidence',
+                               'e_latency_competitor', 'i_relay', 'predictor', 'switch'}
 
 
 def test_competitor_spike_dispatches_valid_downstream_feedforward_edge():

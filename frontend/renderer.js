@@ -30,6 +30,14 @@ const COLORS = {
   // Predictive inhibitory output PI[j] -> L1E_s[i]: a locally-plastic conductance
   // synapse, drawn a distinct magenta to separate it from the L2I_WTA red inhibition.
   predictive_inhibition: 0xe066c0,
+  // --- coincidence topology (rg_coincidence) ---
+  // Fixed pretrained RG -> L1E packet (lime); learned basal L1E -> L1C (violet);
+  // unweighted apical L2E -> L1C Boolean gate (pink); and immediate hard-reset
+  // inhibition (bright red, distinct from conductance inhibition).
+  pretrained_excitation: 0xa3e635,
+  basal_excitation: 0xc084fc,
+  apical_excitation: 0xf472b6,
+  hard_reset_inhibition: 0xff5b6e,
 };
 const WEAK = 0.25;            // fraction of the shared cap below which a learned edge is "weak"
 const STRUCTURAL_OPACITY = 0.22;   // fixed opacity for weightless structural relay edges

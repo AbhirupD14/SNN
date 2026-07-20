@@ -1,0 +1,104 @@
+{
+  "isolated_cadence": {
+    "c_init": 520.5381,
+    "c_max": 566.9226,
+    "w1": 1015.3069,
+    "fire_pattern": [
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1
+    ],
+    "spikes": 6,
+    "coincidences": 12,
+    "ratio": 0.5,
+    "exact_two_to_one": true,
+    "crossing_taus": [
+      0.979589,
+      0.979589,
+      0.979589,
+      0.979589,
+      0.979589,
+      0.979589
+    ],
+    "pretrained_l1e_tau": 0.9517,
+    "c_second_tau_at_init": 0.9796,
+    "c_second_tau_at_cap": 0.8131
+  },
+  "full_preset": {
+    "boundaries": 4000,
+    "seed": 1,
+    "active_pixels": [
+      3,
+      4,
+      5
+    ],
+    "c_init": 520.5381,
+    "c_max": 566.9226,
+    "counters": {
+      "rg_spikes": 12000,
+      "l1e_spikes": 10290,
+      "c_spikes": 2442,
+      "l2_spikes": 1672,
+      "basal_available": 10287,
+      "apical_events": 15048,
+      "valid_coincidences": 5016,
+      "l1_hard_resets": 2442,
+      "l2_hard_resets": 13376,
+      "l1e_reset_suppressed": 1707,
+      "latency_ties": 6810
+    },
+    "apical_source_ids": [
+      "L2E2"
+    ],
+    "final_basal_weights": [
+      520.5381,
+      520.5381,
+      520.5381,
+      554.1592,
+      549.4496,
+      552.1421,
+      520.5381,
+      520.5381,
+      520.5381
+    ],
+    "matured_to_cap": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "timing": {
+      "mean_l2_winner_tau": 0.08686,
+      "mean_c_spike_tau": 0.8949,
+      "mean_l1e_spike_tau": 0.95168,
+      "note": "C crossing tau must fall below the L1E crossing tau (~0.952) for a C->L1I reset to beat L1E in the same boundary."
+    },
+    "frequency": {
+      "l1e_over_rg_overall": 0.8575,
+      "l1e_rate_first_window": 0.912,
+      "l1e_rate_last_window": 0.8,
+      "target": 0.5
+    }
+  },
+  "winner_exchange": {
+    "strong_L2E0_winner": "L2E0",
+    "strong_L2E5_winner": "L2E5",
+    "node_order_unchanged": true,
+    "winner_followed_drive": true
+  },
+  "deterministic_replay": true
+}

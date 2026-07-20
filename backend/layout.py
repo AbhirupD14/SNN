@@ -66,6 +66,10 @@ def generate_layout(rng, n_pix: int, n_out: int) -> dict[str, np.ndarray]:
         pos[f'L1E{i}'] = anchor + jitter()
         pos[f'L1Enew{i}'] = anchor + np.array([0.0, 0.0, Z_OFFSET]) + jitter()
         pos[f'L1I{i}'] = anchor + np.array([0.0, 0.0, -Z_OFFSET]) + jitter()
+        # L1C reuses the already-generated L1Enew functional position (the coincidence
+        # partner sits above its pixel). This is a COPY, not a new RNG draw, so adding
+        # the rg_coincidence preset never shifts pi/old/rg/rg_residual layout or goldens.
+        pos[f'L1C{i}'] = pos[f'L1Enew{i}'].copy()
 
     # RG last and UNJITTERED: see the module docstring -- drawing here would shift the
     # competitor feedforward jitter and break the pi/old goldens.

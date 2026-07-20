@@ -222,6 +222,9 @@ async def stimulate(body: StimulateBody):
         engine.stimulate(body.neuron_id, body.magnitude, body.continuous)
     except KeyError:
         return JSONResponse({"error": f"unknown neuron '{body.neuron_id}'"}, status_code=404)
+    except ValueError as e:
+        # e.g. a coincidence cell cannot be scalar-stimulated (would bypass its gate).
+        return JSONResponse({"error": str(e)}, status_code=400)
     await runner.broadcast_dynamic()
     return {"ok": True}
 
@@ -268,7 +271,8 @@ def _vocabulary():
     marks the archetypes that may own an external pixel."""
     return {"archetypes": {k: {"cls": v["cls"], "role": v["role"], "desc": v["desc"],
                                "input_sink": v["input_sink"], "wta": v["wta"],
-                               "plastic_ff": v["plastic_ff"]}
+                               "plastic_ff": v["plastic_ff"],
+                               "event_resolved": v["event_resolved"]}
                            for k, v in ARCHETYPES.items()},
             "edge_kinds": {k: {"src": list(v["src"]) if isinstance(v["src"], tuple) else v["src"],
                                "tgt": list(v["tgt"]) if isinstance(v["tgt"], tuple) else v["tgt"],

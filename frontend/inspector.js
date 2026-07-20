@@ -92,6 +92,27 @@ export class Inspector {
         ${card('Spike', `<span class="firing-badge ${state.spiked ? 'yes' : 'no'}">${state.spiked ? 'SPIKE' : 'idle'}</span>`, '', true)}
         ${card('Firing freq', (state.freq * 100).toFixed(1) + '%', bar(state.freq))}
         ${card('Refractory', state.refractory + ' steps')}
+        ${state.basal_weight != null ? card('Learned basal weight', `
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-variant-numeric:tabular-nums">${state.basal_weight.toFixed(1)}</span>
+            <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
+              <div style="height:100%;width:${Math.max(0, Math.min(1, state.basal_weight / meta.threshold)) * 100}%;background:#c084fc;border-radius:3px"></div>
+            </div>
+            <span style="font-size:11px;color:var(--txt-2)">the only plastic C weight</span>
+          </div>`) : ''}
+        ${state.coincidence_active != null ? card('Coincidence gate', `
+          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
+            <span class="tag" style="color:${state.basal_received || state.basal_eligible ? '#c084fc' : 'var(--txt-2)'}">
+              basal ${state.basal_received ? 'now' : (state.basal_eligible ? 'eligible' : '—')}</span>
+            <span class="tag" style="color:${state.apical_active ? '#f472b6' : 'var(--txt-2)'}">
+              apical ${state.apical_active ? `on (${(state.apical_sources || []).length})` : 'off'}</span>
+            <span class="firing-badge ${state.coincidence_active ? 'yes' : 'no'}">
+              ${state.coincidence_active ? 'COINCIDENCE' : 'no gate'}</span>
+            <span style="font-size:11px;color:var(--txt-2)">charge ${(state.coincidence_charge ?? 0).toFixed(1)}</span>
+          </div>`) : ''}
+        ${state.spike_tau != null ? card('Spike sub-boundary τ',
+          `<span style="font-variant-numeric:tabular-nums">${state.spike_tau.toFixed(4)}</span>
+           <span style="font-size:11px;color:var(--txt-2);margin-left:8px">analytic within-boundary crossing time</span>`) : ''}
         ${state.winner_trace != null ? card('Local winner trace x_j', `
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-variant-numeric:tabular-nums">${state.winner_trace.toFixed(3)}</span>

@@ -57,7 +57,7 @@ GPT review, scientific audit, and next design iteration
 
 **Author note**
 
-Most of my conversations with GPT start off with a large multi paragraph description of 
+Most of my conversations with GPT start off with a larger description of
 what I am looking for. This is typed up in a text file and pasted into codex or pointed 
 to for codex to read. This is usually a descriptive "story" of what exactly I want to see 
 happen in the network (the behavior of nodes, the excpected emergent behavior, the equations
@@ -67,6 +67,35 @@ clarification. Because of the detail in the kick off prompt, it usually also ide
 in my assumptions and we worked through them to create a truly complete picture which finally ended up
 in a technical spec.
 
+An example of a smaller kick off description would be:
+
+```text
+Read through the repo you should find a document that describes some new neuroscience about coincidence detectors. Let me tell you the story of how things should work in this project now, and then we can have a technical discussion about how to implement this.
+
+Currently we have some differing topologies, but the most basic is that L1 has an L1E pool and an L1I pool where I -> E connections are one to one. L1E is densely connected with L2E via feedforward and L2E -> L1I is densely connected feedback. E neurons work on summing accumulation based on the active gates. This makes a coincience detector extremely difficult to create so we would like to create a new class that is a coincidence pyramid cell. It still has weights that need to be learned upon firing, and will only fire when threshold is reached. The main difference will be that charge is only accumulated when all the inputs are active at the same time. In our most basic topology it would look like this. L1E -> L1C -> L1I -> L1E in a loop and L2E -> L1C and C neurons can only accumulate charge when both a basal and apical connection are active where basal connections are feedforward from L1 and apical connections are feedback from L2E. This will help us create a coincidence detector to suppress the evidence in a way where we can actually achieve frequency halving.
+
+Here is the new weight update equation for coincidence nodes
+
+
+dw = LR * FE * apical * (1 - (w/w_max)^2) * s_i * influence
+
+
+where
+
+
+LR = learning rate
+FE = theta - sum(afferent_weights)
+s_i = signal from feedforward (between -1 and 1)
+apical = signal from feedback (between 0 and 1)
+influence = 1/d^2 distance term
+
+
+Essentially apical will tell us whether there is a weight update or not. We need to track some things here. When L1C get's signal, it needs to make sure that it's getting active signal in apical and basal connections before it decides to add any charge. This is important because a C cell will have 1 connection from L1E but 8 from L2E (in this topology), so we need to check "is an apical and basal connection both active right now?" before adding any charge. The weight that updates in L1C should also be the apical weight and not the basal weight, we are learning the apical feedback weight.
+
+For C cells, the threshold is the same as E cells. Leave the leak and refractory equal for C cells to E cells. Treat all inhibitory cells as immediate relays (pretrained). We will treat L1E as pretrained for this topology so RG cells instantly invoke them to fire. Let's have inhibition fire more than 1 spike per fire event because I think that actual inhib cells do fire very fast and not just once at the same rate as E cells.
+
+Let's discuss about this information and then talk about implementation details (do we inherit the E class for C class? do we build a dendrite class that has an apical and basal end so that we can apply this connectivity rule anywhere?). Eventually we will make a technical spec and have claude implement it for us.
+```
 ## Planning became a concrete engineering artifact
 
 Over time, “planning” stopped meaning a short list of tasks. We began producing

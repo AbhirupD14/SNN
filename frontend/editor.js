@@ -18,27 +18,35 @@ const NODE_COLOR_CSS = {
   rg_source: '#fbbf24', e_sensory: '#5eead4', e_encoder: '#34d399',
   e_residual: '#2dd4bf', e_competitor: '#38bdf8', i_relay: '#f0788c',
   predictor: '#e066c0', switch: '#fb7185',
+  e_pretrained: '#a3e635', e_coincidence: '#c084fc', e_latency_competitor: '#60a5fa',
 };
 const EDGE_COLOR = {
   feedforward: 0x4cc38a, fixed_excitation: 0x22c55e, trace_excitation: 0xf59e0b,
   relay_excitation: 0x7c9cff, inhibition: 0xf0788c, predictive_inhibition: 0xe066c0,
+  pretrained_excitation: 0xa3e635, basal_excitation: 0xc084fc,
+  apical_excitation: 0xf472b6, hard_reset_inhibition: 0xff5b6e,
 };
 const EDGE_COLOR_CSS = {
   feedforward: '#4cc38a', fixed_excitation: '#22c55e', trace_excitation: '#f59e0b',
   relay_excitation: '#7c9cff', inhibition: '#f0788c', predictive_inhibition: '#e066c0',
+  pretrained_excitation: '#a3e635', basal_excitation: '#c084fc',
+  apical_excitation: '#f472b6', hard_reset_inhibition: '#ff5b6e',
 };
 const ARCH_PREFIX = {
   rg_source: 'RG', e_sensory: 'S', e_encoder: 'EN', e_residual: 'ERR',
   e_competitor: 'C', i_relay: 'I', predictor: 'P', switch: 'SW',
+  e_pretrained: 'L1E', e_coincidence: 'L1C', e_latency_competitor: 'L2E',
 };
 // Default z for a freshly added node, so new nodes land in a sensible 3D band.
 // RG sits below L1 (upstream of it); L1 at 0; L2 at 8.
 const ARCH_Z = { rg_source: -6, e_sensory: 0, e_encoder: 0, e_residual: 3.2,
-  e_competitor: 8, i_relay: 8, predictor: 8, switch: 8 };
+  e_competitor: 8, i_relay: 8, predictor: 8, switch: 8,
+  e_pretrained: 0, e_coincidence: 2.6, e_latency_competitor: 8 };
 // Layer a freshly added node is filed under (matches network_spec._default_layer).
 const ARCH_LAYER = {
   rg_source: 'RG', e_sensory: 'L1', e_encoder: 'L1', e_residual: 'ERR',
   e_competitor: 'L2', i_relay: 'L2', predictor: 'L2', switch: 'L2',
+  e_pretrained: 'L1', e_coincidence: 'L1', e_latency_competitor: 'L2',
 };
 const NODE_R = 0.7;
 
@@ -331,15 +339,34 @@ export class Editor {
     if (this.vocab.archetypes[req]) return arch === req;
     return this._archClass(arch) === req;
   }
+  // All edge kinds valid between two archetypes (an E->e_coincidence gesture matches
+  // BOTH basal_excitation and apical_excitation, so this can return several).
+  _validKinds(srcArch, tgtArch) {
+    return Object.entries(this.vocab.edge_kinds)
+      .filter(([, spec]) => this._matches(srcArch, spec.src) && this._matches(tgtArch, spec.tgt))
+      .map(([k]) => k);
+  }
   _inferKind(srcArch, tgtArch) {
-    for (const [k, spec] of Object.entries(this.vocab.edge_kinds))
-      if (this._matches(srcArch, spec.src) && this._matches(tgtArch, spec.tgt)) return k;
-    return null;
+    const ks = this._validKinds(srcArch, tgtArch);
+    return ks.length ? ks[0] : null;
   }
 
   _connect(src, tgt) {
-    const kind = this._inferKind(src.archetype, tgt.archetype);
-    if (!kind) { this._status(`no valid connection ${src.archetype}→${tgt.archetype}`, true); return; }
+    const kinds = this._validKinds(src.archetype, tgt.archetype);
+    if (!kinds.length) { this._status(`no valid connection ${src.archetype}→${tgt.archetype}`, true); return; }
+    let kind = kinds[0];
+    if (kinds.length > 1) {
+      // Ambiguous (e.g. basal vs apical onto a coincidence cell): never silently pick
+      // the first valid kind -- require an explicit compartment/kind selection.
+      const choice = window.prompt(
+        `Multiple edge kinds are valid for ${src.id} -> ${tgt.id}.\nType one of:\n  ${kinds.join('\n  ')}`,
+        kinds[0]);
+      if (!choice) { this._status('connection cancelled (no kind chosen)', true); return; }
+      if (!kinds.includes(choice.trim())) {
+        this._status(`'${choice}' is not a valid kind here (${kinds.join(', ')})`, true); return;
+      }
+      kind = choice.trim();
+    }
     if (this.spec.edges.some(e => e.source === src.id && e.target === tgt.id && e.kind === kind)) {
       this._status('edge already exists', true); return;
     }

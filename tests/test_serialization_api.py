@@ -95,7 +95,8 @@ def test_config_accepts_editable_keys(engine):
     # predictive-inhibition timescales plus the two ablation toggles.
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == set(config_values(engine.params))
-    assert keys == {'leak_rate', 'refractory_steps', 'eta', 'e_weight_cap', 'topology',
+    assert keys == {'leak_rate', 'refractory_steps', 'eta', 'c_eta',
+                    'l2_init_total_frac', 'e_weight_cap', 'topology',
                     'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'pi_eta', 'pi_g_scale',
                     'l2i_g_scale', 'pi_conductance_enabled', 'pi_plasticity_enabled',
                     # 'rg' topology controls: the RG->L1E projection's ablation toggle
@@ -127,5 +128,9 @@ def test_reset_and_reseed_cycle(engine):
 
 def test_api_module_imports_and_builds():
     import backend.api as api
+    from backend.dashboard_config import DASHBOARD_OVERRIDES
+
     assert api.engine is not None
-    assert len(api.engine.topology()['neurons']) == 26   # default topology 'pi'
+    startup = SimulationEngine(seed=1, **DASHBOARD_OVERRIDES)
+    assert startup.params['topology'] == 'rg_coincidence'
+    assert len(startup.topology()['neurons']) == 45

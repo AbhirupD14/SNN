@@ -71,20 +71,40 @@ def leak_to_conductance(leak_rate: float) -> float:
     return 0.0 if leak_rate == 0.0 else -math.log(1.0 - leak_rate)
 
 
-class ExcitatoryNeuron:
-    """Conductance-based leaky integrate-and-fire unit with one learning rule.
+class ConductanceLIFNeuron:
+    """Shared conductance-based leaky integrate-and-fire membrane -- intrinsic
+    excitatory dynamics ONLY (no accumulating afferent vector, no learning rule).
 
-    Per integration boundary the engine (1) gathers excitatory charge via
-    ``gather_exc`` and inhibitory conductance via ``add_inhibition``, (2) calls
-    ``integrate`` once to advance ``V`` jointly, (3) tests ``can_fire``/``fire``,
-    (4) calls ``update_trace`` (survives reset), (5) calls ``decay_conductance``
-    exactly once, (6) counts down refractory via ``advance_refractory``.
+    Two execution contracts share these mechanics:
+
+    * the LEGACY whole-boundary path: the engine (1) gathers charge via
+      ``gather_exc`` + inhibition via ``add_inhibition``, (2) calls ``integrate``
+      once to advance ``V`` jointly, (3) tests ``can_fire``/``fire``,
+      (4) ``update_trace`` (survives reset), (5) ``decay_conductance`` once,
+      (6) ``advance_refractory``. This path is byte-preserved for existing presets;
+    * the EVENT-RESOLVED path (added for the coincidence topology): gathered charge
+      is frozen into ``remaining_excitation`` via ``freeze_drive``; the boundary is
+      then resolved in analytic sub-boundary segments with ``advance_segment`` /
+      ``crossing_time`` / ``fire(tau)``, and an inhibitory relay may issue a
+      zero-latency ``hard_reset``. ``integrate`` is never called on this path.
+
+    With ``C = 1``, ``E_L = V_rest = 0``, and inhibitory reversal ``E_inh`` the
+    membrane obeys, over an elapsed segment ``Delta_tau`` under constant drive
+    ``I_exc`` (the frozen packet interpreted as a rate over the unit interval):
+
+        g       = g_L + g_inh
+        g == 0  -> V <- V + I_exc * Delta_tau                      (pure integrator)
+        g  > 0  -> V_inf = (g_L*E_L + g_inh*E_inh + I_exc) / g
+                   V <- V_inf + (V - V_inf) * exp(-g * Delta_tau)
+
+    A single ``advance_segment(1.0)`` with the same frozen drive reproduces the
+    legacy ``integrate(dt=1.0)`` result exactly (see the Phase 1 equivalence tests),
+    so the event loop cannot alter legacy E dynamics.
     """
 
-    def __init__(self, nid, role, *, acc_weights, acc_distance_factor,
-                 threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP,
+    def __init__(self, nid, role, *,
+                 threshold=E_THRESHOLD,
                  leak_rate=DEFAULT_LEAK, refractory_steps=DEFAULT_REFRACTORY,
-                 eta=DEFAULT_ETA, learn=True,
                  e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
                  alpha_a=DEFAULT_ALPHA_A, beta_v=DEFAULT_BETA_V,
                  beta_s=DEFAULT_BETA_S, a_max=DEFAULT_A_MAX):
@@ -95,19 +115,11 @@ class ExcitatoryNeuron:
         self.v_rest = 0.0
         self.V = 0.0
         self.threshold = float(threshold)
-        self.w_max = float(w_max)
 
         self.leak_rate = float(leak_rate)
         self.g_L = leak_to_conductance(self.leak_rate)      # baseline leak conductance
         self.refractory_steps = int(refractory_steps)
         self.refractory_timer = 0
-
-        self.acc_weights = np.asarray(acc_weights, dtype=float)
-        self.acc_distance_factor = np.asarray(acc_distance_factor, dtype=float)
-        if self.acc_weights.shape != self.acc_distance_factor.shape:
-            raise ValueError('acc_weights and acc_distance_factor must align')
-        self.eta = float(eta)
-        self.learn = bool(learn)
 
         # --- persistent inhibitory conductance ---
         if e_inh > self.v_rest:
@@ -124,10 +136,13 @@ class ExcitatoryNeuron:
         self.a = 0.0
 
         # --- per-boundary gather + bookkeeping ---
-        self.pending_exc = 0.0
-        self.v_pre_reset = 0.0            # membrane after integration, before any reset
+        self.pending_exc = 0.0           # boundary-start gathering (legacy + event)
+        self.remaining_excitation = 0.0  # frozen drive packet consumed by the event loop
+        self.v_pre_reset = 0.0           # MAX depolarized endpoint this boundary (pre reset)
         self.spiked = False
         self.v_pre = 0.0
+        self.spike_tau = None            # sub-boundary time of this boundary's spike
+        self.fired_this_boundary = False
 
     # ------------------------------------------------------------------ views
     @property
@@ -154,10 +169,18 @@ class ExcitatoryNeuron:
             raise ValueError('inhibitory conductance increment must be >= 0')
         self.g_inh += g
 
+    def freeze_drive(self):
+        """Event path: freeze this boundary's gathered ``pending_exc`` into the
+        constant ``remaining_excitation`` drive packet the segment loop consumes."""
+        self.remaining_excitation += self.pending_exc
+        self.pending_exc = 0.0
+        return self.remaining_excitation
+
     # --------------------------------------------------------- integration
     def integrate(self, dt=1.0):
-        """Advance ``V`` once, combining leak, persistent inhibition, and the
-        gathered excitatory input BEFORE any threshold test. Consumes pending_exc.
+        """LEGACY whole-boundary advance: combine leak, persistent inhibition, and
+        the gathered excitatory input BEFORE any threshold test. Consumes
+        pending_exc.
 
             g_total = g_L + g_inh
             g_total == 0 -> V <- V + Q_exc / C          (pure integrator, C = 1)
@@ -180,17 +203,90 @@ class ExcitatoryNeuron:
         self.v_pre_reset = self.V
         return self.V
 
+    # ------------------------------------------------- exact segment primitives
+    def _v_inf(self):
+        """Steady-state voltage for the current frozen drive + conductances; None
+        when total conductance is zero (the pure-integrator branch)."""
+        g = self.g_L + self.g_inh
+        if g == 0.0:
+            return None
+        return (self.g_L * self.v_rest + self.g_inh * self.e_inh
+                + self.remaining_excitation) / g
+
+    def advance_segment(self, delta_tau):
+        """Advance ``V`` by an elapsed sub-boundary segment ``delta_tau`` under the
+        constant frozen drive ``remaining_excitation``, using the exact trajectory.
+        Tracks ``v_pre_reset`` as the MAXIMUM depolarized endpoint reached this
+        boundary (never cleared by a later hard reset), so the once-per-boundary
+        activity-trace update still registers depolarization that was wiped."""
+        delta_tau = float(delta_tau)
+        if delta_tau < 0.0:
+            raise ValueError(f'delta_tau must be >= 0, got {delta_tau}')
+        g = self.g_L + self.g_inh
+        if g == 0.0:
+            self.V = self.V + self.remaining_excitation * delta_tau
+        else:
+            v_inf = (self.g_L * self.v_rest + self.g_inh * self.e_inh
+                     + self.remaining_excitation) / g
+            self.V = v_inf + (self.V - v_inf) * math.exp(-g * delta_tau)
+        if self.V > self.v_pre_reset:
+            self.v_pre_reset = self.V
+        return self.V
+
+    def crossing_time(self, remaining_interval):
+        """Analytic elapsed time until ``V`` reaches ``threshold`` under the current
+        frozen drive, or ``math.inf`` if it cannot within ``remaining_interval``.
+
+        Encodes candidate VALIDITY (a purely local, per-cell computation -- never a
+        winner policy): refractory must permit firing and the cell must not have
+        already fired this boundary. Returns ``0.0`` when the segment begins at or
+        above threshold (an immediate crossing)."""
+        if self.refractory_timer != 0 or self.fired_this_boundary:
+            return math.inf
+        if self.V >= self.threshold:
+            return 0.0
+        g = self.g_L + self.g_inh
+        i_exc = self.remaining_excitation
+        if g > 0.0:
+            v_inf = (self.g_L * self.v_rest + self.g_inh * self.e_inh + i_exc) / g
+            if v_inf <= self.threshold:
+                return math.inf                    # trajectory asymptotes below theta
+            dtau = (1.0 / g) * math.log((v_inf - self.V) / (v_inf - self.threshold))
+        else:
+            if i_exc <= 0.0:
+                return math.inf                    # no drive, no leak -> never crosses
+            dtau = (self.threshold - self.V) / i_exc
+        if dtau < 0.0:
+            dtau = 0.0
+        return dtau if dtau <= float(remaining_interval) else math.inf
+
     def can_fire(self):
         return self.refractory_timer == 0 and self.V >= self.threshold
 
-    def fire(self):
-        """Threshold crossing: record v_pre, reset membrane to rest, arm refractory.
-        Does NOT clear ``g_inh`` or the activity trace ``a``."""
+    def fire(self, tau=None):
+        """Threshold crossing: record v_pre, reset membrane to rest, arm refractory,
+        consume the frozen drive packet, and mark this boundary spent. ``tau`` is the
+        sub-boundary crossing time (``None`` on the legacy whole-boundary path). Does
+        NOT clear ``g_inh`` or the activity trace ``a``."""
         self.v_pre = self.V
         self.spiked = True
         self.V = self.v_rest
         self.refractory_timer = self.refractory_steps
+        self.spike_tau = tau
+        self.remaining_excitation = 0.0
+        self.fired_this_boundary = True
         return self.v_pre
+
+    def hard_reset(self, tau, discard_drive=True):
+        """Immediate zero-latency inhibitory reset at sub-boundary time ``tau``:
+        wipe retained membrane evidence and (by default) discard the remainder of the
+        frozen drive packet. Deliberately does NOT touch learned weights, the local
+        trace, persistent inhibitory conductance, refractory state, or an
+        already-emitted spike's ``spiked``/``spike_tau``/``v_pre``/``v_pre_reset``."""
+        self.V = self.v_rest
+        if discard_drive:
+            self.remaining_excitation = 0.0
+        return self.V
 
     # ------------------------------------------------------------- trace
     def update_trace(self):
@@ -199,9 +295,10 @@ class ExcitatoryNeuron:
             depol = clip((v_pre_reset - V_rest) / (threshold - V_rest), 0, 1)
             a <- clip(alpha_a * a + beta_v * depol + beta_s * spike, 0, a_max)
 
-        Uses ``v_pre_reset`` (captured at integration) so a cell that fired and
-        reset still registers as "recently active". Carries no information about
-        WHICH afferent supplied the charge.
+        Uses ``v_pre_reset`` (the max pre-reset depolarization) so a cell that fired
+        and reset -- or was hard-reset after depolarizing -- still registers as
+        "recently active". Carries no information about WHICH afferent supplied the
+        charge.
         """
         span = self.threshold - self.v_rest
         depol = 0.0 if span <= 0 else (self.v_pre_reset - self.v_rest) / span
@@ -227,6 +324,47 @@ class ExcitatoryNeuron:
         if self.refractory_timer > 0:
             self.refractory_timer -= 1
 
+    def begin_event_boundary(self):
+        """Event path: reset per-boundary transient membrane bookkeeping at boundary
+        start. Persistent state (``g_inh``, activity trace, refractory timer, learned
+        weights) is deliberately untouched. Membrane ``V`` persists across boundaries."""
+        self.pending_exc = 0.0
+        self.remaining_excitation = 0.0
+        self.v_pre_reset = self.v_rest
+        self.spiked = False
+        self.fired_this_boundary = False
+        self.spike_tau = None
+
+
+class ExcitatoryNeuron(ConductanceLIFNeuron):
+    """Ordinary conductance LIF unit with the one accumulating-weight learning rule.
+
+    Adds a flat plastic afferent vector (``acc_weights`` + aligned distance factors)
+    and the signed accumulating update on top of the shared membrane base. Used for
+    both learning roles: the WTA competitors (``L2E``) and the noncompetitive
+    ``e_encoder`` cells. ``e_pretrained`` uses this class with empty afferent arrays
+    and ``learn=False``.
+    """
+
+    def __init__(self, nid, role, *, acc_weights, acc_distance_factor,
+                 threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP,
+                 leak_rate=DEFAULT_LEAK, refractory_steps=DEFAULT_REFRACTORY,
+                 eta=DEFAULT_ETA, learn=True,
+                 e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
+                 alpha_a=DEFAULT_ALPHA_A, beta_v=DEFAULT_BETA_V,
+                 beta_s=DEFAULT_BETA_S, a_max=DEFAULT_A_MAX):
+        super().__init__(nid, role, threshold=threshold, leak_rate=leak_rate,
+                         refractory_steps=refractory_steps, e_inh=e_inh,
+                         alpha_inh=alpha_inh, alpha_a=alpha_a, beta_v=beta_v,
+                         beta_s=beta_s, a_max=a_max)
+        self.w_max = float(w_max)
+        self.acc_weights = np.asarray(acc_weights, dtype=float)
+        self.acc_distance_factor = np.asarray(acc_distance_factor, dtype=float)
+        if self.acc_weights.shape != self.acc_distance_factor.shape:
+            raise ValueError('acc_weights and acc_distance_factor must align')
+        self.eta = float(eta)
+        self.learn = bool(learn)
+
     # -------------------------------------------------------------- learning
     def update_acc_weights(self, participation):
         """The one accumulating-weight rule. Runs when this neuron fires.
@@ -244,6 +382,221 @@ class ExcitatoryNeuron:
         signal = np.where(participation, 1.0, -1.0)
         delta = self.eta * p * signal * self.acc_distance_factor * (1.0 - (w / self.w_max) ** 2)
         np.clip(w + delta, 0.0, self.w_max, out=w)
+
+
+class DendriticCompartment:
+    """A minimal named input compartment for a coincidence cell -- NOT a general
+    dendritic tree. It owns its ordered source/edge ids and this boundary's transient
+    delivery; only a PLASTIC compartment carries an aligned weight + distance vector.
+    The cross-compartment coincidence gate belongs to the C cell, not here.
+
+    * ``basal`` -- exactly one source, one weight, one distance factor (plastic);
+    * ``apical`` -- one or more sources, no weight vector (structural Boolean gate).
+    """
+
+    def __init__(self, name, source_ids, edge_ids, *, weights=None,
+                 distance_factors=None):
+        if name not in ('basal', 'apical'):
+            raise ValueError(f"compartment name must be 'basal' or 'apical', got {name!r}")
+        self.name = name
+        self.source_ids = list(source_ids)
+        self.edge_ids = list(edge_ids)
+        if len(self.source_ids) != len(self.edge_ids):
+            raise ValueError('source_ids and edge_ids must align')
+        self.plastic = weights is not None
+        if self.plastic:
+            self.weights = np.asarray(weights, dtype=float)
+            if distance_factors is None:
+                self.distance_factors = np.ones(len(self.source_ids))
+            else:
+                self.distance_factors = np.asarray(distance_factors, dtype=float)
+            if not (self.weights.shape == self.distance_factors.shape
+                    == (len(self.source_ids),)):
+                raise ValueError('plastic compartment weights/distances must align with sources')
+        else:
+            self.weights = None
+            self.distance_factors = None
+        # transient current-boundary delivery (aligned lists)
+        self.delivered_sources = []
+        self.delivered_signals = []
+
+    def clear(self):
+        """Drop this boundary's delivered events (apical state never persists; basal
+        persistence is the C cell's one-boundary eligibility, not the compartment's)."""
+        self.delivered_sources = []
+        self.delivered_signals = []
+
+    def gather(self, source, signal=1.0):
+        """Record a delivered event on this compartment for the current boundary."""
+        self.delivered_sources.append(source)
+        self.delivered_signals.append(float(signal))
+
+
+class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
+    """Excitatory coincidence pyramidal cell: one learned basal afferent and one or
+    more unweighted Boolean apical afferents, over the shared conductance-LIF membrane.
+
+    Somatic charge is deposited only when a basal signal (current OR carried one
+    boundary) coincides with a current apical event -- basal-only and apical-only
+    trains add exactly zero charge, regardless of leak or presentation length.
+    Intrinsic dynamics (threshold, leak, reset, refractory, conductance, activity
+    trace) are ordinary E dynamics; only the single basal weight learns, and only when
+    the cell actually fires.
+
+    ``type = 'E'`` with role ``coincidence``. There is no accumulating flat-feedforward
+    afferent vector, no ``update_acc_weights`` fallback, and no apical weight storage.
+    """
+
+    def __init__(self, nid, basal_source, basal_edge_id, *, apical_sources=(),
+                 apical_edge_ids=(), basal_weight=0.0, basal_distance_factor=1.0,
+                 w_max=E_WEIGHT_CAP, eta_c=DEFAULT_ETA, learn=True, role='coincidence',
+                 threshold=E_THRESHOLD, leak_rate=DEFAULT_LEAK,
+                 refractory_steps=DEFAULT_REFRACTORY,
+                 e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
+                 alpha_a=DEFAULT_ALPHA_A, beta_v=DEFAULT_BETA_V,
+                 beta_s=DEFAULT_BETA_S, a_max=DEFAULT_A_MAX):
+        super().__init__(nid, role, threshold=threshold, leak_rate=leak_rate,
+                         refractory_steps=refractory_steps, e_inh=e_inh,
+                         alpha_inh=alpha_inh, alpha_a=alpha_a, beta_v=beta_v,
+                         beta_s=beta_s, a_max=a_max)
+        self.w_max = float(w_max)                     # C-specific basal cap (NOT e_weight_cap)
+        self.eta_c = float(eta_c)
+        self.learn = bool(learn)
+        self.basal = DendriticCompartment(
+            'basal', [basal_source], [basal_edge_id],
+            weights=[float(basal_weight)], distance_factors=[float(basal_distance_factor)])
+        self.apical = DendriticCompartment(
+            'apical', list(apical_sources), list(apical_edge_ids))
+
+        # --- one-boundary basal eligibility (dendritic state, not membrane charge) ---
+        self.basal_received = False
+        self.basal_signal = 0.0
+        self.basal_eligible = False                   # unconsumed basal event from t-1
+        self.basal_eligible_signal = 0.0
+        self.apical_sources = set()                   # current-boundary L2E ids
+        self.apical_active = False
+        self.coincidence_active = False
+        self.coincidence_charge = 0.0
+        # signal that produced the current deposit (causal state for learning)
+        self._deposit_signal = 0.0
+
+    # ------------------------------------------------------------------ views
+    @property
+    def basal_weight(self):
+        return float(self.basal.weights[0])
+
+    # ----------------------------------------------------- boundary lifecycle
+    def begin_event_boundary(self):
+        """Reset current-boundary receipts and transient membrane bookkeeping, but
+        PRESERVE the basal eligibility carried from the previous boundary so it can be
+        evaluated against this boundary's apical events."""
+        super().begin_event_boundary()
+        self.basal.clear()
+        self.apical.clear()
+        self.basal_received = False
+        self.basal_signal = 0.0
+        self.apical_sources = set()
+        self.apical_active = False
+        self.coincidence_active = False
+        self.coincidence_charge = 0.0
+        # basal_eligible / basal_eligible_signal are intentionally NOT cleared here.
+
+    # -------------------------------------------------------- input delivery
+    def gather_basal(self, source, signal=1.0):
+        """Deliver a basal event this boundary. Does not depolarize the soma; it only
+        makes basal signal available to the coincidence gate."""
+        self.basal.gather(source, signal)
+
+    def gather_apical(self, source):
+        """Deliver an unweighted apical (Boolean permission) event this boundary."""
+        self.apical.gather(source, 1.0)
+
+    # ------------------------------------------------- dendritic gating rule
+    def resolve_dendrites(self):
+        """Implement the coincidence truth table and one-boundary eligibility state
+        machine, then install any gated somatic drive. Arrival order of basal vs apical
+        within the boundary does not matter -- only the boundary-level sets do.
+
+        Deposits ``w_basal * s`` exactly once iff (current OR carried basal) AND a
+        current apical event. Charge accrues even while refractory (firing is gated
+        separately); the same basal event is never reused."""
+        basal_received = len(self.basal.delivered_sources) > 0
+        basal_signal = self.basal.delivered_signals[0] if basal_received else 0.0
+        apical_sources = set(self.apical.delivered_sources)
+        apical_active = bool(apical_sources)
+
+        self.basal_received = basal_received
+        self.basal_signal = basal_signal
+        self.apical_sources = apical_sources
+        self.apical_active = apical_active
+
+        # B = current OR carried basal availability; its signal prefers the current event.
+        B = basal_received or self.basal_eligible
+        b_signal = basal_signal if basal_received else self.basal_eligible_signal
+        A = apical_active
+
+        charge = 0.0
+        coincidence = bool(B and A)
+        if coincidence:
+            w = float(self.basal.weights[0])
+            charge = w * b_signal
+            self._deposit_signal = b_signal
+            # consume ALL basal availability; a participating current event is not carried.
+            self.basal_eligible = False
+            self.basal_eligible_signal = 0.0
+        else:
+            # carry a current, unconsumed basal event for EXACTLY the next boundary;
+            # otherwise eligibility expires (no two-boundary survival).
+            if basal_received:
+                self.basal_eligible = True
+                self.basal_eligible_signal = basal_signal
+            else:
+                self.basal_eligible = False
+                self.basal_eligible_signal = 0.0
+
+        self.coincidence_active = coincidence
+        self.coincidence_charge = charge
+        if coincidence:
+            self.gather_exc(charge)                    # install gated somatic drive only
+        return charge
+
+    # ----------------------------------------------------------- firing gate
+    def can_fire(self):
+        """A C cell may fire only with refractory clear, a supra-threshold membrane,
+        an ACTIVE current coincidence gate, and no prior spike this boundary."""
+        return (self.refractory_timer == 0 and self.V >= self.threshold
+                and self.coincidence_active and not self.fired_this_boundary)
+
+    def crossing_time(self, remaining_interval):
+        """C-local crossing time: infinity whenever the coincidence gate is closed, so
+        a retained supra-threshold membrane cannot fire on a non-coincident boundary."""
+        if not self.coincidence_active:
+            return math.inf
+        return super().crossing_time(remaining_interval)
+
+    # -------------------------------------------------------------- learning
+    def update_basal_weight(self):
+        """The exact basal update, applied ONLY immediately after this cell fires and
+        using the causal firing-boundary dendritic state and the PRE-update weight:
+
+            FE = theta - w
+            dw = eta_C * FE * A * (1 - (w / w_max)^2) * s * phi
+            w  <- clip(w + dw, 0, w_max)
+
+        A is the Boolean apical gate (1 at a causal C spike), s the active basal signal
+        of the causal deposit, phi the basal distance influence. There is no apical
+        weight and no negative-participation update."""
+        if not self.learn:
+            return self.basal_weight
+        w = float(self.basal.weights[0])
+        A = 1.0 if self.apical_active else 0.0
+        s = self._deposit_signal
+        phi = float(self.basal.distance_factors[0])
+        fe = self.threshold - w
+        dw = self.eta_c * fe * A * (1.0 - (w / self.w_max) ** 2) * s * phi
+        w_new = min(self.w_max, max(0.0, w + dw))
+        self.basal.weights[0] = w_new
+        return w_new
 
 
 class SourceNeuron:
@@ -308,6 +661,7 @@ class InhibitoryNeuron:
         self.threshold = float(threshold)          # reported only; there is no integrator
         self.received_signal = False
         self.spiked = False
+        self.spike_tau = None                      # sub-boundary tau (event path); inherits driver's
 
     def receive(self):
         self.received_signal = True
@@ -320,6 +674,7 @@ class InhibitoryNeuron:
     def clear(self):
         self.received_signal = False
         self.spiked = False
+        self.spike_tau = None
 
     @property
     def potential(self):
