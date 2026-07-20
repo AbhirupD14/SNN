@@ -1,9 +1,17 @@
-# Evolution of Our Multi-Agent Engineering Workflow
+# Evolution of My Multi-Agent Engineering Workflow
 
 This document records how my use of AI agents evolved during the design and
 implementation of this SNN project. The important change was not simply moving from
 one model to another. It was learning to assign different kinds of work according to
 each agent's strengths, while preserving a detailed, inspectable engineering process.
+
+**Author note**
+
+Much of this document itself was written by Sol. I asked it to review the history of the repo
+and its memories of how I interact with it. I'm sure you'll be able to identify the sections that
+were written by Sol, so you will be able to notice just how much of the workflow sentiment 
+it was able to extract from our sessions. I have put some notes throughout here to add on some important 
+pieces as well.
 
 ## The original division: GPT-5.5 as architect, Claude as implementer
 
@@ -47,6 +55,18 @@ Claude Opus/Fable implementation
 GPT review, scientific audit, and next design iteration
 ```
 
+**Author note**
+
+Most of my conversations with GPT start off with a large multi paragraph description of 
+what I am looking for. This is typed up in a text file and pasted into codex or pointed 
+to for codex to read. This is usually a descriptive "story" of what exactly I want to see 
+happen in the network (the behavior of nodes, the excpected emergent behavior, the equations
+I want to see used, edge case handling, etc). I then conversed with GPT to see if it had an 
+understanding of what I requested. This usually involves some back and forth iterations and 
+clarification. Because of the detail in the kick off prompt, it usually also identified pit falls
+in my assumptions and we worked through them to create a truly complete picture which finally ended up
+in a technical spec.
+
 ## Planning became a concrete engineering artifact
 
 Over time, “planning” stopped meaning a short list of tasks. We began producing
@@ -70,6 +90,17 @@ The visualization step was not decoration. Neural topology can look reasonable i
 verbal description while hiding a global fanout, an impossible inhibitory edge, or a
 timing dependency. Drawing the populations and their indexed connections made it much
 easier to ask the right questions before implementation.
+
+**Author note**
+
+One caveat to this is repository bloat. Over time, you can compound 50 to 100 md files involving
+planning, architecting, documenting, etc. Many times I had to lean out the repo to keep it maintanable
+(and myself sane). However, I still stored this in my git repo so my agent was able to use git commands
+to trace back through commits to track history. So not only was there history within the local repo, but 
+also long term history via the remote. This gave the agent a picture on what I had tried in the past, and what
+I wanted to do now. All via md files which saved tokens and context bloat since the agent read minimal code. The existing test
+case output also helped the agent complete the picture on a fresh start. With this all together, it seemed like I was
+able to pick up exactly where I left off despite starting new sessions each morning. 
 
 ## What we learned from dispatching work to Claude
 
@@ -177,6 +208,18 @@ This is why detailed planning remains valuable even when Sol writes the code its
 The plan is not merely a prompt for another model. It is the durable contract between
 the scientific idea, the implementation, the tests, and any future agent.
 
+**Author note**
+
+Additional things I noticed is that OpenAI agents in general consume tokens at a larger rate
+than Anthropic models. Using gpt-5.5 for coding ate up my limit in one prompt, but claude could manage
+large refactors pretty much throughout my 5 hour window. With Sol, it's a little better because they temporarily removed the 5 hour 
+windows and let us use Sol out of only the weekly limit. They also optimized Sol to use less tokens. But despite this, I keep Sol
+as a backup coding agent. I have found that its value as an architect outweighs its coding value. Say I use all my Sol tokens, now I'm
+almost stuck. I can have a mediocre conversation with Claude that will end up in the same spot as Sol, but with more turns. And now I've wasted
+my Sol tokens and my Claude tokens and am stuck at 10:30 am waiting for tokens to come back at 1pm. By using these agents to their strengths,
+optimized for their token usage I can extend my usage until almost 12:15pm, take lunch, and come back at 1pm. Of course if you have heavier workloads
+during these hours then you will run out faster but for my means this is what worked.
+
 ## Our current operating loop
 
 The process that emerged is:
@@ -216,3 +259,11 @@ They can be assigned to different agents, or combined in one capable agent when 
 context and token budget make that the better choice. The quality of the overall
 process comes from explicit specifications, independent verification, and careful
 handoffs—not from loyalty to a particular model.
+
+**Author note**
+
+One final comment is that I ended up using these agents in "yolo" mode where I gave the agent permissions automatically. It became a pain to sit and hit "1" for a 40 minute job in which it just asked
+me if it could cd into a repo or do git list. These large tasks didn't invovle removing files so I felt comfortable. However, if the work is more of an IT or system admin job I would heavily advise
+against using "yolo" modes no matter how convenient it may feel. Abhi out.
+
+-- Abhirup Dasgupta
