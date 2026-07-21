@@ -41,7 +41,7 @@ def test_positive_fe_participate_potentiates_absent_depresses_all_modes():
 
 def test_linear_delta_is_exactly_eta_fe_signal_distance():
     n = make_e([100., 100.], dist=[1.0, 0.5], mode='linear_bounded', eta=0.01, w_max=500.)
-    fe = 1000.0 - 200.0
+    fe = 1.10 * 1000.0 - 200.0                                    # budget headroom = 1.10*theta
     n.fire(); n.update_acc_weights(np.array([True, False]))
     exp = np.array([100. + 0.01 * fe * (+1) * 1.0,
                     100. + 0.01 * fe * (-1) * 0.5])
@@ -50,7 +50,7 @@ def test_linear_delta_is_exactly_eta_fe_signal_distance():
 
 def test_quadratic_delta_includes_the_multiplier():
     n = make_e([490.], mode='quadratic_bounded', eta=0.01, w_max=500.)
-    fe = 1000.0 - 490.0
+    fe = 1.10 * 1000.0 - 490.0                                    # budget applies to both modes
     q = 1.0 - (490.0 / 500.0) ** 2
     n.fire(); n.update_acc_weights(np.array([True]))
     assert n.acc_weights[0] == pytest.approx(min(500.0, 490.0 + 0.01 * fe * q))
@@ -58,7 +58,8 @@ def test_quadratic_delta_includes_the_multiplier():
 
 def test_zero_fe_produces_zero_delta_all_modes():
     for mode in E_UPDATE_MODES:
-        n = make_e([500., 500.], mode=mode, eta=0.1, w_max=1000., threshold=1000.)
+        # Zero FE now means sum(w) == the budget target (1.10*theta), not theta.
+        n = make_e([550., 550.], mode=mode, eta=0.1, w_max=1000., threshold=1000.)
         before = n.acc_weights.copy()
         learn(n, [True, False])
         assert n.acc_weights == pytest.approx(before)            # FE=0 -> no change

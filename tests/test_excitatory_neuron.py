@@ -83,13 +83,32 @@ def test_default_update_is_linear_bounded_exact():
     n = make_neuron(acc_weights=np.array([w0, w0, w0]),
                     acc_distance_factor=np.array([1.0, 0.5, 1.0]), eta=0.01)
     assert n.update_mode == 'linear_bounded'                  # engine-independent default
+    assert n.maturity_budget_frac == 1.10                     # budget-headroom default
     n.fire()
     w_before = n.acc_weights.copy()
-    p = E_THRESHOLD - w_before.sum()
+    p = 1.10 * E_THRESHOLD - w_before.sum()                   # budget target, NOT firing theta
     n.update_acc_weights(np.array([True, False, True]))
     expected = np.clip(w_before + 0.01 * p * np.array([1.0, -1.0, 1.0])
                        * np.array([1.0, 0.5, 1.0]), 0, E_WEIGHT_CAP)   # NO (1-(w/wmax)^2)
     assert n.acc_weights == pytest.approx(expected)
+
+
+def test_p_is_full_weight_sum_not_active_subset():
+    # The fullness error p that scales every delta is (threshold - sum of ALL weights):
+    # every weight that can contribute charge toward threshold, NOT just the afferents
+    # that participated this boundary. Construct a case where the two readings differ a
+    # lot -- a large SILENT afferent -- and pin the delta to the full-sum p.
+    w = np.array([100.0, 500.0, 100.0])
+    part = np.array([True, False, True])              # the 500 afferent stays silent
+    n = make_neuron(acc_weights=w.copy(), acc_distance_factor=np.ones(3), eta=0.001)
+    n.fire()
+    n.update_acc_weights(part)
+    p_all = 1.10 * E_THRESHOLD - w.sum()              # 1100 - 700 = 400  (the rule's p)
+    p_active_only = 1.10 * E_THRESHOLD - w[part].sum()  # 1100 - 200 = 900  (the wrong reading)
+    assert p_all != p_active_only                     # the fixture actually distinguishes them
+    # a participating afferent (signal +1, distance 1) moved by exactly eta * p_all
+    assert n.acc_weights[0] - 100.0 == pytest.approx(0.001 * p_all)
+    assert n.acc_weights[0] - 100.0 != pytest.approx(0.001 * p_active_only)
 
 
 def test_historical_quadratic_mode_exact():
@@ -99,7 +118,7 @@ def test_historical_quadratic_mode_exact():
                     eta=0.01, update_mode='quadratic_bounded')
     n.fire()
     w_before = n.acc_weights.copy()
-    p = E_THRESHOLD - w_before.sum()
+    p = 1.10 * E_THRESHOLD - w_before.sum()           # budget applies to both update modes
     n.update_acc_weights(np.array([True, False, True]))
     expected = np.clip(
         w_before + 0.01 * p * np.array([1.0, -1.0, 1.0]) * (1 - (w_before / E_WEIGHT_CAP) ** 2),
@@ -107,7 +126,7 @@ def test_historical_quadratic_mode_exact():
     assert n.acc_weights == pytest.approx(expected)
 
 
-@pytest.mark.parametrize('total,sign', [(600.0, +1), (1000.0, 0), (1500.0, -1)])
+@pytest.mark.parametrize('total,sign', [(600.0, +1), (1100.0, 0), (1500.0, -1)])
 def test_signed_p_boundary(total, sign):
     n = 3
     each = total / n
@@ -162,6 +181,34 @@ def test_learn_flag_freezes_weights():
     n.fire()
     n.update_acc_weights(np.array([True, False]))
     assert n.acc_weights == pytest.approx(before)    # frozen sources never learn
+
+
+# ------------------------------------------------------------- budget headroom
+def test_matured_specialist_is_one_step_integrator():
+    # A clean single-pattern specialist (3 of 9 afferents participate EVERY step) driven
+    # for a few thousand fires should mature so its active afferents sum >= the firing
+    # threshold -- i.e. one integration boundary now crosses theta and fires. The
+    # budget-headroom default (1.10) is what lifts the active sum above theta; the old
+    # theta-target rule asymptoted to theta- and never fired in one step.
+    part = np.array([True, True, True] + [False] * 6)
+    n = make_neuron(n=9, acc_weights=np.zeros(9), acc_distance_factor=np.ones(9),
+                    leak_rate=0.0, eta=0.01, learn=True)
+    for _ in range(4000):
+        n.fire()
+        n.update_acc_weights(part)
+    active_sum = float(n.acc_weights[part].sum())
+    inactive_sum = float(n.acc_weights[~part].sum())
+    assert inactive_sum == pytest.approx(0.0, abs=1e-6)   # silent afferents depressed to floor
+    assert active_sum >= E_THRESHOLD                       # matured budget clears theta
+    # one integration of ONLY the active afferents now crosses the firing threshold
+    n.V = 0.0
+    n.gather_exc(active_sum); n.integrate()
+    assert n.V >= n.threshold and n.can_fire()             # one-step integrator
+
+
+def test_maturity_budget_frac_below_one_raises():
+    with pytest.raises(ValueError):
+        make_neuron(maturity_budget_frac=0.9)
 
 
 # --------------------------------------------------------------------- refractory

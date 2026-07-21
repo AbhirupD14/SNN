@@ -137,6 +137,10 @@ DEFAULTS = dict(
     # --- linear weight-update ablation (headless; defaults reproduce production) ---
     e_weight_update_mode='linear_bounded',         # PRODUCTION default (promoted); also: quadratic_bounded (historical) | linear_nonnegative (cap-free diagnostic)
     c_weight_update_mode='c_quadratic_bounded',    # c_quadratic_bounded | c_linear_bounded | c_linear_nonnegative
+    # Learning budget target for the E/L2E accumulating rule as a multiple of the firing
+    # threshold (>= 1.0). >1.0 gives a matured single-pattern specialist budget headroom so
+    # its active afferents cross theta in ONE integration boundary. Firing threshold unchanged.
+    e_maturity_budget_frac=1.10,
     eta=0.01,                                      # excitatory accumulating learning rate
     leak_rate=LEAK_DEFAULT,                        # -> baseline leak conductance g_L
     refractory_steps=0,
@@ -221,7 +225,7 @@ EDITABLE_KEYS = {
     'switch_residual_charge_frac', 'switch_trace_charge_frac',
     'switch_g_scale', 'switch_conductance_enabled',
     'c_eta', 'c_fe_enabled', 'l2_init_total_frac', 'e_weight_floor',
-    'e_weight_update_mode', 'c_weight_update_mode',
+    'e_weight_update_mode', 'c_weight_update_mode', 'e_maturity_budget_frac',
 }
 VALID_TOPOLOGIES = ('pi', 'old', 'rg', 'rg_residual', 'rg_coincidence')
 
@@ -310,6 +314,7 @@ class SimulationEngine:
             threshold=float(p['e_threshold']), w_max=float(p['e_weight_cap']),
             w_floor=float(p['e_weight_floor']),
             update_mode=str(p['e_weight_update_mode']),
+            maturity_budget_frac=float(p['e_maturity_budget_frac']),
             leak_rate=float(p['leak_rate']), refractory_steps=int(p['refractory_steps']),
             eta=float(p['eta']), learn=learn,
             e_inh=float(p['e_inh']), alpha_inh=float(alpha_inh),

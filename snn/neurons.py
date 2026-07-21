@@ -360,6 +360,7 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
                  threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP, w_floor=0.0,
                  leak_rate=DEFAULT_LEAK, refractory_steps=DEFAULT_REFRACTORY,
                  eta=DEFAULT_ETA, learn=True, update_mode='linear_bounded',
+                 maturity_budget_frac=1.10,
                  e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
                  alpha_a=DEFAULT_ALPHA_A, beta_v=DEFAULT_BETA_V,
                  beta_s=DEFAULT_BETA_S, a_max=DEFAULT_A_MAX):
@@ -372,6 +373,15 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
         if update_mode not in E_UPDATE_MODES:
             raise ValueError(f'update_mode must be one of {E_UPDATE_MODES}, got {update_mode!r}')
         self.update_mode = update_mode
+        # Learning budget target as a multiple of the FIRING threshold. The rule drives
+        # sum(acc_weights) toward maturity_budget_frac * threshold from below, so a value
+        # > 1.0 lets a matured single-pattern specialist's active afferents overshoot the
+        # firing threshold and fire in ONE integration boundary. This is decoupled from the
+        # firing threshold itself (unchanged); < 1.0 would make specialists sub-threshold.
+        if maturity_budget_frac < 1.0:
+            raise ValueError(
+                f'maturity_budget_frac must be >= 1.0, got {maturity_budget_frac}')
+        self.maturity_budget_frac = float(maturity_budget_frac)
         self.acc_weights = np.asarray(acc_weights, dtype=float)
         self.acc_distance_factor = np.asarray(acc_distance_factor, dtype=float)
         if self.acc_weights.shape != self.acc_distance_factor.shape:
@@ -388,7 +398,7 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
 
         PRODUCTION default is ``linear_bounded``:
 
-            p          = threshold - sum(acc_weights)          # pre-update, signed
+            p          = maturity_budget_frac*threshold - sum(acc_weights)  # pre-update, signed
             signal_i   = +1 if afferent i spiked in the causal volley else -1
             base_i     = eta * p * signal_i * distance_factor_i
             delta_i    = base_i                                # linear_bounded (default)
@@ -410,7 +420,7 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
             return
         w = self.acc_weights
         participation = np.asarray(participation, dtype=bool)
-        p = self.threshold - float(w.sum())
+        p = self.maturity_budget_frac * self.threshold - float(w.sum())
         signal = np.where(participation, 1.0, -1.0)
         base = self.eta * p * signal * self.acc_distance_factor
         if self.update_mode == 'quadratic_bounded':
