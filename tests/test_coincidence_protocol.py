@@ -52,6 +52,9 @@ def test_dynamic_c_fields_and_diagnostics_present():
     c = next(n for n in d['neurons'] if n['id'] == 'L1C3')
     assert {'basal_weight', 'basal_received', 'basal_eligible', 'apical_active',
             'apical_sources', 'coincidence_active', 'coincidence_charge',
+            'deposit_committed_this_boundary', 'coincidence_deposit_count',
+            'coincidence_deposit_tau', 'apical_delivery_count',
+            'apical_duplicate_count',
             'spike_tau'} <= set(c)
     assert 'hard_reset_events' in d and 'latency_ties' in d
     l2 = next(n for n in d['neurons'] if n['id'] == 'L2E0')

@@ -12,6 +12,28 @@ weaken the coincidence rule into ordinary summation, infer branch activity from 
 global winner variable, select an L2 winner with an engine-level `max(V)` operation,
 or allow excitation to propagate across multiple edges within one outer boundary.
 
+### Phase-alignment amendment
+
+The implemented phase-alignment rule supersedes later historical statements in this
+document that give `apical_excitation` a one-boundary delay or represent a committed C
+deposit as full-boundary constant drive:
+
+- ordinary feedforward, pretrained, and basal projections remain delay-1;
+- an actual L2E spike delivers unweighted apical permission to its C targets at the
+  same `(t, tau)`;
+- when basal availability and apical permission first overlap, the C cell atomically
+  consumes basal eligibility and applies `q = w_basal * s` as an instantaneous somatic
+  charge impulse, `V(tau+) = V(tau-) + q` (`C = 1`);
+- a suprathreshold C cell then fires through the ordinary event scheduler at that exact
+  `tau`, causally after the already-processed L2E spike;
+- a dedicated per-boundary commit ledger permits at most one deposit while raw and
+  duplicate apical deliveries remain observable.
+
+This is the sole excitatory same-boundary append: it does not collapse the delay on
+`RG -> L1E`, `L1E -> L2E`, or `L1E -> L1C` basal projections. Where the historical
+timelines, algorithms, or test lists below conflict with this amendment, this amendment
+is authoritative.
+
 ## Objective
 
 Add an excitatory coincidence pyramidal cell, `L1C`, with separate basal and apical
@@ -34,16 +56,17 @@ input semantics:
 - `RG -> L1E` is fixed and pretrained: one unobstructed RG spike is sufficient to
   make its paired `L1E` fire on the following simulation boundary.
 
-The immediate experimental goal is stable frequency halving: a mature C cell should
-fire once per two valid basal/apical coincidences in the isolated cadence contract,
-and its paired L1 reset should be capable of suppressing every second otherwise-valid
-`L1E` event.
+The immediate experimental goal is stable circuit-level frequency halving. At the
+initial C weight, retained subthreshold impulses produce the isolated two-coincidence
+cadence. A mature C cell is deliberately one-shot capable and fires at its permitting
+L2E `tau`; its paired L1 reset suppresses enough otherwise-valid `L1E` events for the
+mature held-pattern output window to reach the `L1E/RG = 0.5` target.
 
 ## Terminology and time model
 
-The simulator becomes a hybrid event-resolved synchronous model. Synaptic arrivals
-remain quantized to integer outer boundaries, while membrane evolution and spike/reset
-ordering are resolved at continuous sub-boundary times.
+The simulator becomes a hybrid event-resolved synchronous model. Ordinary synaptic
+arrivals remain quantized to integer outer boundaries, while membrane evolution and
+zero-latency apical/relay events are resolved at continuous sub-boundary times.
 
 An **outer boundary** is one call to `SimulationEngine.step()` and represents the
 interval `[t, t + 1]`. All excitation scheduled from an earlier boundary is frozen at
@@ -54,14 +77,15 @@ A **sub-boundary time**, `tau in [0, 1]`, is the analytically calculated time wi
 the current outer boundary at which a membrane reaches threshold. The engine advances
 all membrane-bearing cells together from one event time to the next.
 
-Ordinary excitatory, basal, apical, and pretrained projections retain a one-outer-
-boundary delay. A spike emitted during outer boundary `t` is delivered through one
-such edge at the start of boundary `t + 1`, regardless of its `tau`. It cannot cross a
-second excitatory edge until a later outer boundary.
+Ordinary excitatory, basal, and pretrained projections retain a one-outer-boundary
+delay. A spike emitted during outer boundary `t` is delivered through one such edge at
+the start of boundary `t + 1`, regardless of its `tau`. Apical permission from L2E to C
+is the explicit exception described above; it arrives and may commit the gated C
+charge impulse at the L2E spike's current `tau`.
 
 `relay_excitation` into a stateless inhibitory relay and that relay's
-`hard_reset_inhibition` outputs are the sole zero-latency exception. They resolve at
-the source spike's current `(t, tau)` and do not create another excitatory spike.
+`hard_reset_inhibition` outputs are also zero latency. They resolve at the source
+spike's current `(t, tau)`.
 
 An **event** is a spike arrival on one directed edge. A **valid coincidence** is a
 basal event whose one-boundary eligibility overlaps a current apical event.

@@ -98,6 +98,29 @@ def test_freeze_drive_moves_pending_into_frozen_packet():
     assert n.remaining_excitation == pytest.approx(250.0)
 
 
+@pytest.mark.parametrize('leak,tau', [(0.0, 0.05), (0.03, 0.95)])
+def test_charge_impulse_is_immediate_and_does_not_touch_drive(leak, tau):
+    n = make_base(leak_rate=leak)
+    n.V = 125.0
+    n.gather_exc(40.0)
+    n.freeze_drive()
+    n.advance_segment(tau)
+    v_before = n.V
+    pending_before = n.pending_exc
+    frozen_before = n.remaining_excitation
+    assert n.apply_charge_impulse(275.0) == pytest.approx(v_before + 275.0)
+    assert n.pending_exc == pending_before
+    assert n.remaining_excitation == frozen_before
+    assert n.v_pre_reset == pytest.approx(n.V)
+
+
+@pytest.mark.parametrize('charge', [-1.0, math.inf, -math.inf, math.nan])
+def test_charge_impulse_rejects_invalid_excitation(charge):
+    n = make_base()
+    with pytest.raises(ValueError):
+        n.apply_charge_impulse(charge)
+
+
 # ------------------------------------------------------------- crossing-time math
 def test_crossing_time_matches_trajectory_substitution():
     # A finite crossing exists (v_inf > theta). The returned Delta_tau, substituted

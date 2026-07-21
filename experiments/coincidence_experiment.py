@@ -4,8 +4,8 @@ Two deterministic drivers, run through the real analytic event resolver (no
 jump-integrator, no fixed micro-chunks, no forced alternation):
 
 1. ``isolated_cadence`` -- an isolated C cell fed a valid basal/apical coincidence
-   every boundary. Demonstrates the exact two-valid-events-to-one-C-spike cadence
-   (frequency halving at the C level) and the calibrated crossing times.
+   every boundary. Demonstrates the exact two-valid-events-to-one-C-spike immature
+   cadence, plus same-``tau`` impulse firing once threshold is reached.
 
 2. ``full_preset`` -- the complete ``rg_coincidence`` topology under a held pattern,
    with explicit counters for every quantity the specification asks for: RG spikes,
@@ -38,9 +38,9 @@ ACTIVE = (3, 4, 5)              # 'row 1' active pixels
 
 
 # ------------------------------------------------------------ isolated cadence
-def isolated_cadence(n_coincidences=12):
+def isolated_cadence(n_coincidences=12, impulse_tau=0.75):
     """Drive one isolated C cell with a valid coincidence every boundary through the
-    analytic event resolver. Report the spike pattern and calibrated crossing taus."""
+    analytic event resolver. Report its cadence and same-tau impulse crossings."""
     eng = SimulationEngine(seed=1, topology='rg_coincidence')     # resolve derived params
     cpar = eng._resolve_coincidence_params()
     theta = float(eng.params['e_threshold'])
@@ -55,32 +55,33 @@ def isolated_cadence(n_coincidences=12):
     fires, taus = [], []
     for _ in range(n_coincidences):
         c.begin_event_boundary()
-        c.gather_basal('L1E', 1.0)
-        c.gather_apical('L2E')
-        c.resolve_dendrites()
-        c.freeze_drive()
-        dtau = c.crossing_time(1.0)
+        c.deliver_basal('L1E', 1.0, tau=0.0)
+        c.advance_segment(impulse_tau)
+        c.deliver_apical('L2E', tau=impulse_tau)
+        dtau = c.crossing_time(1.0 - impulse_tau)
         if math.isfinite(dtau):
-            c.advance_segment(dtau); c.fire(dtau); fires.append(1); taus.append(round(dtau, 6))
+            c.advance_segment(dtau)
+            spike_tau = impulse_tau + dtau
+            c.fire(spike_tau); fires.append(1); taus.append(round(spike_tau, 6))
+            elapsed = spike_tau
         else:
-            c.advance_segment(1.0); fires.append(0)
+            fires.append(0)
+            elapsed = impulse_tau
+        c.advance_segment(1.0 - elapsed)
         c.update_trace(); c.decay_conductance(); c.advance_refractory()
-
-    def second_cross(w):
-        v1 = (w / g_L) * (1.0 - math.exp(-g_L)); v_inf = w / g_L
-        return (1.0 / g_L) * math.log((v_inf - v1) / (v_inf - theta))
 
     return dict(
         c_init=round(cpar['c_init'], 4), c_max=round(cpar['c_max'], 4),
         w1=round(cpar['w1'], 4),
+        impulse_tau=round(float(impulse_tau), 6),
+        c_init_single_impulse_subthreshold=bool(cpar['c_init'] < theta),
+        c_max_single_impulse_suprathreshold=bool(cpar['c_max'] >= theta),
         fire_pattern=fires,
         spikes=sum(fires), coincidences=n_coincidences,
         ratio=sum(fires) / n_coincidences,
         exact_two_to_one=(fires == [0, 1] * (n_coincidences // 2)),
         crossing_taus=taus,
-        pretrained_l1e_tau=round(_pretrained_tau(cpar['q_pretrained'], theta, g_L), 4),
-        c_second_tau_at_init=round(second_cross(cpar['c_init']), 4),
-        c_second_tau_at_cap=round(second_cross(cpar['c_max']), 4))
+        pretrained_l1e_tau=round(_pretrained_tau(cpar['q_pretrained'], theta, g_L), 4))
 
 
 def _pretrained_tau(q, theta, g_L):
@@ -104,6 +105,7 @@ def full_preset(n=4000, window=500, seed=1):
     apical_sources = set()
     l2_latencies, c_latencies, l1e_latencies = [], [], []
     margins = []                        # winner vs runner-up counterfactual latency
+    same_tau_c_spikes = phase_mismatches = 0
 
     for t in range(1, n + 1):
         e.step()
@@ -123,6 +125,7 @@ def full_preset(n=4000, window=500, seed=1):
         if t > n - window:
             last_l1e += l1e_now
 
+        c_spiked_now = []
         for c in e.coincidence:
             if c.basal_received or c.basal_eligible:
                 basal_ev += 1
@@ -133,6 +136,7 @@ def full_preset(n=4000, window=500, seed=1):
                 valid_coinc += 1
             if c.spiked:
                 c_spk += 1
+                c_spiked_now.append(c)
                 if c.spike_tau is not None:
                     c_latencies.append(c.spike_tau)
         # L2 winner latency + runner-up counterfactual margin (recomputed from taus).
@@ -142,6 +146,13 @@ def full_preset(n=4000, window=500, seed=1):
             win_tau = l2_fired[0].spike_tau
             if win_tau is not None:
                 l2_latencies.append(win_tau)
+            for c in c_spiked_now:
+                if c.spike_tau == win_tau == c.coincidence_deposit_tau:
+                    same_tau_c_spikes += 1
+                else:
+                    phase_mismatches += 1
+        else:
+            phase_mismatches += len(c_spiked_now)
         ties += len(e.latency_ties)
         for h in e.hard_reset_events:
             if h['source'].startswith('L1I'):
@@ -170,8 +181,10 @@ def full_preset(n=4000, window=500, seed=1):
             mean_l2_winner_tau=_mean(l2_latencies),
             mean_c_spike_tau=_mean(c_latencies),
             mean_l1e_spike_tau=_mean(l1e_latencies),
-            note=('C crossing tau must fall below the L1E crossing tau (~0.952) for a '
-                  'C->L1I reset to beat L1E in the same boundary.')),
+            same_tau_c_spikes=same_tau_c_spikes,
+            phase_mismatches=phase_mismatches,
+            note=('Every firing C deposits and spikes at its permitting L2E tau. That '
+                  'tau must precede the paired L1E crossing (~0.952) for reset suppression.')),
         frequency=dict(
             l1e_over_rg_overall=round(l1e / rg, 4) if rg else None,
             l1e_rate_first_window=round(first_l1e / (len(ACTIVE) * window), 4),
@@ -233,8 +246,7 @@ def main():
     print(f"  fire pattern (12 coincidences): {iso['fire_pattern']}")
     print(f"  exact two-to-one halving: {iso['exact_two_to_one']}  "
           f"({iso['spikes']} spikes / {iso['coincidences']} coincidences)")
-    print(f"  pretrained L1E tau={iso['pretrained_l1e_tau']}  "
-          f"C 2nd-coincidence tau init={iso['c_second_tau_at_init']} cap={iso['c_second_tau_at_cap']}")
+    print(f"  impulse/spike tau={iso['impulse_tau']}  pretrained L1E tau={iso['pretrained_l1e_tau']}")
     print('\n=== FULL rg_coincidence PRESET (measured, not tuned) ===')
     c = full['counters']
     print(f"  RG={c['rg_spikes']} L1E={c['l1e_spikes']} C={c['c_spikes']} L2={c['l2_spikes']} "

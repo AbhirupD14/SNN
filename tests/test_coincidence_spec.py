@@ -108,7 +108,7 @@ def test_synthetic_fixture_c_dendrites_and_weights():
     assert c.basal_weight == pytest.approx(cpar['c_init'])
     assert c.w_max == pytest.approx(cpar['c_max'])
     assert c.eta_c == pytest.approx(cpar['c_eta'])
-    assert cpar['c_max'] >= cpar['w1']               # cap = frac*w1 -> one-shot-capable
+    assert cpar['c_max'] >= cpar['w1']               # conservative budget headroom
     # C intrinsic parity with a latency competitor's membrane.
     assert c.threshold == e.latency_competitors[0].threshold
     assert c.g_L == pytest.approx(e.latency_competitors[0].g_L)
@@ -230,8 +230,8 @@ def test_mixing_legacy_competitor_with_event_resolved_rejected():
 
 # ------------------------------------------------------- config invariant
 def test_high_cap_accepted_init_above_cap_still_rejected():
-    # A cap at/above the one-deposit firing weight is now the intended one-shot regime,
-    # not a misconfiguration -- it builds fine (the old c_max < w1 guard is gone). The
+    # A cap above the impulse threshold is now the intended one-shot regime, not a
+    # misconfiguration -- it builds fine (the old c_max < w1 guard is gone). The
     # c_init <= c_max ordering guard is still enforced.
     spec = _synth_spec()
     e = _build(spec, c_basal_weight_max=5000.0)       # high cap accepted (no rejection)

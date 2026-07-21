@@ -3,7 +3,7 @@ table, one-boundary basal eligibility, the exact basal learning rule, firing/lea
 refractory parity with E, and the calibrated two-coincidence cadence.
 
 Every test drives explicit basal/apical events through a faithful miniature event
-loop (begin -> deliver -> resolve -> freeze -> analytic crossing/advance -> fire ->
+loop (begin -> deliver -> resolve/impulse -> analytic crossing/advance -> fire ->
 learn). There is no scalar-stimulate shortcut that bypasses the gate.
 """
 
@@ -51,7 +51,6 @@ def deliver(c, basal=False, apical=None, basal_signal=1.0):
     for src in (apical or []):
         c.gather_apical(src)
     c.resolve_dendrites()
-    c.freeze_drive()
     return c.coincidence_charge
 
 
@@ -169,6 +168,62 @@ def test_arrival_order_within_boundary_invariant():
     assert q1 == q2 == pytest.approx(250.0)
 
 
+def test_same_tau_delivery_order_commits_same_impulse():
+    c1 = make_c(basal_weight=250.0)
+    c1.begin_event_boundary()
+    assert c1.deliver_basal('L1E0', tau=0.7) == 0.0
+    assert c1.deliver_apical('L2E0', tau=0.7) == pytest.approx(250.0)
+
+    c2 = make_c(basal_weight=250.0)
+    c2.begin_event_boundary()
+    assert c2.deliver_apical('L2E0', tau=0.7) == 0.0
+    assert c2.deliver_basal('L1E0', tau=0.7) == pytest.approx(250.0)
+
+    assert c1.V == c2.V == pytest.approx(250.0)
+    assert c1.coincidence_deposit_tau == c2.coincidence_deposit_tau == pytest.approx(0.7)
+
+
+def test_duplicate_same_apical_source_is_idempotent_but_observable():
+    c = make_c(basal_weight=250.0)
+    c.begin_event_boundary()
+    c.deliver_basal('L1E0', tau=0.0)
+    assert c.deliver_apical('L2E0', tau=0.8) == pytest.approx(250.0)
+    v_after = c.V
+    assert c.deliver_apical('L2E0', tau=0.8) == 0.0
+    assert c.V == pytest.approx(v_after)
+    assert c.coincidence_deposit_count == 1
+    assert c.coincidence_deposit_tau == pytest.approx(0.8)
+    assert c.coincidence_charge == pytest.approx(250.0)
+    assert c.apical_delivery_count == 2
+    assert c.apical_duplicate_count == 1
+
+
+def test_distinct_apical_sources_are_boolean_or_not_multiple_deposits():
+    c = make_c(basal_weight=250.0, apical_sources=['L2E0', 'L2E1'],
+               apical_edge_ids=['a0', 'a1'])
+    c.begin_event_boundary()
+    c.deliver_basal('L1E0', tau=0.0)
+    assert c.deliver_apical('L2E0', tau=0.6) == pytest.approx(250.0)
+    assert c.deliver_apical('L2E1', tau=0.7) == 0.0
+    assert c.V == pytest.approx(250.0)
+    assert c.apical_sources == {'L2E0', 'L2E1'}
+    assert c.apical_delivery_count == 2
+    assert c.apical_duplicate_count == 0
+    assert c.coincidence_deposit_count == 1
+
+
+def test_late_mature_impulse_crosses_at_delivery_tau():
+    c = make_c(basal_weight=1200.0, threshold=1000.0, leak_rate=0.03, learn=False)
+    c.begin_event_boundary()
+    c.deliver_basal('L1E0', tau=0.0)
+    c.advance_segment(0.99)
+    assert c.deliver_apical('L2E0', tau=0.99) == pytest.approx(1200.0)
+    assert c.V >= c.threshold
+    assert c.crossing_time(0.01) == 0.0
+    c.fire(0.99)
+    assert c.spike_tau == pytest.approx(0.99)
+
+
 # ================================================================== learning
 def test_exact_update_equation_numeric():
     theta, w, w_max, eta, phi = 1000.0, 200.0, 500.0, 0.01, 0.64
@@ -283,7 +338,7 @@ def test_no_update_acc_weights_fallback():
 
 # ============================================== firing / leak / refractory parity
 def test_intrinsic_parity_with_e_cell():
-    # Same threshold/leak/rest/refractory + same drive -> same membrane trajectory.
+    # Same threshold/leak/rest/refractory + same impulse -> same membrane trajectory.
     c = make_c(leak_rate=0.03, threshold=1000.0, refractory_steps=2, basal_weight=800.0)
     e = ExcitatoryNeuron('E', 'competitor', acc_weights=np.zeros(0),
                          acc_distance_factor=np.zeros(0), leak_rate=0.03,
@@ -291,9 +346,9 @@ def test_intrinsic_parity_with_e_cell():
     assert c.g_L == pytest.approx(e.g_L)
     assert c.v_rest == e.v_rest and c.threshold == e.threshold
     assert c.refractory_steps == e.refractory_steps
-    # deposit 800 into C via the gate; give E the same frozen drive.
+    # Deposit 800 into C via the gate; give E the same instantaneous charge impulse.
     deliver(c, basal=True, apical=['L2E0'])
-    e.gather_exc(800.0); e.freeze_drive()
+    e.apply_charge_impulse(800.0)
     c.advance_segment(0.7); e.advance_segment(0.7)
     assert c.V == pytest.approx(e.V, abs=1e-9)
 
@@ -328,7 +383,7 @@ def test_one_spike_per_boundary_consumes_drive():
 
 # ============================================ calibrated two-coincidence regime
 def test_one_max_weight_deposit_fires_from_reset():
-    # The matured cap is now frac*w1 (>= the one-deposit firing weight), so a SINGLE
+    # The matured cap is frac*w1 and above the impulse threshold theta, so a SINGLE
     # coincidence deposit at the cap crosses theta and fires from reset -- the one-shot
     # maturity target. (Contrast the immature c_init cell, which still needs two.)
     cal = _calib()
@@ -346,7 +401,7 @@ def test_two_init_weight_deposits_reach_threshold():
     assert run_boundary(c, basal=True, apical=['L2E0']) is True    # 2nd: crosses
 
 
-def test_mature_cadence_is_every_second_coincidence():
+def test_immature_cadence_is_every_second_coincidence():
     cal = _calib()
     c = make_c(basal_weight=cal['c_init'], w_max=cal['c_max'] * 1.5,
                leak_rate=0.03, threshold=1000.0, refractory_steps=0, learn=False)
@@ -355,7 +410,7 @@ def test_mature_cadence_is_every_second_coincidence():
     assert fires == [False, True, False, True, False, True, False, True]
 
 
-def test_resolved_cap_at_or_above_one_deposit_firing_weight():
+def test_resolved_cap_keeps_conservative_budget_headroom():
     cal = _calib()
     assert cal['c_max'] >= cal['w1']                 # cap = frac*w1 -> one-shot-capable
 
@@ -366,7 +421,7 @@ def test_matured_c_cell_is_one_shot():
     # matures its basal weight to the FE fixed point frac*w1, after which a SINGLE
     # coincidence deposit crosses theta and fires.
     cal = _calib(leak=0.03)
-    # Before maturity: one deposit from reset does not fire (immature c_init < w1).
+    # Before maturity: one impulse from reset does not fire (immature c_init < theta).
     immature = make_c(basal_weight=cal['c_init'], w_max=cal['c_max'],
                       leak_rate=0.03, threshold=1000.0, learn=False)
     assert run_boundary(immature, basal=True, apical=['L2E0']) is False
@@ -376,7 +431,7 @@ def test_matured_c_cell_is_one_shot():
     for _ in range(4000):
         run_boundary(c, basal=True, apical=['L2E0'])
     assert c.basal_weight == pytest.approx(cal['c_max'], rel=5e-3)   # saturates at frac*w1
-    assert c.basal_weight >= cal['w1']                               # >= one-deposit firing weight
+    assert c.basal_weight >= cal['w1']                               # conservative headroom
     # A matured cell now fires on ONE coincidence deposit from reset.
     c.learn = False
     assert run_boundary(c, basal=True, apical=['L2E0']) is True

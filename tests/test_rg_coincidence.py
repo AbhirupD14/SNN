@@ -135,32 +135,21 @@ def test_resolved_c_weight_scale_and_invariant():
     cpar = e._resolve_coincidence_params()
     assert cpar['c_init'] == pytest.approx(520.538, abs=0.01)   # immature start unchanged (1.01*w2)
     assert cpar['c_max'] == pytest.approx(1116.838, abs=0.01)   # cap = 1.10*w1 (one-shot fixed point)
-    assert cpar['c_max'] >= cpar['w1']               # cap at/above one-deposit firing weight
+    assert cpar['c_max'] >= cpar['w1']               # conservative budget above impulse threshold
     for c in e.coincidence:
         assert c.basal_weight == pytest.approx(cpar['c_init'])
         assert c.w_max == pytest.approx(cpar['c_max'])
 
 
-def test_c_timing_immature_needs_two_matured_fires_on_first():
-    # From rest: an IMMATURE c_init deposit leaks a boundary and the second crosses at
-    # ~0.980. A MATURED cap deposit (c_max = frac*w1) instead crosses theta within the
-    # FIRST boundary (~0.908) -- the one-shot maturity target.
+def test_c_impulse_threshold_immature_needs_two_matured_fires_on_first():
+    # Impulse timing is independent of the unused boundary duration. From reset an
+    # immature c_init impulse is subthreshold; a mature cap impulse is immediately
+    # suprathreshold. Two immature impulses can still accumulate across boundaries.
     e = _engine()
     cpar = e._resolve_coincidence_params()
     theta = float(e.params['e_threshold'])
-    g_L = leak_to_conductance(float(e.params['leak_rate']))
-
-    def second_cross_tau(w):
-        v1 = (w / g_L) * (1.0 - math.exp(-g_L))      # after 1st full boundary from rest
-        v_inf = w / g_L
-        return (1.0 / g_L) * math.log((v_inf - v1) / (v_inf - theta))
-
-    def first_cross_tau(w):
-        return -(1.0 / g_L) * math.log(1.0 - theta * g_L / w)
-
-    assert second_cross_tau(cpar['c_init']) == pytest.approx(0.980, abs=0.002)
-    assert first_cross_tau(cpar['c_max']) == pytest.approx(0.908, abs=0.002)   # fires on 1st
-    assert 0.0 < first_cross_tau(cpar['c_max']) < 1.0                          # within one boundary
+    assert cpar['c_init'] < theta
+    assert cpar['c_max'] > theta
 
 
 # --------------------------------------------------------- end-to-end causal
@@ -206,6 +195,29 @@ def test_immediate_resets_share_causal_spike_tau():
                         assert h['tau'] == pytest.approx(c.spike_tau)
                         checked_l2 = True
     assert checked_c and checked_l2
+
+
+def test_mature_c_deposit_and_spike_share_winning_l2_tau():
+    e = _engine()
+    e.set_pattern('row 1')
+    for c in e.coincidence:
+        c.basal.weights[0] = c.w_max
+    checked = False
+    for _ in range(12):
+        e.step()
+        winners = [c for c in e.latency_competitors if c.spiked]
+        if not winners:
+            continue
+        winner = winners[0]
+        committed = [c for c in e.coincidence if c.deposit_committed_this_boundary]
+        for c in committed:
+            assert c.coincidence_deposit_count == 1
+            assert c.coincidence_deposit_tau == pytest.approx(winner.spike_tau)
+            assert c.spiked
+            assert c.spike_tau == pytest.approx(winner.spike_tau)
+            assert c.apical_duplicate_count == 0
+        checked = checked or bool(committed)
+    assert checked
 
 
 def test_basal_learning_only_on_active_pixel_c_cells():

@@ -154,9 +154,10 @@ DEFAULTS = dict(
     # threshold (>= 1.0). >1.0 gives a matured single-pattern specialist budget headroom so
     # its active afferents cross theta in ONE integration boundary. Firing threshold unchanged.
     e_maturity_budget_frac=1.10,
-    # C-cell analog: basal-weight budget target as a multiple of the one-deposit firing
-    # weight w1 = theta/kappa (>= 1.0). >1.0 matures the basal weight above w1 so a single
-    # coincidence deposit crosses theta and fires. Also sets the C basal cap (= frac*w1).
+    # C-cell analog: basal-weight budget target as a multiple of the leak-corrected
+    # full-boundary reference w1 = theta/kappa. Because C deposits are now impulses and
+    # require only q >= theta from reset, this is a conservative one-shot budget with
+    # headroom. Also sets the C basal cap (= frac*w1).
     c_maturity_budget_frac=1.10,
     eta=0.01,                                      # excitatory accumulating learning rate
     leak_rate=LEAK_DEFAULT,                        # -> baseline leak conductance g_L
@@ -350,18 +351,20 @@ class SimulationEngine:
 
     def _resolve_coincidence_params(self):
         """Resolve the C-cell basal weight scale + pretrained packet from the shared
-        threshold and leak using the two-coincidence equations, honoring explicit
-        headless overrides.
+        threshold and leak, honoring explicit headless overrides.
 
             r = e^{-g_L},  kappa = (1 - e^{-g_L}) / g_L  (kappa = 1 at g_L = 0)
-            w_2(T) = theta / (kappa (1 + r^T))      # min weight crossing on 2nd deposit
-            w_1    = theta / kappa                   # min weight firing on ONE deposit
+            w_2_ref(T) = theta / (kappa (1 + r^T))  # retained initial-scale reference
+            w_1_ref    = theta / kappa               # full-boundary unit-packet reference
             Q_pretrained = pretrained_exc_margin * theta / kappa
 
-        The basal cap is now the FE budget fixed point c_maturity_budget_frac * w_1, so a
-        matured basal weight saturates at the ONE-DEPOSIT firing level (budget headroom):
-        one coincidence deposit crosses theta and fires. Cells still start immature at
-        c_init (default 1.01*w_2, sub-w_1) and mature into one-shot firing.
+        ``w_2_ref``/``w_1_ref`` preserve the established developmental scale and FE
+        budget. They include ``kappa`` because they originated as full-boundary drive
+        references. A committed C deposit is now an instantaneous impulse: its actual
+        from-reset one-shot condition is simply ``q >= theta``. Thus the cap
+        ``c_maturity_budget_frac * w_1_ref`` is conservative headroom above the impulse
+        threshold. Cells still start below theta and need retained evidence from a later
+        valid coincidence, then mature into one-shot firing.
         """
         p = self.params
         theta = float(p['e_threshold'])
@@ -443,9 +446,9 @@ class SimulationEngine:
         # target's update, and with two hops the L1E and L2E updates stay independent.
         self._ff_deliv_next = {}
         self._ff_deliv_now = {}
-        # Event-path delay-1 dendritic delivery buffers (basal/apical events for t+1).
+        # Event-path delay-1 basal delivery buffer. Apical permission is delivered at
+        # the firing L2E's current analytic tau and therefore has no next-boundary queue.
         self._basal_next = {}          # c_target_id -> [(source_id, signal) ...]
-        self._apical_next = {}         # c_target_id -> [source_id ...]
         # Event-path per-boundary diagnostics (exposed via dynamic state in Phase 6).
         self.hard_reset_events = []
         self.latency_ties = []
@@ -613,11 +616,17 @@ class SimulationEngine:
         basal_in_map = {}        # c_target_id -> (source_id, edge_id)
         apical_in_map = {}       # c_target_id -> [(source_id, edge_id) ...]
         basal_dist = {}          # c_target_id -> functional L1E->L1C distance
+        apical_pairs = set()
         for e in dedges:
             if e['kind'] == 'basal_excitation':
                 basal_in_map[e['target']] = (e['source'], e['id'])
                 basal_dist[e['target']] = float(np.linalg.norm(pos[e['source']] - pos[e['target']]))
             elif e['kind'] == 'apical_excitation':
+                pair = (e['source'], e['target'])
+                if pair in apical_pairs:
+                    raise ValueError(
+                        f'duplicate parallel apical edge {e["source"]!r}->{e["target"]!r}')
+                apical_pairs.add(pair)
                 apical_in_map.setdefault(e['target'], []).append((e['source'], e['id']))
         _basal_positive = [d for d in basal_dist.values() if d > 0]
         d_ref_basal = min(_basal_positive) if _basal_positive else 1.0
@@ -1085,10 +1094,9 @@ class SimulationEngine:
         exc_now = self._exc_next
         inh_now = self._inh_next
         basal_now = self._basal_next
-        apical_now = self._apical_next
         self._ff_deliv_now = self._ff_deliv_next
         self._exc_next, self._inh_next = {}, []
-        self._basal_next, self._apical_next = {}, {}
+        self._basal_next = {}
         self._ff_deliv_next = {}
 
         for pulse in inh_now:                      # legacy conductance arrivals, if any
@@ -1102,12 +1110,6 @@ class SimulationEngine:
             if isinstance(c, CoincidencePyramidalNeuron):
                 for src, sig in events:
                     c.gather_basal(src, sig)
-        for cid, srcs in apical_now.items():       # apical dendritic events
-            c = self.exc.get(cid)
-            if isinstance(c, CoincidencePyramidalNeuron):
-                for src in srcs:
-                    c.gather_apical(src)
-
         # external input to RG sources (delay 0); a fired RG schedules its fixed
         # pretrained packet + any structural outputs for t+1 (it owns no membrane).
         input_arrives = (t % max(1, int(p['input_period'])) == 0)
@@ -1204,12 +1206,14 @@ class SimulationEngine:
             if self.winner is None:                  # report-only first latency spike
                 self.winner = cell.id
         self._emit_event_outputs(cell.id)
+        self._drive_event_apical(cell.id, tau)
         self._drive_event_relays(cell.id, tau)
 
     def _emit_event_outputs(self, source_id):
         """Schedule a fired source's ordinary one-boundary-delay outputs for t+1:
-        feedforward charge (owned by the target), fixed pretrained packets, and basal /
-        apical dendritic events. These never arrive during the current event loop."""
+        feedforward charge (owned by the target), fixed pretrained packets, and basal
+        dendritic events. These never arrive during the current event loop. Apical
+        permission is handled separately at zero latency."""
         for tgt, widx, eid in self._ff_out.get(source_id, []):
             tgtcell = self.exc.get(tgt)
             if tgtcell is None:
@@ -1223,8 +1227,19 @@ class SimulationEngine:
         for tgt, eid in self._basal_out.get(source_id, []):
             self._basal_next.setdefault(tgt, []).append((source_id, 1.0))
             self.emitted.append(eid)
+
+    def _drive_event_apical(self, source_id, tau):
+        """Deliver every apical edge from ``source_id`` at its spike ``tau``.
+
+        The C cell owns gate idempotency and applies a committed coincidence as an
+        instantaneous somatic charge impulse. The scheduler recomputes from live state
+        after this callback, so a supra-threshold C cell crosses at the same ``tau``.
+        """
         for tgt, eid in self._apical_out.get(source_id, []):
-            self._apical_next.setdefault(tgt, []).append(source_id)
+            c = self.exc.get(tgt)
+            if not isinstance(c, CoincidencePyramidalNeuron):
+                continue
+            c.deliver_apical(source_id, tau)
             self.emitted.append(eid)
 
     def _drive_event_relays(self, source_id, tau):
@@ -1622,6 +1637,14 @@ class SimulationEngine:
                     rec['apical_sources'] = sorted(n.apical_sources)
                     rec['coincidence_active'] = bool(n.coincidence_active)
                     rec['coincidence_charge'] = round(float(n.coincidence_charge), 6)
+                    rec['deposit_committed_this_boundary'] = bool(
+                        n.deposit_committed_this_boundary)
+                    rec['coincidence_deposit_count'] = int(n.coincidence_deposit_count)
+                    rec['coincidence_deposit_tau'] = (
+                        None if n.coincidence_deposit_tau is None
+                        else round(float(n.coincidence_deposit_tau), 9))
+                    rec['apical_delivery_count'] = int(n.apical_delivery_count)
+                    rec['apical_duplicate_count'] = int(n.apical_duplicate_count)
             elif isinstance(n, SwitchInterneuron):
                 rec['winner_trace'] = round(float(n.x), 6)
                 rec['residual_received'] = bool(n.received_residual)

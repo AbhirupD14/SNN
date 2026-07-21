@@ -47,12 +47,14 @@ zero leak/refractory, L2 learning rate `0.01`, normalized L2 initial afferent to
   directed internal projections.
 - **`topology='rg_coincidence'` — the coincidence pyramidal / event-resolved
   experiment (45 neurons, 196 edges).** The first **event-resolved** preset: membrane
-  arrivals stay on integer boundaries, but crossings and inhibitory resets are ordered
-  at *analytic sub-boundary times* `tau` (no micro-chunks). `RG_i` fires a fixed
+  crossings and immediate events are ordered at *analytic sub-boundary times* `tau`
+  (no micro-chunks). Ordinary excitation and basal events retain integer-boundary
+  delivery; apical permission is the C-specific zero-latency exception. `RG_i` fires a fixed
   **pretrained** `L1E_i` (one spike crosses next boundary). Each `L1E_i` feeds a
   **coincidence** cell `L1C_i` on a single learned **basal** afferent, while every
-  `L2E_j` feeds all `L1C` on unweighted Boolean **apical** gates; `L1C` deposits basal
-  charge only when basal (current or one-boundary-carried) coincides with apical.
+  `L2E_j` feeds all `L1C` on unweighted Boolean **apical** gates; when basal (current
+  or one-boundary-carried) coincides with apical, `L1C` deposits its basal charge as an
+  instantaneous same-`tau` somatic impulse.
   Inhibition is a **zero-latency hard reset** (`L1I` resets its paired `L1E`; `L2I`
   resets every `L2E`). **L2 WTA is emergent**: the first `L2E` to reach threshold wins
   and its `L2I` reset cancels the rest — no deterministic winner phase. See the
@@ -73,11 +75,11 @@ archetypes (`rg_source`, `e_sensory`, `e_encoder`, `e_residual`, `e_competitor`,
 The row→column→row turnover sweep is in
 `experiments/coincidence_turnover_sweep.py` with complete results in
 `experiments/coincidence_turnover_results.json`. At `L2 init total = 0.95θ` and
-`C eta = 0.001`, all 8/8 seeds held a stable row owner, recruited a different column
-owner, and recovered the original owner when the row returned; reversing L2 scheduler
-order produced the same paired outcomes with zero L2 tie events. To watch that protocol
-in the dashboard, run **row 1** for roughly 2500 steps, **col 1** for 2500, then return
-to **row 1**. At 120 steps/s, each phase takes about 21 seconds.
+both `C eta = 0.005` (the production default) and `0.01`, all 8/8 seeds held a stable
+row owner, recruited a different column owner, and recovered the original owner when
+the row returned, with zero L2 tie events. To watch that protocol in the dashboard,
+run **row 1** for roughly 2500 steps, **col 1** for 2500, then return to **row 1**. At
+120 steps/s, each phase takes about 21 seconds.
 The rationale, equations, rejected alternatives, and complete tuning tables are in
 `docs/COINCIDENCE_TURNOVER_TUNING.md`.
 
@@ -85,19 +87,19 @@ Run `PYTHONPATH=. .venv/bin/python experiments/coincidence_experiment.py`
 (→ `experiments/coincidence_results.json`). Mechanical correctness and the scientific
 target are reported **separately**:
 
-- **Mechanics (all hold).** The isolated C cell shows the **exact** two-coincidence
-  cadence — one spike per two valid coincidences (`[0,1,0,1,…]`). Calibrated crossings
-  match the spec: pretrained `L1E` τ≈0.952, C second-coincidence τ≈0.980 at init /
-  ≈0.813 at the cap. Under the full held-row preset, the deliberately slower C learning
-  rate moves active basal weights from ≈520.5 to ≈549–554 over 4000 steps; mean C spike
-  τ≈0.895 is already **<** mean `L1E` τ≈0.952. Winner identity follows drive without
-  any node reordering, and replay is bit-deterministic.
-- **Scientific target (measured, not forced).** The requested `L1E`/`RG` firing ratio
-  near **0.5** is **not** reached — it measures ≈**0.858** in this separate leak=0.03
-  held-row validation. Suppression is real: 2442 C spikes produce 2442 paired hard
-  resets, 1707 of which beat the paired L1E crossing. The exact halving remains a
-  property of the *isolated* valid-coincidence cadence, not the full circuit's aggregate
-  L1E/RG rate. No hidden constant is tuned to move this number.
+- **Mechanics (all hold).** The isolated immature C cell shows the **exact**
+  two-coincidence cadence — one spike per two valid coincidences (`[0,1,0,1,…]`). A
+  coincidence now commits an instantaneous somatic charge impulse at the permitting
+  L2E spike's `tau`; every firing C has exactly the same deposit/spike `tau` as that L2E.
+  Mature basal weights remain one-shot capable. Winner identity follows drive without
+  node reordering, duplicate apical delivery stays observable, and replay is
+  bit-deterministic.
+- **Scientific target (measured).** In the 4000-boundary seed-1 held-row validation,
+  active C weights mature from ≈520.5 to ≈1115–1117. All 5058 C spikes share their
+  permitting L2E `tau` and drive 5058 paired hard resets, 4968 of which suppress the
+  paired L1E crossing. The training-inclusive `L1E`/`RG` ratio is ≈**0.586**, while the
+  final 500-boundary mature window reaches exactly **0.500**. No hidden winner policy or
+  post-hoc spike flag forces that result.
 
 External input does **not** always target `L1E` directly: it is delivered to whichever
 cells own a `pixel` (the *input sinks*). In `pi`/`old` that is the nine `e_sensory`

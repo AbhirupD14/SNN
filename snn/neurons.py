@@ -187,6 +187,23 @@ class ConductanceLIFNeuron:
         self.pending_exc = 0.0
         return self.remaining_excitation
 
+    def apply_charge_impulse(self, charge):
+        """Apply an excitatory charge packet instantaneously to the membrane.
+
+        This is distinct from :meth:`gather_exc`: gathered excitation is a constant
+        current/rate integrated over elapsed boundary time, whereas an impulse is a
+        capacitor-charge event at the current analytic ``tau``.  The model uses
+        ``C = 1``, hence ``delta_V = charge``.  Firing remains the scheduler/cell's
+        responsibility, including refractory and per-boundary gates.
+        """
+        charge = float(charge)
+        if not math.isfinite(charge) or charge < 0.0:
+            raise ValueError(f'excitatory charge impulse must be finite and >= 0, got {charge!r}')
+        self.V += charge
+        if self.V > self.v_pre_reset:
+            self.v_pre_reset = self.V
+        return self.V
+
     # --------------------------------------------------------- integration
     def integrate(self, dt=1.0):
         """LEGACY whole-boundary advance: combine leak, persistent inhibition, and
@@ -539,11 +556,10 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         if update_mode not in C_UPDATE_MODES:
             raise ValueError(f'update_mode must be one of {C_UPDATE_MODES}, got {update_mode!r}')
         self.update_mode = update_mode
-        # Basal-weight learning budget target as a multiple of the one-deposit firing
-        # weight w1 = theta/kappa. The FE term drives the basal weight toward
-        # maturity_budget_frac * w1 from below, so a matured C cell fires on ONE
-        # coincidence deposit (frac > 1.0 gives headroom above w1). Firing threshold and
-        # the coincidence deposit gate are untouched.
+        # Basal-weight learning budget target as a multiple of the leak-corrected
+        # full-boundary reference w1 = theta/kappa. C deposits are impulses, whose
+        # from-reset threshold is theta, so this retained reference gives conservative
+        # one-shot headroom. Firing threshold and the coincidence gate are untouched.
         if maturity_budget_frac < 1.0:
             raise ValueError(
                 f'maturity_budget_frac must be >= 1.0, got {maturity_budget_frac}')
@@ -567,6 +583,14 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         self.coincidence_charge = 0.0
         # signal that produced the current deposit (causal state for learning)
         self._deposit_signal = 0.0
+        # A deposit is an atomic per-boundary transaction, separate from Boolean gate
+        # truth.  Delivery counters keep duplicate routing observable without allowing
+        # it to alter membrane state.
+        self.deposit_committed_this_boundary = False
+        self.coincidence_deposit_count = 0
+        self.coincidence_deposit_tau = None
+        self.apical_delivery_count = 0
+        self.apical_duplicate_count = 0
 
     # ------------------------------------------------------------------ views
     @property
@@ -587,6 +611,12 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         self.apical_active = False
         self.coincidence_active = False
         self.coincidence_charge = 0.0
+        self._deposit_signal = 0.0
+        self.deposit_committed_this_boundary = False
+        self.coincidence_deposit_count = 0
+        self.coincidence_deposit_tau = None
+        self.apical_delivery_count = 0
+        self.apical_duplicate_count = 0
         # basal_eligible / basal_eligible_signal are intentionally NOT cleared here.
 
     # -------------------------------------------------------- input delivery
@@ -598,24 +628,48 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
     def gather_apical(self, source):
         """Deliver an unweighted apical (Boolean permission) event this boundary."""
         self.apical.gather(source, 1.0)
+        self.apical_delivery_count += 1
+        if source in self.apical_sources:
+            self.apical_duplicate_count += 1
+        else:
+            self.apical_sources.add(source)
+        self.apical_active = bool(self.apical_sources)
+
+    def deliver_basal(self, source, signal=1.0, tau=0.0):
+        """Deliver basal input at ``tau`` and atomically try the coincidence gate."""
+        self.gather_basal(source, signal)
+        return self.resolve_dendrites(tau=tau)
+
+    def deliver_apical(self, source, tau):
+        """Deliver apical permission at ``tau`` and atomically try the C gate."""
+        self.gather_apical(source)
+        return self.resolve_dendrites(tau=tau)
 
     # ------------------------------------------------- dendritic gating rule
-    def resolve_dendrites(self):
+    def resolve_dendrites(self, tau=0.0):
         """Implement the coincidence truth table and one-boundary eligibility state
-        machine, then install any gated somatic drive. Arrival order of basal vs apical
-        within the boundary does not matter -- only the boundary-level sets do.
+        machine, then commit any gated somatic charge impulse. Receipts processed at
+        the same ``tau`` are order invariant; when arrival times differ, the second
+        required receipt commits at its own (later) ``tau``.
 
-        Deposits ``w_basal * s`` exactly once iff (current OR carried basal) AND a
-        current apical event. Charge accrues even while refractory (firing is gated
-        separately); the same basal event is never reused."""
+        Deposits ``w_basal * s`` at most once iff (current OR carried basal) AND a
+        current apical event. The impulse changes ``V`` immediately, including during
+        refractory; firing is gated separately and the same basal event is never reused.
+        """
+        tau = float(tau)
+        if not math.isfinite(tau) or not 0.0 <= tau <= 1.0:
+            raise ValueError(f'coincidence deposit tau must be finite and in [0, 1], got {tau!r}')
         basal_received = len(self.basal.delivered_sources) > 0
         basal_signal = self.basal.delivered_signals[0] if basal_received else 0.0
+        # ``gather_apical`` maintains raw/unique delivery diagnostics. Deriving the set
+        # here as well keeps direct compartment-based diagnostic use deterministic.
         apical_sources = set(self.apical.delivered_sources)
-        apical_active = bool(apical_sources)
+        if apical_sources != self.apical_sources:
+            self.apical_sources = apical_sources
+        apical_active = bool(self.apical_sources)
 
         self.basal_received = basal_received
         self.basal_signal = basal_signal
-        self.apical_sources = apical_sources
         self.apical_active = apical_active
 
         # B = current OR carried basal availability; its signal prefers the current event.
@@ -623,16 +677,21 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         b_signal = basal_signal if basal_received else self.basal_eligible_signal
         A = apical_active
 
-        charge = 0.0
+        committed_charge = 0.0
         coincidence = bool(B and A)
-        if coincidence:
+        if coincidence and not self.deposit_committed_this_boundary:
             w = float(self.basal.weights[0])
-            charge = w * b_signal
+            committed_charge = w * b_signal
             self._deposit_signal = b_signal
+            self.apply_charge_impulse(committed_charge)
+            self.deposit_committed_this_boundary = True
+            self.coincidence_deposit_count = 1
+            self.coincidence_deposit_tau = tau
+            self.coincidence_charge = committed_charge
             # consume ALL basal availability; a participating current event is not carried.
             self.basal_eligible = False
             self.basal_eligible_signal = 0.0
-        else:
+        elif not self.deposit_committed_this_boundary:
             # carry a current, unconsumed basal event for EXACTLY the next boundary;
             # otherwise eligibility expires (no two-boundary survival).
             if basal_received:
@@ -642,11 +701,10 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
                 self.basal_eligible = False
                 self.basal_eligible_signal = 0.0
 
-        self.coincidence_active = coincidence
-        self.coincidence_charge = charge
-        if coincidence:
-            self.gather_exc(charge)                    # install gated somatic drive only
-        return charge
+        # Once opened, the causal gate stays observable for the rest of this boundary;
+        # later apical receipts cannot erase the committed deposit or its diagnostics.
+        self.coincidence_active = self.coincidence_active or coincidence
+        return committed_charge
 
     # ----------------------------------------------------------- firing gate
     def can_fire(self):
@@ -668,15 +726,16 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         using the causal firing-boundary dendritic state and the PRE-update weight:
 
             kappa = 1                if g_L == 0 else (1 - e^{-g_L}) / g_L
-            w1    = theta / kappa                 (min basal weight firing on ONE deposit)
+            w1    = theta / kappa                 (leak-corrected budget reference)
             FE    = maturity_budget_frac * w1 - w (budget headroom; dropped if use_fe=False)
             dw    = eta_C * FE * A * (1 - (w / w_max)^2) * s * phi
             w     <- clip(w + dw, 0, w_max)
 
-        The FE budget target is a leak-corrected multiple of the one-deposit firing weight
-        w1 (NOT theta), so a matured basal weight saturates above w1 and one coincidence
-        deposit crosses theta -- the C-cell analog of the E-cell budget headroom. The
-        deposit gate (basal AND apical) and the firing threshold are unchanged.
+        The FE budget target retains the leak-corrected full-boundary reference ``w1``
+        for developmental compatibility. Since a C coincidence is an instantaneous
+        charge impulse, its actual from-reset firing condition is ``w*s >= theta``;
+        the ``w1`` target therefore supplies conservative headroom. The deposit gate
+        (basal AND apical) and firing threshold are unchanged.
 
         A is the Boolean apical gate (1 at a causal C spike), s the active basal signal
         of the causal deposit, phi the basal distance influence. There is no apical

@@ -1,6 +1,5 @@
 """Phase 7 — scientific-validation harness assertions. These pin the MECHANICAL
-claims (which must hold) and record the MEASURED full-preset frequency ratio (which
-is reported, never forced to a target).
+claims (which must hold), including the mature full-preset frequency ratio.
 """
 
 import pytest
@@ -18,14 +17,12 @@ def test_isolated_cadence_is_exact_two_to_one():
     assert r['ratio'] == pytest.approx(0.5)          # halving at the C level is exact
 
 
-def test_calibration_lets_mature_c_outrun_l1e():
-    # A mechanical fact from the calibrated crossing times: at the cap the C second-
-    # coincidence crossing (0.813) precedes the pretrained L1E crossing (0.952), so a
-    # mature C->L1I reset CAN beat L1E within the same boundary.
-    r = isolated_cadence()
-    assert r['c_second_tau_at_cap'] < r['pretrained_l1e_tau']
+def test_impulse_fires_at_permission_tau_independent_of_remaining_interval():
+    r = isolated_cadence(impulse_tau=0.75)
+    assert r['c_init_single_impulse_subthreshold'] is True
+    assert r['c_max_single_impulse_suprathreshold'] is True
+    assert set(r['crossing_taus']) == {0.75}
     assert r['pretrained_l1e_tau'] == pytest.approx(0.952, abs=0.002)
-    assert r['c_second_tau_at_init'] == pytest.approx(0.980, abs=0.002)
 
 
 # --------------------------------------------------- full preset mechanics
@@ -41,17 +38,19 @@ def test_full_preset_mechanics():
     # Every C spike drives exactly one paired L1 hard reset, and most beat their L1E.
     assert c['l1_hard_resets'] == c['c_spikes'] > 0
     assert c['l1e_reset_suppressed'] > 0
+    assert r['timing']['same_tau_c_spikes'] == c['c_spikes']
+    assert r['timing']['phase_mismatches'] == 0
     # apical events come from real L2 winners (the eight L2E ids only).
     assert set(r['apical_source_ids']) <= {f'L2E{j}' for j in range(8)}
 
 
-def test_full_preset_frequency_measured_not_forced():
-    # The ratio is REPORTED, not asserted to equal 0.5. We only assert the honest
-    # measured direction: suppression is real (ratio < 1) but the exact halving target
-    # is not reached under the L2 latency-WTA cadence.
-    r = full_preset(n=1500)
+def test_full_preset_mature_window_reaches_frequency_halving():
+    # The overall ratio includes the immature training transient. Once the active C
+    # weights mature, the established final window reaches the requested halving.
+    r = full_preset(n=2500, window=500)
     ratio = r['frequency']['l1e_over_rg_overall']
     assert 0.0 < ratio <= 1.0
+    assert r['frequency']['l1e_rate_last_window'] == pytest.approx(0.5)
     assert r['frequency']['target'] == 0.5
 
 

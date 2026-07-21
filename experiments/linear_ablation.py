@@ -191,9 +191,7 @@ def _iso_c(mode, n_coincidences=20000):
     eng = SimulationEngine(seed=1, **FIXED_CONFIG)
     cpar = eng._resolve_coincidence_params()
     theta = float(eng.params['e_threshold'])
-    g_L = leak_to_conductance(float(eng.params['leak_rate']))
-    kappa = 1.0 if g_L == 0 else (1.0 - math.exp(-g_L)) / g_L
-    w1 = theta / kappa                                       # one-deposit firing weight
+    w1 = theta                                               # impulse from-reset threshold
     c = CoincidencePyramidalNeuron('L1C', 'L1E', 'b0', apical_sources=['L2E'],
                                    apical_edge_ids=['a0'], basal_weight=cpar['c_init'],
                                    w_max=cpar['c_max'], eta_c=cpar['c_eta'], learn=True,
@@ -204,9 +202,9 @@ def _iso_c(mode, n_coincidences=20000):
     first_one_from_rest = first_reach_w1 = first_exceed_2theta = first_nonfinite = None
     max_weight = cpar['c_init']
     for i in range(n_coincidences):
+        from_rest = (c.V == c.v_rest)                        # state before this impulse
         c.begin_event_boundary(); c.gather_basal('L1E', 1.0); c.gather_apical('L2E')
         c.resolve_dendrites(); c.freeze_drive()
-        from_rest = (c.V == 0.0)                             # single deposit from rest this event
         dtau = c.crossing_time(1.0)
         fired = math.isfinite(dtau)
         if fired:
@@ -288,9 +286,7 @@ def _phase3_run(cond, seed):
     e = SimulationEngine(seed=seed, e_weight_update_mode=em, c_weight_update_mode=cm,
                          **FIXED_CONFIG)
     theta = float(e.params['e_threshold'])
-    w1 = theta / (1.0 if e.params['leak_rate'] == 0 else
-                  (1 - math.exp(-leak_to_conductance(e.params['leak_rate']))) /
-                  leak_to_conductance(e.params['leak_rate']))
+    w1 = theta                                               # C impulse from-reset threshold
     for c in e.latency_competitors:
         c.record_updates = True
     init_totals = {c.id: round(float(c.acc_weights.sum()), 3) for c in e.latency_competitors}

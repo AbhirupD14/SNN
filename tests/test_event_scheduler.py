@@ -177,13 +177,19 @@ def test_ordinary_excitation_keeps_one_boundary_delay():
     assert e.spiked['L2E0'] is False                # cannot cross a 2nd edge same boundary
 
 
-def test_winner_apical_output_delivered_next_boundary_not_same():
+def test_winner_apical_output_opens_mature_c_at_same_tau():
     e = _wta_engine(w0=1500.0, w1=1200.0)
+    c = e.exc['L1C0']
+    c.basal.weights[0] = c.w_max
     _run_until_l2_spike(e)
-    # On the boundary L2E0 fired, its apical output to L1C0 is queued for t+1, not
-    # delivered during the same event loop.
-    assert 'L1C0' in e._apical_next
-    assert 'L2E0' in e._apical_next['L1C0']
+    winner = e.exc['L2E0']
+    assert winner.spiked and c.spiked
+    assert c.coincidence_deposit_count == 1
+    assert c.coincidence_deposit_tau == pytest.approx(winner.spike_tau)
+    assert c.spike_tau == pytest.approx(winner.spike_tau)
+    assert c.apical_delivery_count == 1
+    assert c.apical_duplicate_count == 0
+    assert not hasattr(e, '_apical_next')
 
 
 # ------------------------------------------------------ legacy path untouched
