@@ -84,7 +84,7 @@ def test_latency_l2_rows_use_normalized_working_initialization():
     e = _engine()
     target = e.params['l2_init_total_frac'] * e.params['e_threshold']
     assert e.params['l2_init_total_frac'] == pytest.approx(0.95)
-    assert e.params['c_eta'] == pytest.approx(0.001)
+    assert e.params['c_eta'] == pytest.approx(0.005)     # bumped for one-shot maturation (16/16 turnover)
     for cell in e.latency_competitors:
         assert cell.acc_weights.sum() == pytest.approx(target)
         assert len(set(cell.acc_weights.round(9))) > 1   # seeded direction retained

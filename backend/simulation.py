@@ -219,11 +219,13 @@ DEFAULTS = dict(
     # C threshold reads e_threshold, C leak reads leak_rate, C refractory reads
     # refractory_steps directly (intrinsic parity with E). The basal weight scale is
     # DERIVED from the resolved threshold + leak via the two-coincidence equations
-    # unless a headless experiment overrides it; None => derive. C learning is slower
-    # than ordinary E learning: the row->column->row sweep found eta_c=0.001 retained
-    # the novelty window and produced turnover/recovery in 8/8 seeds.
-    c_eta=0.001,                                   # separately controlled basal learning rate
-    c_fe_enabled=True,                             # include the (theta - w) fullness-error factor in the C rule
+    # unless a headless experiment overrides it; None => derive. Under the one-shot C
+    # budget rule (c_linear_bounded + frac*w1 cap) the row->column->row sweep re-run at
+    # 16 seeds found eta_c=0.005 gives 16/16 turnover/recovery AND matures to one-shot
+    # ~5x faster than the historical 0.001 (which, under the new rule, is too slow and
+    # only reaches 12/16 -- it fails the column-turnover phase on 4 seeds).
+    c_eta=0.005,                                   # separately controlled basal learning rate
+    c_fe_enabled=True,                             # include the w1-budget fullness-error factor in the C rule
     l2_init_total_frac=L2_INIT_TOTAL_FRAC,          # normalized latency-WTA afferent total / theta
     c_basal_weight_init=None,                      # None -> 1.01 * w_2(T)
     c_basal_weight_max=None,                       # None -> 1.10 * w_2(T)

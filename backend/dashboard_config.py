@@ -11,7 +11,7 @@ remain selectable and inspectable without a second dashboard.
 DASHBOARD_OVERRIDES: dict = {
     "topology": "rg_coincidence",
     "eta": 0.01,
-    "c_eta": 0.001,
+    "c_eta": 0.005,
     "l2_init_total_frac": 0.95,
     "leak_rate": 0.0,
     "refractory_steps": 0,
@@ -33,8 +33,9 @@ CONFIG_SPEC = [
      "desc": "Accumulating feedforward learning rate for ordinary E/L2E cells."},
     {"key": "c_eta", "label": "C basal learning rate", "kind": "range",
      "min": 0.0005, "max": 0.01, "step": 0.0005, "decimals": 4,
-     "desc": "Coincidence-cell basal learning rate. The validated turnover regime "
-             "uses 0.001 so suppression matures without closing the novelty window."},
+     "desc": "Coincidence-cell basal learning rate. Under the one-shot budget rule a "
+             "16-seed sweep gives 16/16 turnover/recovery at 0.005 while maturing to "
+             "one-shot firing ~5x faster than the historical 0.001."},
     {"key": "l2_init_total_frac", "label": "L2 initial total / threshold", "kind": "range",
      "min": 0.5, "max": 0.99, "step": 0.01,
      "desc": "For latency-WTA L2E cells, normalize each seeded afferent row to this "
