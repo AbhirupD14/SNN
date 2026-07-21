@@ -67,7 +67,7 @@ clarification. Because of the detail in the kick off prompt, it usually also ide
 in my assumptions and we worked through them to create a truly complete picture which finally ended up
 in a technical spec.
 
-An example of a smaller kick off description would be:
+Examples of kick off descriptions would be:
 
 ```text
 Read through the repo you should find a document that describes some new neuroscience about coincidence detectors. Let me tell you the story of how things should work in this project now, and then we can have a technical discussion about how to implement this.
@@ -95,6 +95,37 @@ Essentially apical will tell us whether there is a weight update or not. We need
 For C cells, the threshold is the same as E cells. Leave the leak and refractory equal for C cells to E cells. Treat all inhibitory cells as immediate relays (pretrained). We will treat L1E as pretrained for this topology so RG cells instantly invoke them to fire. Let's have inhibition fire more than 1 spike per fire event because I think that actual inhib cells do fire very fast and not just once at the same rate as E cells.
 
 Let's discuss about this information and then talk about implementation details (do we inherit the E class for C class? do we build a dendrite class that has an apical and basal end so that we can apply this connectivity rule anywhere?). Eventually we will make a technical spec and have claude implement it for us.
+```
+
+```text
+Let's talk a little bit about some things. One is a huge change. The other is a smaller but still involved change. Starting with the smaller change.
+
+Currently the simulation is sequence, event based but is it truly event based? The sim still look around for the state of everyone in some order and then decides that it's time for some event to happen based on states. A little different from a true event based system. This is something to think about for the future but not immediately pressing. The other thing to think about is that WTA currently does not allow for 2 winners to emerge. I need this for composition to occur. Again, this is not immediately pressing but super important for the future. What are some solutions to this problem? I don't want to just use a delta tau and check if there is another winner in the vicinity. All the weights are initialized fairly close so we could get a bunch of winners. The case where multiple winners should happen is really if I have composition of a row and column into a plus. Say I trained a row and I trained a column fully. When I show a cross those two neurons should both fire and train a third neuron that is a plus. This is composition.
+
+Type up this problem into a md file so that we can revisit it later in depth.
+
+Now that you know a little bit about the easy problem, let's talk about a huge new topology change that touches almost everything in the repo. We want this new topology to be a new preset. We want the current topologies to still be functional after the change as well. After we chat about these problems, we will go into making a technical spec for the implementation.
+
+
+CORTICAL COLUMNS (CC)
+---------------------
+Currently, we have RGC connected to L1E. L1E is just a neuron with a coincidence detector and an inhibitory neuron but it is meant to be an abstraction of a cortical column. Now what we want is this: A set of neurons that is configurable in excitatory neuron count, has another output excitatory neuron called Eor, a coincidence neuron, and an inhibitory neuron.
+
+First of all, the cortical column is setup in the exact same way as the class is defined now in terms of connections within the column. We have "N" neurons with dense inputs from some previous input layer and bidirectional connections with the I neuron. An addition is one more neuron called Eor. All the E neurons in the cortical column connect to Eor. Eor is the "output" neuron. Eor connects densely with the next cortical column. It serves as the input from one cortical column to another and has connections from Eor to LxE_i where x is the upstream layer label. Another thing that Eor does is have a feedforward connection to its local coincidence neuron.
+
+Yes, there is also a coincidence neuron in the cortical column. The C neuron has an input from the local Eor neuron. This is the basal connection. The C neuron also has connections that are feedback from the upstream cortical column. These are the apical connections.
+
+Now that I have described the CC to CC connection schema, let's move on to what the inputs look like.
+
+INPUTS/OVERALL TOPOLOGY
+-----------------------
+Let's say that our input RF is actually a 9x9 grid instead of 3x3. We break this into 9 3x3 grids, each of which connect to a cortical column in the exact same way as before (so we have 9 3x3 grids and 9 cortical columns where the connections are "1 to 1" between a mini grid and CC). The nuance here is that we are connecting RGCs directly into the cortical column instead of having any L1E neurons. The RGCs densely connect with the E cells of the cortical column. However, the whole grid should still be "connected" in input. Imagine I drew a diagonal accross the whole 9x9 grid. When I decompose this, I should get 3 3x3 grids that have that diagonal through them and these are what actually go on to be active in the RGCs. However, just to start we only want to have input in one of the 3x3 grids to isolate behavior.
+
+So to recap, we have 9 sets of 3x3 grids each feeding 9 cortical columns. These 9 cortical columns connect to one more cortical column in the next layer (which serves as a sort of "compression" step). Let's treat the RGCs as the input layer, the 9 CCs as L1, and the final CC as L2.
+
+
+
+Chat with me about these to show me you understand the problems.
 ```
 ## Planning became a concrete engineering artifact
 
