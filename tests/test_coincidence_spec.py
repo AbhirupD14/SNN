@@ -108,7 +108,7 @@ def test_synthetic_fixture_c_dendrites_and_weights():
     assert c.basal_weight == pytest.approx(cpar['c_init'])
     assert c.w_max == pytest.approx(cpar['c_max'])
     assert c.eta_c == pytest.approx(cpar['c_eta'])
-    assert cpar['c_max'] < cpar['w1']                # cap below one-deposit firing weight
+    assert cpar['c_max'] >= cpar['w1']               # cap = frac*w1 -> one-shot-capable
     # C intrinsic parity with a latency competitor's membrane.
     assert c.threshold == e.latency_competitors[0].threshold
     assert c.g_L == pytest.approx(e.latency_competitors[0].g_L)
@@ -229,11 +229,15 @@ def test_mixing_legacy_competitor_with_event_resolved_rejected():
 
 
 # ------------------------------------------------------- config invariant
-def test_cap_at_or_above_one_deposit_weight_rejected():
-    # A cap that can fire on a single deposit is a scientifically different regime.
+def test_high_cap_accepted_init_above_cap_still_rejected():
+    # A cap at/above the one-deposit firing weight is now the intended one-shot regime,
+    # not a misconfiguration -- it builds fine (the old c_max < w1 guard is gone). The
+    # c_init <= c_max ordering guard is still enforced.
     spec = _synth_spec()
-    with pytest.raises(ValueError, match='must be < the one-deposit firing weight'):
-        _build(spec, c_basal_weight_max=5000.0)
+    e = _build(spec, c_basal_weight_max=5000.0)       # high cap accepted (no rejection)
+    assert e.coincidence[0].w_max == pytest.approx(5000.0)
+    with pytest.raises(ValueError, match='must be <= c_basal_weight_max'):
+        _build(spec, c_basal_weight_init=5000.0, c_basal_weight_max=100.0)
 
 
 # ------------------------------------------------ legacy graphs stay legacy

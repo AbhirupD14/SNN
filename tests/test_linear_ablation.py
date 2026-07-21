@@ -126,7 +126,7 @@ def c_fire_and_learn(c):
 # =============================================================== C algebra
 def test_c_exact_delta_all_modes():
     w, wmax, eta, theta, phi = 505.0, 550.0, 0.001, 1000.0, 1.0
-    fe = theta - w
+    fe = 1.10 * theta - w                    # budget FE: frac*w1 - w, w1==theta at leak 0
     expected = {
         'c_quadratic_bounded': w + eta * fe * 1.0 * 1.0 * phi * (1 - (w / wmax) ** 2),
         'c_linear_bounded': w + eta * fe * 1.0 * 1.0 * phi,
@@ -164,10 +164,11 @@ def test_c_default_mode_is_production_quadratic():
 
 # ===================================================== integration / regression
 def test_default_modes_are_production():
-    # PROMOTED production defaults: linear-bounded E, unchanged quadratic-bounded C.
+    # PROMOTED production defaults: linear-bounded E and linear-bounded C (multiplier
+    # dropped on both; the historical quadratic rules remain as headless modes).
     e = SimulationEngine(seed=1, topology='rg_coincidence')
     assert e.latency_competitors[0].update_mode == 'linear_bounded'
-    assert e.coincidence[0].update_mode == 'c_quadratic_bounded'
+    assert e.coincidence[0].update_mode == 'c_linear_bounded'
 
 
 def test_engine_default_e_equals_explicit_linear_bounded():

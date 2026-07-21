@@ -133,17 +133,18 @@ def test_pretrained_crossing_tau_matches_spec_sanity():
 def test_resolved_c_weight_scale_and_invariant():
     e = _engine()
     cpar = e._resolve_coincidence_params()
-    assert cpar['c_init'] == pytest.approx(520.538, abs=0.01)
-    assert cpar['c_max'] == pytest.approx(566.923, abs=0.01)
-    assert cpar['c_max'] < cpar['w1']                # cap below one-deposit firing weight
+    assert cpar['c_init'] == pytest.approx(520.538, abs=0.01)   # immature start unchanged (1.01*w2)
+    assert cpar['c_max'] == pytest.approx(1116.838, abs=0.01)   # cap = 1.10*w1 (one-shot fixed point)
+    assert cpar['c_max'] >= cpar['w1']               # cap at/above one-deposit firing weight
     for c in e.coincidence:
         assert c.basal_weight == pytest.approx(cpar['c_init'])
         assert c.w_max == pytest.approx(cpar['c_max'])
 
 
-def test_c_second_coincidence_timing_sanity():
-    # From rest: one c_init deposit leaks a boundary, the second crosses ~0.980;
-    # at the cap the second crosses ~0.813 (spec non-normative sanity values).
+def test_c_timing_immature_needs_two_matured_fires_on_first():
+    # From rest: an IMMATURE c_init deposit leaks a boundary and the second crosses at
+    # ~0.980. A MATURED cap deposit (c_max = frac*w1) instead crosses theta within the
+    # FIRST boundary (~0.908) -- the one-shot maturity target.
     e = _engine()
     cpar = e._resolve_coincidence_params()
     theta = float(e.params['e_threshold'])
@@ -154,8 +155,12 @@ def test_c_second_coincidence_timing_sanity():
         v_inf = w / g_L
         return (1.0 / g_L) * math.log((v_inf - v1) / (v_inf - theta))
 
+    def first_cross_tau(w):
+        return -(1.0 / g_L) * math.log(1.0 - theta * g_L / w)
+
     assert second_cross_tau(cpar['c_init']) == pytest.approx(0.980, abs=0.002)
-    assert second_cross_tau(cpar['c_max']) == pytest.approx(0.813, abs=0.002)
+    assert first_cross_tau(cpar['c_max']) == pytest.approx(0.908, abs=0.002)   # fires on 1st
+    assert 0.0 < first_cross_tau(cpar['c_max']) < 1.0                          # within one boundary
 
 
 # --------------------------------------------------------- end-to-end causal

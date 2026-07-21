@@ -51,8 +51,9 @@ DEFAULT_REFRACTORY = 0
 # 32/32 fresh-seed confirmation): the per-synapse (1 - (w/w_max)^2) multiplier is
 # dropped from the default E update, and the E hard cap is retained. `quadratic_bounded`
 # is the HISTORICAL E rule, kept as a headless mode; `linear_nonnegative` is a cap-free
-# diagnostic only. The C basal rule is UNCHANGED (default `c_quadratic_bounded`, the
-# multiplier retained). None of these are dashboard controls.
+# diagnostic only. The C basal rule now MIRRORS this: production default `c_linear_bounded`
+# (multiplier dropped, cap retained); `c_quadratic_bounded` is the historical C rule kept
+# as a headless mode; `c_linear_nonnegative` is a cap-free diagnostic. None are dashboard controls.
 E_UPDATE_MODES = ('quadratic_bounded', 'linear_bounded', 'linear_nonnegative')
 C_UPDATE_MODES = ('c_quadratic_bounded', 'c_linear_bounded', 'c_linear_nonnegative')
 
@@ -520,7 +521,8 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
     def __init__(self, nid, basal_source, basal_edge_id, *, apical_sources=(),
                  apical_edge_ids=(), basal_weight=0.0, basal_distance_factor=1.0,
                  w_max=E_WEIGHT_CAP, eta_c=DEFAULT_ETA, learn=True, use_fe=True,
-                 update_mode='c_quadratic_bounded', role='coincidence',
+                 update_mode='c_linear_bounded', maturity_budget_frac=1.10,
+                 role='coincidence',
                  threshold=E_THRESHOLD, leak_rate=DEFAULT_LEAK,
                  refractory_steps=DEFAULT_REFRACTORY,
                  e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
@@ -533,10 +535,19 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         self.w_max = float(w_max)                     # C-specific basal cap (NOT e_weight_cap)
         self.eta_c = float(eta_c)
         self.learn = bool(learn)
-        self.use_fe = bool(use_fe)                    # include the (theta - w) fullness-error factor
+        self.use_fe = bool(use_fe)                    # include the w1-budget fullness-error factor
         if update_mode not in C_UPDATE_MODES:
             raise ValueError(f'update_mode must be one of {C_UPDATE_MODES}, got {update_mode!r}')
         self.update_mode = update_mode
+        # Basal-weight learning budget target as a multiple of the one-deposit firing
+        # weight w1 = theta/kappa. The FE term drives the basal weight toward
+        # maturity_budget_frac * w1 from below, so a matured C cell fires on ONE
+        # coincidence deposit (frac > 1.0 gives headroom above w1). Firing threshold and
+        # the coincidence deposit gate are untouched.
+        if maturity_budget_frac < 1.0:
+            raise ValueError(
+                f'maturity_budget_frac must be >= 1.0, got {maturity_budget_frac}')
+        self.maturity_budget_frac = float(maturity_budget_frac)
         self.record_updates = False                   # opt-in instrumentation (off = byte-identical)
         self.update_log = []
         self.basal = DendriticCompartment(
@@ -656,29 +667,38 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         """The exact basal update, applied ONLY immediately after this cell fires and
         using the causal firing-boundary dendritic state and the PRE-update weight:
 
-            FE = theta - w                       (fullness error; dropped if use_fe=False)
-            dw = eta_C * FE * A * (1 - (w / w_max)^2) * s * phi
-            w  <- clip(w + dw, 0, w_max)
+            kappa = 1                if g_L == 0 else (1 - e^{-g_L}) / g_L
+            w1    = theta / kappa                 (min basal weight firing on ONE deposit)
+            FE    = maturity_budget_frac * w1 - w (budget headroom; dropped if use_fe=False)
+            dw    = eta_C * FE * A * (1 - (w / w_max)^2) * s * phi
+            w     <- clip(w + dw, 0, w_max)
+
+        The FE budget target is a leak-corrected multiple of the one-deposit firing weight
+        w1 (NOT theta), so a matured basal weight saturates above w1 and one coincidence
+        deposit crosses theta -- the C-cell analog of the E-cell budget headroom. The
+        deposit gate (basal AND apical) and the firing threshold are unchanged.
 
         A is the Boolean apical gate (1 at a causal C spike), s the active basal signal
         of the causal deposit, phi the basal distance influence. There is no apical
         weight and no negative-participation update.
 
-        ``update_mode`` selects the linear-ablation variant (default reproduces the
-        production rule byte-for-byte):
-          * ``c_quadratic_bounded``  -- dw = base * (1 - (w/w_max)^2); clip [0, w_max];
-          * ``c_linear_bounded``     -- dw = base (drop the multiplier); clip [0, w_max];
+        ``update_mode`` selects the bounding variant (production default ``c_linear_bounded``):
+          * ``c_linear_bounded``     -- dw = base (no multiplier); clip [0, w_max]. **DEFAULT**;
+          * ``c_quadratic_bounded``  -- dw = base * (1 - (w/w_max)^2); clip [0, w_max]. Historical;
           * ``c_linear_nonnegative`` -- dw = base; floor 0 only, NO cap (diagnostic probe).
 
-        ``use_fe=False`` additionally drops the (theta - w) factor, leaving the soft bound
-        to (1 - (w/w_max)^2) alone. FE is deliberately preserved by the ablation modes."""
+        ``use_fe=False`` drops the budget factor, leaving the soft bound to
+        (1 - (w/w_max)^2) alone. FE is deliberately preserved by the ablation modes."""
         if not self.learn:
             return self.basal_weight
         w = float(self.basal.weights[0])
         A = 1.0 if self.apical_active else 0.0
         s = self._deposit_signal
         phi = float(self.basal.distance_factors[0])
-        fe = (self.threshold - w) if self.use_fe else 1.0
+        kappa = 1.0 if self.g_L == 0.0 else (1.0 - math.exp(-self.g_L)) / self.g_L
+        w1 = self.threshold / kappa
+        budget_fe = self.maturity_budget_frac * w1 - w
+        fe = budget_fe if self.use_fe else 1.0
         base = self.eta_c * fe * A * s * phi
         if self.update_mode == 'c_quadratic_bounded':
             dw = base * (1.0 - (w / self.w_max) ** 2)
@@ -692,7 +712,7 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         if self.record_updates:
             self.update_log.append(dict(
                 cell=self.id, mode=self.update_mode, w_pre=w, w_post=w_new,
-                fe_pre=float(self.threshold - w), raw_dw=float(dw),
+                fe_pre=float(budget_fe), raw_dw=float(dw),
                 applied_dw=float(w_new - w), at_cap=bool(
                     self.update_mode != 'c_linear_nonnegative' and w_new >= self.w_max - 1e-9)))
         return w_new

@@ -28,8 +28,10 @@ def _calib(theta=1000.0, leak=0.03, T=1):
     kappa = 1.0 if g_L == 0 else (1.0 - math.exp(-g_L)) / g_L
     w2 = theta / (kappa * (1.0 + r ** T))
     w1 = theta / kappa
+    # Production cap is now the FE budget fixed point frac*w1 (>= w1), so a matured basal
+    # weight fires on ONE coincidence deposit. Cells still START immature at c_init < w1.
     return dict(g_L=g_L, r=r, kappa=kappa, w2=w2, w1=w1,
-               c_init=1.01 * w2, c_max=1.10 * w2)
+               c_init=1.01 * w2, c_max=1.10 * w1)
 
 
 def make_c(**kw):
@@ -182,8 +184,9 @@ def test_exact_update_equation_numeric():
     c2.apical_active = True                          # gate active at firing
     c2._deposit_signal = 1.0
     w_after = c2.update_basal_weight()
-    fe = theta - w
-    dw = eta * fe * 1.0 * (1.0 - (w / w_max) ** 2) * 1.0 * phi
+    w1 = theta                                       # kappa == 1 at leak 0 -> w1 == theta
+    fe = c2.maturity_budget_frac * w1 - w            # budget FE (frac*w1 - w), not theta - w
+    dw = eta * fe * 1.0 * 1.0 * phi                  # c_linear_bounded default: no (1-(w/wmax)^2)
     assert w_after == pytest.approx(min(w_max, w + dw))
 
 
@@ -193,9 +196,9 @@ def test_fe_uses_only_basal_weight_no_apical_term():
     c.resolve_dendrites()
     before = c.basal_weight
     w_after = c.update_basal_weight()
-    fe = 1000.0 - before
-    dw = 0.02 * fe * (1.0 - (before / 500.0) ** 2) * 1.0 * 1.0
-    assert w_after == pytest.approx(before + dw)     # FE = theta - w, nothing apical
+    fe = c.maturity_budget_frac * 1000.0 - before    # w1 == theta at leak 0; budget FE
+    dw = 0.02 * fe * 1.0 * 1.0                        # c_linear_bounded: no multiplier, nothing apical
+    assert w_after == pytest.approx(before + dw)
 
 
 def test_no_learning_without_spike_deposit_or_apical():
@@ -229,38 +232,40 @@ def test_clipping_and_saturation_at_cap():
 
 
 def test_fe_toggle_drops_fullness_error_factor():
-    # use_fe=False removes the (theta - w) factor; dw uses 1.0 in its place.
+    # use_fe=False removes the budget (frac*w1 - w) factor; dw uses 1.0 in its place.
     w, w_max, eta, phi = 300.0, 500.0, 0.02, 0.8
     c = make_c(basal_weight=w, w_max=w_max, eta_c=eta, basal_distance_factor=phi,
                threshold=1000.0, use_fe=False)
     c.begin_event_boundary(); c.gather_basal('L1E0'); c.gather_apical('L2E0')
     c.resolve_dendrites()
     w_after = c.update_basal_weight()
-    dw = eta * 1.0 * (1.0 - (w / w_max) ** 2) * 1.0 * phi     # NO (theta - w) term
+    dw = eta * 1.0 * 1.0 * phi                                # fe=1.0; c_linear_bounded: no multiplier
     assert w_after == pytest.approx(w + dw)
 
 
 def test_both_fe_variants_share_cap_fixed_point_fe_off_is_slower():
-    # The (1 - (w/w_max)^2) term is the real bound: BOTH variants are bounded by and
-    # monotonically approach w_max. With w_max << theta, FE is a near-constant ~(theta-w)
-    # gain, so dropping it makes maturation much slower for the same eta -- but the
-    # saturation point is unchanged.
-    finals = {}
-    for use_fe in (True, False):
+    # Under the production c_linear_bounded rule the hard cap is the bound: BOTH FE
+    # variants saturate at w_max, monotonically. FE ON uses the large (frac*w1 - w) gain
+    # so it clips in one step; FE OFF adds only eta*phi per step, so after a few steps it
+    # is still below the cap -- same fixed point, much slower approach.
+    def run(use_fe, steps):
         c = make_c(basal_weight=490.0, w_max=500.0, eta_c=0.9, threshold=1000.0,
                    use_fe=use_fe)
         prev = c.basal_weight
-        for _ in range(2000):
+        for _ in range(steps):
             c.begin_event_boundary(); c.gather_basal('L1E0'); c.gather_apical('L2E0')
             c.resolve_dendrites(); c.apical_active = True; c._deposit_signal = 1.0
             c.update_basal_weight()
             assert c.basal_weight <= 500.0 + 1e-9        # never exceeds the cap
             assert c.basal_weight >= prev - 1e-12        # monotonic non-decreasing
             prev = c.basal_weight
-        finals[use_fe] = c.basal_weight
-    assert finals[True] == pytest.approx(500.0, abs=1e-6)   # FE ON reaches the cap
-    assert 490.0 < finals[False] < 500.0                    # FE OFF still climbing (slower)
-    assert finals[True] > finals[False]
+        return c.basal_weight
+    # After a few steps FE ON has already hit the cap; FE OFF has not.
+    assert run(True, 5) == pytest.approx(500.0, abs=1e-6)   # FE ON: one big step to the cap
+    assert 490.0 < run(False, 5) < 500.0                    # FE OFF: still climbing (slower)
+    # Given enough steps both reach the SAME cap fixed point.
+    assert run(True, 2000) == pytest.approx(500.0, abs=1e-6)
+    assert run(False, 2000) == pytest.approx(500.0, abs=1e-6)
 
 
 def test_no_apical_weight_vector():
@@ -322,13 +327,15 @@ def test_one_spike_per_boundary_consumes_drive():
 
 
 # ============================================ calibrated two-coincidence regime
-def test_one_max_weight_deposit_subthreshold_from_reset():
+def test_one_max_weight_deposit_fires_from_reset():
+    # The matured cap is now frac*w1 (>= the one-deposit firing weight), so a SINGLE
+    # coincidence deposit at the cap crosses theta and fires from reset -- the one-shot
+    # maturity target. (Contrast the immature c_init cell, which still needs two.)
     cal = _calib()
     c = make_c(basal_weight=cal['c_max'], w_max=cal['c_max'] * 1.5,
                leak_rate=0.03, threshold=1000.0, learn=False)
     fired = run_boundary(c, basal=True, apical=['L2E0'])
-    assert fired is False
-    assert c.V < 1000.0                              # one cap deposit stays below theta
+    assert fired is True                             # one cap deposit crosses theta
 
 
 def test_two_init_weight_deposits_reach_threshold():
@@ -348,6 +355,33 @@ def test_mature_cadence_is_every_second_coincidence():
     assert fires == [False, True, False, True, False, True, False, True]
 
 
-def test_resolved_cap_below_one_deposit_firing_weight():
+def test_resolved_cap_at_or_above_one_deposit_firing_weight():
     cal = _calib()
-    assert cal['c_max'] < cal['w1']                  # c_basal_weight_max < w_1 invariant
+    assert cal['c_max'] >= cal['w1']                 # cap = frac*w1 -> one-shot-capable
+
+
+def test_matured_c_cell_is_one_shot():
+    # The C-cell analog of test_matured_specialist_is_one_step_integrator: an immature C
+    # cell needs TWO coincidences to fire, but driving it with repeated coincidences
+    # matures its basal weight to the FE fixed point frac*w1, after which a SINGLE
+    # coincidence deposit crosses theta and fires.
+    cal = _calib(leak=0.03)
+    # Before maturity: one deposit from reset does not fire (immature c_init < w1).
+    immature = make_c(basal_weight=cal['c_init'], w_max=cal['c_max'],
+                      leak_rate=0.03, threshold=1000.0, learn=False)
+    assert run_boundary(immature, basal=True, apical=['L2E0']) is False
+    # Drive repeated coincidences; the plastic basal weight matures toward frac*w1.
+    c = make_c(basal_weight=cal['c_init'], w_max=cal['c_max'], leak_rate=0.03,
+               threshold=1000.0, eta_c=0.05, learn=True, maturity_budget_frac=1.10)
+    for _ in range(4000):
+        run_boundary(c, basal=True, apical=['L2E0'])
+    assert c.basal_weight == pytest.approx(cal['c_max'], rel=5e-3)   # saturates at frac*w1
+    assert c.basal_weight >= cal['w1']                               # >= one-deposit firing weight
+    # A matured cell now fires on ONE coincidence deposit from reset.
+    c.learn = False
+    assert run_boundary(c, basal=True, apical=['L2E0']) is True
+
+
+def test_c_maturity_budget_frac_below_one_raises():
+    with pytest.raises(ValueError):
+        make_c(maturity_budget_frac=0.9)

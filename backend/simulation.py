@@ -149,11 +149,15 @@ DEFAULTS = dict(
     e_weight_floor=0.0,                            # lower clip on learned weights (0 = legacy)
     # --- linear weight-update ablation (headless; defaults reproduce production) ---
     e_weight_update_mode='linear_bounded',         # PRODUCTION default (promoted); also: quadratic_bounded (historical) | linear_nonnegative (cap-free diagnostic)
-    c_weight_update_mode='c_quadratic_bounded',    # c_quadratic_bounded | c_linear_bounded | c_linear_nonnegative
+    c_weight_update_mode='c_linear_bounded',       # PRODUCTION default (multiplier dropped); also: c_quadratic_bounded (historical) | c_linear_nonnegative (cap-free diagnostic)
     # Learning budget target for the E/L2E accumulating rule as a multiple of the firing
     # threshold (>= 1.0). >1.0 gives a matured single-pattern specialist budget headroom so
     # its active afferents cross theta in ONE integration boundary. Firing threshold unchanged.
     e_maturity_budget_frac=1.10,
+    # C-cell analog: basal-weight budget target as a multiple of the one-deposit firing
+    # weight w1 = theta/kappa (>= 1.0). >1.0 matures the basal weight above w1 so a single
+    # coincidence deposit crosses theta and fires. Also sets the C basal cap (= frac*w1).
+    c_maturity_budget_frac=1.10,
     eta=0.01,                                      # excitatory accumulating learning rate
     leak_rate=LEAK_DEFAULT,                        # -> baseline leak conductance g_L
     refractory_steps=0,
@@ -239,6 +243,7 @@ EDITABLE_KEYS = {
     'switch_g_scale', 'switch_conductance_enabled',
     'c_eta', 'c_fe_enabled', 'l2_init_total_frac', 'e_weight_floor',
     'e_weight_update_mode', 'c_weight_update_mode', 'e_maturity_budget_frac',
+    'c_maturity_budget_frac',
 }
 VALID_TOPOLOGIES = ('pi', 'old', 'rg', 'rg_residual', 'rg_coincidence')
 
@@ -344,12 +349,17 @@ class SimulationEngine:
     def _resolve_coincidence_params(self):
         """Resolve the C-cell basal weight scale + pretrained packet from the shared
         threshold and leak using the two-coincidence equations, honoring explicit
-        headless overrides. Rejects a configuration whose cap can fire on ONE deposit.
+        headless overrides.
 
             r = e^{-g_L},  kappa = (1 - e^{-g_L}) / g_L  (kappa = 1 at g_L = 0)
             w_2(T) = theta / (kappa (1 + r^T))      # min weight crossing on 2nd deposit
             w_1    = theta / kappa                   # min weight firing on ONE deposit
             Q_pretrained = pretrained_exc_margin * theta / kappa
+
+        The basal cap is now the FE budget fixed point c_maturity_budget_frac * w_1, so a
+        matured basal weight saturates at the ONE-DEPOSIT firing level (budget headroom):
+        one coincidence deposit crosses theta and fires. Cells still start immature at
+        c_init (default 1.01*w_2, sub-w_1) and mature into one-shot firing.
         """
         p = self.params
         theta = float(p['e_threshold'])
@@ -363,12 +373,9 @@ class SimulationEngine:
         w1 = theta / kappa
         c_init = (1.01 * w2 if p['c_basal_weight_init'] is None
                   else float(p['c_basal_weight_init']))
-        c_max = (1.10 * w2 if p['c_basal_weight_max'] is None
+        c_frac = float(p['c_maturity_budget_frac'])
+        c_max = (c_frac * w1 if p['c_basal_weight_max'] is None
                  else float(p['c_basal_weight_max']))
-        if not c_max < w1:
-            raise ValueError(
-                f'c_basal_weight_max ({c_max:.4f}) must be < the one-deposit firing '
-                f'weight w_1 ({w1:.4f}); a C cell would fire on a single coincidence.')
         if c_init > c_max:
             raise ValueError(
                 f'c_basal_weight_init ({c_init:.4f}) must be <= c_basal_weight_max '
@@ -699,6 +706,7 @@ class SimulationEngine:
                     w_max=cpar['c_max'], eta_c=cpar['c_eta'], learn=True,
                     use_fe=bool(p['c_fe_enabled']),
                     update_mode=str(p['c_weight_update_mode']),
+                    maturity_budget_frac=float(p['c_maturity_budget_frac']),
                     threshold=thr, leak_rate=float(p['leak_rate']),
                     refractory_steps=int(p['refractory_steps']),
                     e_inh=float(p['e_inh']), alpha_inh=alpha_l1,
