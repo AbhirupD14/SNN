@@ -36,13 +36,19 @@ is expressed by edges and is fully editable.
 
 Node ``pixel`` is the *external-input ownership* claim: exactly one cell may own a
 given pixel, and only an input-sink archetype (``e_sensory``, ``rg_source``) may claim
-one. Node ``grid`` is *display / receptive-field* metadata (which 3x3 cell a unit
-represents); it is not unique and carries no input. An ``e_encoder`` downstream of an
+one. Node ``grid`` is *display / receptive-field* metadata (which sensory-grid cell a
+unit represents; the 9-pixel default sheet is 3x3); it is not unique and carries no
+input. An ``e_encoder`` downstream of an
 RG cell uses ``grid`` so the receptive-field view can still place it, while the RG cell
 that actually receives the pixel owns ``pixel``.
 """
 
 from __future__ import annotations
+
+# Inhibitory firing threshold as a fraction of the excitatory threshold theta. This is a
+# FIXED gain (a relay fires on ~a third of theta of coincident drive), not a count-derived
+# quantity: it does not scale with n_pix or n_out.
+I_THRESHOLD_FRAC = 1.0 / 3.0
 
 # --- Node archetypes ---------------------------------------------------------
 # cls: 'E' excitatory (conductance LIF) | 'I' inhibitory relay | 'S' exogenous source.
@@ -95,16 +101,16 @@ ARCHETYPES = {
                               'accumulating rule as a legacy competitor, but competes by '
                               'first-spike latency + an inhibitory reset loop instead of '
                               'the deterministic WTA list.'),
-    'i_relay':      dict(cls='I', role='relay',      thr_frac=1.0 / 3.0,
+    'i_relay':      dict(cls='I', role='relay',      thr_frac=I_THRESHOLD_FRAC,
                          plastic_ff=False, wta=False, event_resolved=False, input_sink=False,
                          desc='Inhibitory relay: fires the same boundary it receives any '
                               'excitatory relay event; emits a persistent conductance pulse '
                               '(legacy) or an immediate hard reset (hard_reset_inhibition).'),
-    'predictor':    dict(cls='I', role='predictor',  thr_frac=1.0 / 3.0,
+    'predictor':    dict(cls='I', role='predictor',  thr_frac=I_THRESHOLD_FRAC,
                          plastic_ff=False, wta=False, event_resolved=False, input_sink=False,
                          desc='Predictive interneuron: relays its driver and owns locally '
                               'plastic inhibitory output weights onto its targets.'),
-    'switch':       dict(cls='I', role='switch',     thr_frac=1.0 / 3.0,
+    'switch':       dict(cls='I', role='switch',     thr_frac=I_THRESHOLD_FRAC,
                          plastic_ff=False, wta=False, event_resolved=False, input_sink=False,
                          desc='Incumbent switch interneuron: strict temporal AND between '
                               'broadcast residual events and a local decaying trace from '

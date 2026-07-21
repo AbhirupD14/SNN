@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from .dashboard_config import CONFIG_SPEC, DASHBOARD_OVERRIDES, config_values
-from .simulation import SimulationEngine, N_PIX, N_OUT
+from .simulation import SimulationEngine
 from .serializer import topology_message, full_state
 from .websocket import ConnectionManager, SimulationRunner
 from .network_spec import ARCHETYPES, EDGE_KINDS, SpecError
@@ -303,14 +303,14 @@ async def apply_topology(body: SpecBody):
 
 @app.get("/api/topology/presets")
 async def list_presets():
-    return {"presets": preset_store.list_presets(N_PIX, N_OUT)}
+    return {"presets": preset_store.list_presets(engine.n_pix, engine.n_out)}
 
 
 @app.get("/api/topology/presets/{name}")
 async def get_preset(name: str):
     """The NetworkSpec for a preset WITHOUT applying it (load-into-editor)."""
     try:
-        return {"spec": preset_store.load_spec(name, N_PIX, N_OUT)}
+        return {"spec": preset_store.load_spec(name, engine.n_pix, engine.n_out)}
     except KeyError:
         return JSONResponse({"error": f"unknown preset '{name}'"}, status_code=404)
     except (SpecError, ValueError) as e:
@@ -321,10 +321,10 @@ async def get_preset(name: str):
 async def save_preset(body: SavePresetBody):
     spec = body.spec if body.spec is not None else engine.current_spec()
     try:
-        name = preset_store.save_preset(body.name, spec, N_PIX)
+        name = preset_store.save_preset(body.name, spec, engine.n_pix)
     except (SpecError, ValueError) as e:
         return JSONResponse({"error": str(e)}, status_code=400)
-    return {"saved": name, "presets": preset_store.list_presets(N_PIX, N_OUT)}
+    return {"saved": name, "presets": preset_store.list_presets(engine.n_pix, engine.n_out)}
 
 
 @app.post("/api/topology/presets/{name}/load")
@@ -334,7 +334,7 @@ async def load_preset(name: str):
         if name in preset_store.BUILTINS:
             engine.apply_config({"topology": name})          # built-in: a clean preset select
         else:
-            spec = preset_store.load_spec(name, N_PIX, N_OUT)
+            spec = preset_store.load_spec(name, engine.n_pix, engine.n_out)
             engine.apply_topology(spec)
     except KeyError:
         return JSONResponse({"error": f"unknown preset '{name}'"}, status_code=404)
@@ -350,7 +350,7 @@ async def delete_preset(name: str):
     removed = preset_store.delete_preset(name)
     if not removed:
         return JSONResponse({"error": f"cannot delete '{name}'"}, status_code=400)
-    return {"deleted": name, "presets": preset_store.list_presets(N_PIX, N_OUT)}
+    return {"deleted": name, "presets": preset_store.list_presets(engine.n_pix, engine.n_out)}
 
 
 # ----------------------------------------------------------------- websocket

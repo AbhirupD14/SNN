@@ -4,13 +4,17 @@ These coordinates belong to the model: the engine derives per-afferent learning
 distances from them (never charge delivery). The browser expands them for display
 but must never feed display positions back here.
 
+The sensory sheet is a generic near-square grid of ``n_pix`` cells (width =
+``ceil(sqrt(n_pix))``, centered), so the per-synapse learning distances are correct
+for any input count. The 9-pixel default is exactly the historical 3x3.
+
 Populations and their homes:
     RG[i]      same grid at z = -RG_Z               (retinal source layer, upstream)
-    L1E_s[i]   3x3 sensory grid at z = 0            (the pixel sources)
+    L1E_s[i]   n_pix sensory grid at z = 0          (the pixel sources; 3x3 at n_pix=9)
     ErrorE[i]  same grid at z = ERROR_Z              (parallel residual/error sheet)
     L1E_new[i] same grid lifted to z = +Z_OFFSET    (supervisory partners, above)
     L1I[i]     same grid dropped to z = -Z_OFFSET    (instant relays, below)
-    L2E[j]     ring at z = L2_Z                       (eight competitors)
+    L2E[j]     ring at z = L2_Z                       (n_out competitors)
     PI[j]      just outside L2E[j] on the ring        (paired predictive interneurons)
     SwitchI[j] outside PI[j] on the same ray           (paired local incumbent switch)
     L2I        above the ring at z = L2I_Z            (one shared relay)
@@ -49,20 +53,32 @@ _Z_JITTER = 0.25
 _L2_Z_JITTER = 0.6
 
 
-def _grid_anchor(i: int) -> np.ndarray:
-    row, col = divmod(i, 3)
-    return np.array([(col - 1) * GRID, (1 - row) * GRID, 0.0])
+def grid_dims(n_pix: int) -> tuple[int, int]:
+    """Near-square grid (width, height) holding ``n_pix`` cells: width first, so a
+    perfect square is square and a non-square count grows the last row. n_pix=9 -> (3, 3)."""
+    width = int(math.ceil(math.sqrt(n_pix)))
+    height = int(math.ceil(n_pix / width)) if width else 0
+    return width, height
+
+
+def _grid_anchor(i: int, width: int, height: int) -> np.ndarray:
+    """Centered grid position for cell ``i`` on a ``width`` x ``height`` sheet. At
+    (width, height) == (3, 3) this is exactly the historical centered 3x3 anchor."""
+    row, col = divmod(i, width)
+    return np.array([(col - (width - 1) / 2.0) * GRID,
+                     ((height - 1) / 2.0 - row) * GRID, 0.0])
 
 
 def generate_layout(rng, n_pix: int, n_out: int) -> dict[str, np.ndarray]:
     """Return deterministic functional coordinates for every neuron id."""
     pos: dict[str, np.ndarray] = {}
+    width, height = grid_dims(n_pix)
 
     def jitter(xy=_XY_JITTER, z=_Z_JITTER):
         return np.array([rng.uniform(-xy, xy), rng.uniform(-xy, xy), rng.uniform(-z, z)])
 
     for i in range(n_pix):
-        anchor = _grid_anchor(i)
+        anchor = _grid_anchor(i, width, height)
         pos[f'L1E{i}'] = anchor + jitter()
         pos[f'L1Enew{i}'] = anchor + np.array([0.0, 0.0, Z_OFFSET]) + jitter()
         pos[f'L1I{i}'] = anchor + np.array([0.0, 0.0, -Z_OFFSET]) + jitter()
@@ -74,10 +90,10 @@ def generate_layout(rng, n_pix: int, n_out: int) -> dict[str, np.ndarray]:
     # RG last and UNJITTERED: see the module docstring -- drawing here would shift the
     # competitor feedforward jitter and break the pi/old goldens.
     for i in range(n_pix):
-        pos[f'RG{i}'] = _grid_anchor(i) + np.array([0.0, 0.0, -RG_Z])
+        pos[f'RG{i}'] = _grid_anchor(i, width, height) + np.array([0.0, 0.0, -RG_Z])
         # New residual positions are deterministic and draw no RNG: adding the preset
         # must not shift pi/old/rg layout or weight-init goldens.
-        pos[f'ErrorE{i}'] = _grid_anchor(i) + np.array([0.0, 0.0, ERROR_Z])
+        pos[f'ErrorE{i}'] = _grid_anchor(i, width, height) + np.array([0.0, 0.0, ERROR_Z])
 
     for j in range(n_out):
         angle = j * 2 * math.pi / n_out

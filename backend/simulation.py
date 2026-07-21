@@ -100,9 +100,9 @@ from snn.neurons import (  # noqa: E402
     E_WEIGHT_CAP,
     leak_to_conductance,
 )
-from backend.layout import generate_layout  # noqa: E402
+from backend.layout import generate_layout, grid_dims  # noqa: E402
 from backend.network_spec import (  # noqa: E402
-    preset_spec, validate_spec, ARCHETYPES,
+    preset_spec, validate_spec, ARCHETYPES, I_THRESHOLD_FRAC,
 )
 
 
@@ -113,13 +113,21 @@ PATTERNS = {
     'diag \\': [1, 0, 0, 0, 1, 0, 0, 0, 1],
     'diag /':  [0, 0, 1, 0, 1, 0, 1, 0, 0],
 }
+# DEFAULT input/output counts. These are only the defaults for the SimulationEngine
+# n_pix / n_out construction parameters -- the engine reads self.n_pix / self.n_out and
+# never these module globals, so no shape is fixed here. The four PATTERNS above are the
+# 3x3 (n_pix=9) demo stimuli; a differently sized engine simply supplies its own input.
 N_PIX = 9
 N_OUT = 8
 
 # --- Excitatory initialization (production learning rule: linear-bounded) ---
-SENSORY_WEIGHT = E_THRESHOLD / 3.0                 # frozen sensory afferent weight
+# Frozen sensory afferent weight = theta/3: a FIXED gain (one sensory afferent delivers a
+# third of theta), not a count-derived quantity. Independent of the theta/3 I-threshold.
+SENSORY_WEIGHT = E_THRESHOLD / 3.0
 FF_INIT_TOTAL_FRAC = 0.55                          # legacy ordinary-E mean scale, / theta
-FF_INIT_MEAN = FF_INIT_TOTAL_FRAC * E_THRESHOLD / N_PIX   # ~61
+# Per-afferent init = FF_INIT_TOTAL_FRAC * theta / (fan-in). The module value uses the
+# default N_PIX; the engine recomputes it from its own n_pix (self.ff_init_mean).
+FF_INIT_MEAN = FF_INIT_TOTAL_FRAC * E_THRESHOLD / N_PIX   # ~61 at n_pix=9
 L2_INIT_TOTAL_FRAC = 0.95                          # latency-WTA row total / theta
 INIT_JITTER_FRAC = 0.04                            # deterministic narrow seeded jitter
 DISTANCE_POWER = 2.0                               # fixed exponent for the learning-rate factor
@@ -129,10 +137,15 @@ LOG_MAX = 400
 SYNAPTIC_DELAY = 1                                 # integer delay on every internal projection
 
 LEAK_DEFAULT = 0.03
+# Shared accumulating-weight cap = theta/2: a FIXED gain (no single afferent may hold more
+# than half of theta), not derived from the input/output counts. Overridable via config.
+E_WEIGHT_CAP_DEFAULT = E_THRESHOLD / 2.0           # 500
 DEFAULTS = dict(
     seed=1,
+    n_pix=N_PIX,                                   # input count (construction-time; not runtime-editable)
+    n_out=N_OUT,                                   # competitor/output count (construction-time)
     e_threshold=E_THRESHOLD,
-    e_weight_cap=E_THRESHOLD / 2.0,                # 500 (shared accumulating cap)
+    e_weight_cap=E_WEIGHT_CAP_DEFAULT,             # 500 = theta/2 (shared accumulating cap)
     e_weight_floor=0.0,                            # lower clip on learned weights (0 = legacy)
     # --- linear weight-update ablation (headless; defaults reproduce production) ---
     e_weight_update_mode='linear_bounded',         # PRODUCTION default (promoted); also: quadratic_bounded (historical) | linear_nonnegative (cap-free diagnostic)
@@ -302,6 +315,13 @@ class SimulationEngine:
             raise ValueError('l2_init_total_frac must satisfy 0 < rho < 1')
         if params['c_eta'] is not None and float(params['c_eta']) < 0.0:
             raise ValueError('c_eta must be non-negative or None')
+        params['n_pix'] = int(params['n_pix'])
+        params['n_out'] = int(params['n_out'])
+        if params['n_pix'] < 1 or params['n_out'] < 1:
+            raise ValueError('n_pix and n_out must both be >= 1')
+        # Construction-time counts (not in EDITABLE_KEYS): a rebuild reads these from params.
+        self.n_pix = params['n_pix']
+        self.n_out = params['n_out']
         self.params = params
         self._custom_spec = None       # a user/editor NetworkSpec overrides the preset when set
         self._build()
@@ -361,27 +381,40 @@ class SimulationEngine:
     def _build(self):
         p = self.params
         rng = np.random.default_rng(p['seed'])
+        self.n_pix = int(p['n_pix'])
+        self.n_out = int(p['n_out'])
+        # Per-afferent feedforward init scale derived from THIS engine's input count, so
+        # the initial row total is FF_INIT_TOTAL_FRAC*theta for any n_pix (= FF_INIT_MEAN
+        # at the default n_pix=9).
+        self.ff_init_mean = FF_INIT_TOTAL_FRAC * float(p['e_threshold']) / self.n_pix
 
-        self.pos = generate_layout(rng, N_PIX, N_OUT)  # full functional layout (preset ids)
+        self.pos = generate_layout(rng, self.n_pix, self.n_out)  # full functional layout (preset ids)
         thr = float(p['e_threshold'])
         cap = float(p['e_weight_cap'])
 
         # The active NetworkSpec: an applied custom graph overrides the named preset.
         if self._custom_spec is not None:
-            spec = validate_spec(self._custom_spec, N_PIX)
+            spec = validate_spec(self._custom_spec, self.n_pix)
             self.mode = spec.get('name') or 'custom'
         else:
             self.mode = str(p['topology'])             # 'pi' | 'old'
-            spec = preset_spec(self.mode, N_PIX, N_OUT)
+            spec = preset_spec(self.mode, self.n_pix, self.n_out)
         self.spec = spec
         self._build_from_spec(spec, rng, thr, cap)
 
         # ---- runtime state ----
         self.timestep = 0
         self.winner = None
+        # The built-in PATTERNS are the 3x3 (9-pixel) demo stimuli. Use one as the initial
+        # input only when it fits this engine's input count (preserves the 9/8 goldens);
+        # any other size boots to a blank input the caller fills via set_input.
         first = next(iter(PATTERNS))
-        self.current_pattern = first
-        self.input_vec = np.array(PATTERNS[first], dtype=float)
+        if len(PATTERNS[first]) == self.n_pix:
+            self.current_pattern = first
+            self.input_vec = np.array(PATTERNS[first], dtype=float)
+        else:
+            self.current_pattern = None
+            self.input_vec = np.zeros(self.n_pix)
         self.spiked = {nid: False for nid in self.neurons}
         self._spike_hist = {nid: deque(maxlen=FREQ_WINDOW) for nid in self.neurons}
         self.changed_synapses = []
@@ -424,7 +457,7 @@ class SimulationEngine:
         Excitatory node positions come from ``node['pos']`` if the spec supplies one
         (editor-placed), else from the seeded functional layout by id (presets)."""
         p = self.params
-        i_thr = thr / 3.0
+        i_thr = thr * I_THRESHOLD_FRAC                 # inhibitory firing threshold = theta/3
         alpha_l1 = float(p['alpha_inh_l1'])            # slow, predictive-target decay
         alpha_l2 = float(p['alpha_inh'])               # fast, WTA-target decay
 
@@ -524,7 +557,8 @@ class SimulationEngine:
                 active[capped_idx] = False
             return out
 
-        enc_mean = FF_INIT_MEAN if p['enc_w_init'] is None else float(p['enc_w_init'])
+        ff_mean = self.ff_init_mean                    # per-afferent init, derived from n_pix
+        enc_mean = ff_mean if p['enc_w_init'] is None else float(p['enc_w_init'])
         enc_jitter = bool(p['enc_init_jitter'])
 
         # ---- plastic feedforward initialization, drawn up front -------------------
@@ -554,10 +588,10 @@ class SimulationEngine:
                     ff_w[n['id']] = np.zeros(0)
                     continue
                 if arch_pass == 'e_competitor':
-                    ff_w[n['id']] = jitter(FF_INIT_MEAN, len(srcs))
+                    ff_w[n['id']] = jitter(ff_mean, len(srcs))
                 elif arch_pass == 'e_latency_competitor':
                     ff_w[n['id']] = normalized_latency_row(
-                        jitter(FF_INIT_MEAN, len(srcs)))
+                        jitter(ff_mean, len(srcs)))
                 else:
                     j = jitter(enc_mean, len(srcs))
                     ff_w[n['id']] = j if enc_jitter else np.clip(
@@ -1332,23 +1366,28 @@ class SimulationEngine:
     def set_pattern(self, name: str):
         if name not in PATTERNS:
             raise KeyError(name)
+        vec = PATTERNS[name]
+        if len(vec) != self.n_pix:
+            raise ValueError(
+                f'pattern {name!r} has {len(vec)} pixels but this engine has '
+                f'n_pix={self.n_pix}; the built-in patterns are 3x3 (9-pixel) only')
         self.current_pattern = name
-        self.input_vec = np.array(PATTERNS[name], dtype=float)
+        self.input_vec = np.array(vec, dtype=float)
 
     def set_input(self, vec):
-        self.input_vec = np.array(vec, dtype=float).reshape(N_PIX)
+        self.input_vec = np.array(vec, dtype=float).reshape(self.n_pix)
 
     def toggle_pixel(self, i: int):
         self.input_vec[i] = 0.0 if self.input_vec[i] > 0.5 else 1.0
 
     def clear_input(self):
-        self.input_vec = np.zeros(N_PIX)
+        self.input_vec = np.zeros(self.n_pix)
 
     def random_pattern(self):
-        self.input_vec = (np.random.default_rng().random(N_PIX) > 0.5).astype(float)
+        self.input_vec = (np.random.default_rng().random(self.n_pix) > 0.5).astype(float)
 
     def inject_noise(self, prob: float = 0.15):
-        flip = np.random.default_rng().random(N_PIX) < prob
+        flip = np.random.default_rng().random(self.n_pix) < prob
         self.input_vec = np.where(flip, 1.0 - self.input_vec, self.input_vec)
 
     def stimulate(self, neuron_id: str, magnitude: float = 1.0, continuous: bool = False):
@@ -1447,7 +1486,7 @@ class SimulationEngine:
     def apply_topology(self, spec: dict):
         """Validate and install a custom NetworkSpec, then rebuild. Raises SpecError
         (a ValueError) if the graph is structurally invalid. Learned state is reset."""
-        norm = validate_spec(spec, N_PIX)
+        norm = validate_spec(spec, self.n_pix)
         self._custom_spec = norm
         self._build()
         self._log('topology', f"applied topology '{self.mode}': "
@@ -1497,10 +1536,11 @@ class SimulationEngine:
         layers = [L for L in ('RG', 'L1', 'ERR', 'L2')
                   if any(m['layer'] == L for m in self.meta.values())]
         layers += sorted({m['layer'] for m in self.meta.values()} - set(layers))
+        cols, rows = grid_dims(self.n_pix)             # display sheet (3x3 at n_pix=9)
         return dict(neurons=neurons, synapses=synapses, layers=layers,
                     patterns=list(PATTERNS.keys()),
                     pattern_vectors={k: list(map(int, v)) for k, v in PATTERNS.items()},
-                    grid=dict(rows=3, cols=3), params=self._public_params())
+                    grid=dict(rows=rows, cols=cols), params=self._public_params())
 
     def _public_params(self):
         p = self.params
@@ -1534,9 +1574,10 @@ class SimulationEngine:
                    switch_conductance_enabled=bool(p['switch_conductance_enabled']),
                    c_eta=(float(p['eta']) if p['c_eta'] is None else float(p['c_eta'])),
                    l2_init_total_frac=float(p['l2_init_total_frac']),
-                   ff_init_mean=float(FF_INIT_MEAN),
+                   n_pix=int(self.n_pix), n_out=int(self.n_out),
+                   ff_init_mean=float(self.ff_init_mean),
                    synaptic_delay=SYNAPTIC_DELAY,
-                   i_threshold=round(thr / 3.0, 4),
+                   i_threshold=round(thr * I_THRESHOLD_FRAC, 4),
                    threshold_l2=thr,
                    l2e_weight_cap_frac=float(p['e_weight_cap']) / thr if thr else 1.0)
         return out
