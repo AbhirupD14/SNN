@@ -138,16 +138,36 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 
 /* Pixel grid (pattern input) */
 .pixel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+/* Tiled 9x9 surface: tighter gap/radius so 81 cells fit the panel. */
+.pixel-grid.patched { gap: 2px; }
 .pixel {
   aspect-ratio: 1; border-radius: 8px; background: var(--bg-3);
   border: 1px solid var(--line); cursor: pointer; transition: all .12s;
   display: flex; align-items: center; justify-content: center;
 }
+.pixel-grid.patched .pixel { border-radius: 3px; }
 .pixel:hover { border-color: var(--accent-2); }
 .pixel.on { background: radial-gradient(circle at 40% 35%, var(--accent), #1c8076);
   border-color: var(--accent); box-shadow: 0 0 10px rgba(94,234,212,.35); }
 .pixel.fire { animation: pop .35s ease; }
+/* Strong boundaries between the nine 3x3 patches of the tiled input surface. */
+.pixel.patch-r { margin-right: 3px; box-shadow: 3px 0 0 -1px var(--accent-2); }
+.pixel.patch-b { margin-bottom: 3px; box-shadow: 0 3px 0 -1px var(--accent-2); }
+.pixel.patch-r.patch-b { box-shadow: 3px 0 0 -1px var(--accent-2), 0 3px 0 -1px var(--accent-2); }
+/* Cells of the currently selected local-pattern patch. */
+.pixel.in-patch { outline: 1px solid var(--accent-2); outline-offset: -1px; }
 @keyframes pop { 0%{transform:scale(.8)} 50%{transform:scale(1.12)} 100%{transform:scale(1)} }
+
+/* Local-pattern patch selector (tiled_cc only). */
+.patch-select { margin: 8px 0; }
+.patch-label { display: block; font-size: 10px; color: var(--txt-2); margin-bottom: 4px; }
+.patch-grid { display: grid; gap: 4px; }
+.patch-btn {
+  aspect-ratio: 1.6; background: var(--bg-2); border: 1px solid var(--line);
+  border-radius: 5px; color: var(--txt-1); font-size: 10px; cursor: pointer; transition: all .14s;
+}
+.patch-btn:hover { border-color: var(--accent-2); color: var(--txt-0); }
+.patch-btn.active { color: #0a1410; background: var(--accent); border-color: var(--accent); font-weight: 650; }
 
 .pattern-buttons { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
 .pat-btn {

@@ -45,10 +45,30 @@ that actually receives the pixel owns ``pixel``.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 # Inhibitory firing threshold as a fraction of the excitatory threshold theta. This is a
 # FIXED gain (a relay fires on ~a third of theta of coincident drive), not a count-derived
 # quantity: it does not scale with n_pix or n_out.
 I_THRESHOLD_FRAC = 1.0 / 3.0
+
+# The tiled cortical-column preset family tag (top-level topology metadata). The engine,
+# layout, and validation switch on this metadata -- NEVER on the preset name or node ids.
+TILED_FAMILY = 'tiled_cortical_columns'
+
+# Recognized structural metadata that must survive spec normalization / editor round-trips.
+# Node fields the tiled builder attaches (in addition to the legacy id/archetype/layer/
+# label/pixel/grid/pos). Simulation must read these instead of parsing ids.
+_TILED_NODE_INT_FIELDS = (
+    'column_index', 'column_row', 'column_col',
+    'input_row', 'input_col', 'patch_id', 'patch_row', 'patch_col',
+    'patch_local_row', 'patch_local_col', 'patch',
+)
+_TILED_NODE_STR_FIELDS = ('column_id', 'column_role')
+_TILED_NODE_BOOL_FIELDS = ('has_parent',)
+# Edge projection-family field: metadata for validation / layout / dashboard filtering.
+# It is NEVER a second delivery mechanism; the edge ``kind`` stays authoritative.
+_EDGE_META_STR_FIELDS = ('projection',)
 
 # --- Node archetypes ---------------------------------------------------------
 # cls: 'E' excitatory (conductance LIF) | 'I' inhibitory relay | 'S' exogenous source.
@@ -175,7 +195,12 @@ EDGE_KINDS = {
 DIRECTED_ONLY_KINDS = ('pretrained_excitation', 'basal_excitation', 'apical_excitation',
                        'relay_excitation', 'hard_reset_inhibition')
 
-PRESETS = ('pi', 'old', 'rg', 'rg_residual', 'rg_coincidence')
+PRESETS = ('pi', 'old', 'rg', 'rg_residual', 'rg_coincidence', 'tiled_cc')
+
+# Canonical construction dimensions for the tiled cortical-column preset. The input
+# surface is fixed; only ``cc_e_count`` (ordinary E per column) is configurable.
+TILED_CC_DEFAULTS = dict(input_rows=9, input_cols=9, patch_rows=3, patch_cols=3,
+                         cc_e_count=8)
 
 
 def _e_sensory(i, pixel):
@@ -183,11 +208,16 @@ def _e_sensory(i, pixel):
                 label=f'L1E_s{i}')
 
 
-def preset_spec(name: str, n_pix: int, n_out: int) -> dict:
+def preset_spec(name: str, n_pix: int, n_out: int, cc_e_count: int = 8) -> dict:
     """Return a built-in NetworkSpec. Positions are omitted
-    so the engine fills them from the seeded functional layout (bit-exact presets)."""
+    so the engine fills them from the seeded functional layout (bit-exact presets).
+
+    ``cc_e_count`` sizes the ordinary-E bank of every column in the ``tiled_cc``
+    preset and is ignored by the five legacy presets (which use ``n_pix``/``n_out``)."""
     if name not in PRESETS:
         raise ValueError(f'unknown preset {name!r}')
+    if name == 'tiled_cc':
+        return tiled_cc_spec(cc_e_count=cc_e_count)
     if name == 'rg':
         return _rg_spec(n_pix, n_out)
     if name == 'rg_residual':
@@ -419,6 +449,245 @@ def _rg_coincidence_spec(n_pix: int, n_out: int) -> dict:
     return dict(name='rg_coincidence', nodes=nodes, edges=edges)
 
 
+# =====================================================================================
+# Reusable tiled cortical-column construction
+# =====================================================================================
+# Graph construction is a set of small, pure, composable rules -- NOT a runtime
+# "super-neuron". Each rule emits explicit nodes / directed edges the engine, serializer
+# and dashboard all see. Simulation NEVER parses the generated ids; it reads the
+# ``column_*`` / ``patch_*`` node metadata and the edge ``projection`` family.
+
+@dataclass(frozen=True)
+class ColumnHandles:
+    """Opaque handles to one cortical column's node ids -- the composition surface the
+    RGC-patch and column-to-column connectors bind against. Frozen so a builder cannot
+    accidentally share mutable state between two columns."""
+    column_id: str
+    layer: str
+    row: int
+    col: int
+    e_ids: tuple[str, ...]
+    eor_id: str
+    c_id: str
+    i_id: str
+    has_parent: bool
+
+
+def build_cortical_column(column_id: str, layer: str, row: int, col: int, *,
+                          n_e: int, has_parent: bool) -> tuple[ColumnHandles, list, list]:
+    """Emit exactly ONE column's nodes and internal edges (no external wiring).
+
+    Nodes: ``n_e`` ordinary E (``e_latency_competitor``), one Eor (same archetype,
+    ``column_role='Eor'``), one C (``e_coincidence``), one I (``i_relay``). Internal
+    edges per the fixed intra-column rule::
+
+        E[i] -> Eor   feedforward          (column_e_to_eor)
+        E[i] -> I     relay_excitation     (column_e_to_i)
+        I -> E[i]     hard_reset_inhibition (column_i_to_e)
+        Eor -> C      basal_excitation     (column_eor_to_c_basal)
+        C -> I        relay_excitation     (column_c_to_i)
+
+    Ordinary E and Eor are the SAME plastic event-resolved archetype and differ only by
+    their edges (Eor drives/receives no local I, and feeds the parent + local C basal).
+    Returns fresh lists every call (no shared mutable state)."""
+    n_e = int(n_e)
+    if n_e < 1:
+        raise ValueError(f'n_e must be >= 1, got {n_e}')
+    e_ids = tuple(f'{column_id}E{i}' for i in range(n_e))
+    eor_id, c_id, i_id = f'{column_id}Eor', f'{column_id}C', f'{column_id}I'
+
+    def _common(role):
+        return dict(column_id=column_id, column_role=role,
+                    column_row=int(row), column_col=int(col))
+
+    nodes: list = []
+    for i, eid in enumerate(e_ids):
+        nodes.append(dict(id=eid, archetype='e_latency_competitor', layer=layer,
+                          label=f'{column_id}·E{i}', column_index=i, **_common('E')))
+    nodes.append(dict(id=eor_id, archetype='e_latency_competitor', layer=layer,
+                      label=f'{column_id}·Eor', **_common('Eor')))
+    nodes.append(dict(id=c_id, archetype='e_coincidence', layer=layer,
+                      label=f'{column_id}·C', has_parent=bool(has_parent), **_common('C')))
+    nodes.append(dict(id=i_id, archetype='i_relay', layer=layer,
+                      label=f'{column_id}·I', **_common('I')))
+
+    edges: list = []
+    for i, eid in enumerate(e_ids):
+        edges.append(dict(id=f'{column_id}_E{i}_eor', source=eid, target=eor_id,
+                          kind='feedforward', projection='column_e_to_eor'))
+        edges.append(dict(id=f'{column_id}_E{i}_i', source=eid, target=i_id,
+                          kind='relay_excitation', projection='column_e_to_i'))
+        edges.append(dict(id=f'{column_id}_i_E{i}', source=i_id, target=eid,
+                          kind='hard_reset_inhibition', sign=-1, projection='column_i_to_e'))
+    edges.append(dict(id=f'{column_id}_eor_c', source=eor_id, target=c_id,
+                      kind='basal_excitation', projection='column_eor_to_c_basal'))
+    edges.append(dict(id=f'{column_id}_c_i', source=c_id, target=i_id,
+                      kind='relay_excitation', projection='column_c_to_i'))
+
+    handles = ColumnHandles(column_id, layer, int(row), int(col), e_ids, eor_id, c_id,
+                            i_id, bool(has_parent))
+    return handles, nodes, edges
+
+
+def connect_rgc_patch(rg_ids, column: ColumnHandles) -> list:
+    """Emit the complete bipartite RGC-patch -> ordinary-E feedforward projection
+    (``rg_to_column``): every RGC in the patch onto every ordinary E of the column.
+    No RGC edge is generated to Eor, C or I. Plasticity belongs to the receiving E."""
+    edges: list = []
+    for rg in rg_ids:
+        for e in column.e_ids:
+            edges.append(dict(id=f'{rg}_{e}', source=rg, target=e,
+                              kind='feedforward', projection='rg_to_column'))
+    return edges
+
+
+def connect_columns(child: ColumnHandles, parent: ColumnHandles) -> list:
+    """Emit one child->parent column link (feedforward + apical feedback), generic over
+    depth (never hard-codes L1/L2)::
+
+        child.Eor -> parent.E[k]   feedforward       (column_to_column_ff)
+        parent.E[k] -> child.C     apical_excitation (column_to_column_apical)
+
+    Contributes ``2 * parent.N`` edges. Parent ordinary E -- never Eor -- feeds the
+    child C apical, which makes the child C non-dormant."""
+    edges: list = []
+    for pe in parent.e_ids:
+        edges.append(dict(id=f'{child.eor_id}_{pe}', source=child.eor_id, target=pe,
+                          kind='feedforward', projection='column_to_column_ff'))
+        edges.append(dict(id=f'{pe}_{child.c_id}', source=pe, target=child.c_id,
+                          kind='apical_excitation', projection='column_to_column_apical'))
+    return edges
+
+
+def tiled_cc_spec(*, cc_e_count: int = 8, input_rows: int = 9, input_cols: int = 9,
+                  patch_rows: int = 3, patch_cols: int = 3) -> dict:
+    """Compose the canonical tiled cortical-column hierarchy from the reusable rules:
+    a 9x9 RGC surface tiled into nine 3x3 patches, nine L1 columns (one per patch,
+    arranged 3x3), and one L2 column receiving all nine L1 outputs.
+
+    At the default ``cc_e_count=8`` this is exactly 191 nodes and 1052 directed edges
+    (10N+111 nodes, 129N+20 edges for ``N = cc_e_count``). The returned spec carries the
+    top-level tiling metadata that is the single source of truth for construction,
+    layout, validation and dashboard grouping."""
+    n_e = int(cc_e_count)
+    if n_e < 1:
+        raise ValueError(f'cc_e_count must be >= 1, got {n_e}')
+    if input_rows % patch_rows != 0 or input_cols % patch_cols != 0:
+        raise ValueError(
+            f'patch shape ({patch_rows}x{patch_cols}) must tile the input '
+            f'({input_rows}x{input_cols}) exactly')
+    grid_rows, grid_cols = input_rows // patch_rows, input_cols // patch_cols
+
+    nodes: list = []
+    internal_edges: list = []
+    rg_edges: list = []
+    link_edges: list = []
+
+    # RGC surface (row-major pixels), grouped into patches (patch-local row-major order).
+    rg_by_patch: dict[tuple[int, int], list[str]] = {}
+    for gr in range(input_rows):
+        for gc in range(input_cols):
+            pixel = gr * input_cols + gc
+            pr, pc = gr // patch_rows, gc // patch_cols
+            plr, plc = gr % patch_rows, gc % patch_cols
+            patch_id = pr * grid_cols + pc
+            rid = f'RGC{pixel}'
+            nodes.append(dict(id=rid, archetype='rg_source', layer='RGC', pixel=pixel,
+                              label=f'RGC[{gr},{gc}]', input_row=gr, input_col=gc,
+                              patch_id=patch_id, patch_row=pr, patch_col=pc,
+                              patch_local_row=plr, patch_local_col=plc))
+            rg_by_patch.setdefault((pr, pc), []).append(rid)
+
+    # L1 columns: one per patch, arranged as the 3x3 tile grid, each with a parent (L2).
+    l1: dict[tuple[int, int], ColumnHandles] = {}
+    for pr in range(grid_rows):
+        for pc in range(grid_cols):
+            cid = f'L1c{pr}{pc}'
+            h, cn, ce = build_cortical_column(cid, 'L1', pr, pc, n_e=n_e, has_parent=True)
+            nodes += cn
+            internal_edges += ce
+            l1[(pr, pc)] = h
+            # each L1 column's ordinary E carry their input-patch id too (display only).
+            patch_id = pr * grid_cols + pc
+            for node in cn:
+                if node.get('column_role') == 'E':
+                    node['patch'] = patch_id
+            rg_edges += connect_rgc_patch(rg_by_patch[(pr, pc)], h)
+
+    # One L2 column (top of the hierarchy); its C is intentionally dormant (no parent).
+    l2, l2n, l2e = build_cortical_column('L2c00', 'L2', 0, 0, n_e=n_e, has_parent=False)
+    nodes += l2n
+    internal_edges += l2e
+
+    # Column links: every L1 (child) to the single L2 (parent).
+    for pr in range(grid_rows):
+        for pc in range(grid_cols):
+            link_edges += connect_columns(l1[(pr, pc)], l2)
+
+    edges = internal_edges + rg_edges + link_edges
+
+    # Top-level tiling metadata (single source of truth).
+    columns_meta = [dict(id=l1[(pr, pc)].column_id, layer='L1', row=pr, col=pc,
+                         e_count=n_e, parent_ids=['L2c00'])
+                    for pr in range(grid_rows) for pc in range(grid_cols)]
+    columns_meta.append(dict(id='L2c00', layer='L2', row=0, col=0,
+                             e_count=n_e, parent_ids=[]))
+    topology_meta = dict(
+        family=TILED_FAMILY,
+        input_shape=dict(rows=input_rows, cols=input_cols),
+        patch_shape=dict(rows=patch_rows, cols=patch_cols),
+        grid_shape=dict(rows=grid_rows, cols=grid_cols),
+        column_layers=[dict(layer='L1', rows=grid_rows, cols=grid_cols),
+                       dict(layer='L2', rows=1, cols=1)],
+        cc_e_count=n_e,
+        columns=columns_meta)
+    return dict(name='tiled_cc', topology=topology_meta, nodes=nodes, edges=edges)
+
+
+def embed_patch_pattern(input_shape, patch_shape, patch, local_vector) -> list[int]:
+    """Pure helper: embed a patch-local pattern into a full row-major input vector.
+
+    ``input_shape`` / ``patch_shape`` are ``(rows, cols)``; ``patch`` is a
+    ``(patch_row, patch_col)`` tile coordinate; ``local_vector`` holds
+    ``patch_rows*patch_cols`` values in patch-local row-major order. Returns a length
+    ``input_rows*input_cols`` list of ints with only the selected patch's pixels set.
+    Validates shapes and patch bounds; usable with no dashboard/engine present."""
+    in_rows, in_cols = int(input_shape[0]), int(input_shape[1])
+    p_rows, p_cols = int(patch_shape[0]), int(patch_shape[1])
+    pr, pc = int(patch[0]), int(patch[1])
+    if in_rows <= 0 or in_cols <= 0 or p_rows <= 0 or p_cols <= 0:
+        raise ValueError('input_shape and patch_shape must be positive')
+    if in_rows % p_rows != 0 or in_cols % p_cols != 0:
+        raise ValueError(f'patch shape {patch_shape} must tile input shape {input_shape}')
+    grid_rows, grid_cols = in_rows // p_rows, in_cols // p_cols
+    if not (0 <= pr < grid_rows and 0 <= pc < grid_cols):
+        raise ValueError(
+            f'patch {patch} out of bounds for {grid_rows}x{grid_cols} patch grid')
+    local = list(local_vector)
+    if len(local) != p_rows * p_cols:
+        raise ValueError(
+            f'local_vector must have {p_rows * p_cols} values, got {len(local)}')
+    out = [0] * (in_rows * in_cols)
+    for lr in range(p_rows):
+        for lc in range(p_cols):
+            gr, gc = pr * p_rows + lr, pc * p_cols + lc
+            out[gr * in_cols + gc] = int(1 if local[lr * p_cols + lc] > 0.5 else 0)
+    return out
+
+
+def tiled_input_size(spec) -> int | None:
+    """Input pixel count declared by a tiled spec's top-level metadata, else None.
+    Lets callers resize/validate an 81-input tiled graph at its OWN size regardless of
+    the currently active engine dimensions."""
+    meta = spec.get('topology') if isinstance(spec, dict) else None
+    if isinstance(meta, dict) and meta.get('family') == TILED_FAMILY:
+        ishape = meta.get('input_shape')
+        if (isinstance(ishape, dict) and isinstance(ishape.get('rows'), int)
+                and isinstance(ishape.get('cols'), int)):
+            return int(ishape['rows']) * int(ishape['cols'])
+    return None
+
+
 class SpecError(ValueError):
     """Raised when a NetworkSpec is structurally invalid."""
 
@@ -471,6 +740,28 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
             node['pixel'] = pixel
         if grid is not None:
             node['grid'] = grid
+        # Preserve recognized structural (tiled) node metadata verbatim so the topology
+        # stays the single source of truth across validate/export/save/load. Unknown
+        # keys are still dropped (the legacy normalization contract).
+        for f in _TILED_NODE_STR_FIELDS:
+            v = n.get(f)
+            if v is not None:
+                if not isinstance(v, str):
+                    raise SpecError(f'node {nid!r} field {f!r} must be a string')
+                node[f] = v
+        role = node.get('column_role')
+        if role is not None and role not in ('E', 'Eor', 'C', 'I'):
+            raise SpecError(f'node {nid!r} column_role must be one of E/Eor/C/I, got {role!r}')
+        for f in _TILED_NODE_INT_FIELDS:
+            v = n.get(f)
+            if v is not None:
+                if not isinstance(v, int) or isinstance(v, bool):
+                    raise SpecError(f'node {nid!r} field {f!r} must be an int')
+                node[f] = v
+        for f in _TILED_NODE_BOOL_FIELDS:
+            v = n.get(f)
+            if v is not None:
+                node[f] = bool(v)
         if n.get('pos') is not None:
             pos = n['pos']
             if len(pos) != 3:
@@ -518,6 +809,14 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
         ne = dict(id=eid, source=src, target=tgt, kind=kind, directed=directed)
         if spec_kind['sign'] is not None:
             ne['sign'] = spec_kind['sign']
+        # Preserve the projection-family metadata (validation/layout/dashboard filter);
+        # it never changes simulation dispatch, which stays keyed on ``kind``.
+        for f in _EDGE_META_STR_FIELDS:
+            v = e.get(f)
+            if v is not None:
+                if not isinstance(v, str):
+                    raise SpecError(f'edge {eid!r} field {f!r} must be a string')
+                ne[f] = v
         norm_edges.append(ne)
 
     # --- structural invariants the endpoint rules alone do not spell out ---------
@@ -535,6 +834,20 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
         if n['archetype'] == 'rg_source' and n.get('pixel') is None:
             raise SpecError(f'rg_source {n["id"]!r} must own a pixel (its only drive is '
                             f'the external input for that pixel)')
+
+    # --- top-level tiling metadata (single source of truth; validated + preserved) ---
+    topo_meta = _validate_topology_metadata(spec.get('topology'))
+    # A C whose column has NO parent is intentionally dormant and legal with zero apical
+    # inputs. This exception is gated on validated column metadata (parent_ids) -- never
+    # on a node id -- so an accidentally-unwired non-top C is still rejected below.
+    dormant_c = set()
+    if topo_meta is not None:
+        parent_of = {c['id']: c.get('parent_ids') or [] for c in topo_meta['columns']}
+        for n in norm_nodes:
+            if n['archetype'] == 'e_coincidence':
+                cid = n.get('column_id')
+                if cid is not None and cid in parent_of and not parent_of[cid]:
+                    dormant_c.add(n['id'])
 
     # --- coincidence / event-resolved structural invariants ----------------------
     kinds_present = {ne['kind'] for ne in norm_edges}
@@ -568,7 +881,15 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
             raise SpecError(
                 f'coincidence cell {n["id"]!r} must have exactly one incoming '
                 f'basal_excitation edge, found {nb}')
-        if apical_in.get(n['id'], 0) < 1:
+        napi = apical_in.get(n['id'], 0)
+        if n['id'] in dormant_c:
+            # A declared-dormant top C must have EXACTLY zero apicals (an apical would
+            # contradict the no-parent declaration).
+            if napi != 0:
+                raise SpecError(
+                    f'dormant top coincidence cell {n["id"]!r} (its column has no parent) '
+                    f'must have zero apical_excitation edges, found {napi}')
+        elif napi < 1:
             raise SpecError(
                 f'coincidence cell {n["id"]!r} must have at least one incoming '
                 f'apical_excitation edge, found 0')
@@ -598,7 +919,233 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
             'conflicting within-boundary event-ordering semantics. Use '
             'e_latency_competitor for event-resolved competition.')
 
-    return dict(name=spec.get('name') or 'custom', nodes=norm_nodes, edges=norm_edges)
+    # --- tiled-family structural validation (only when the graph declares it) --------
+    if topo_meta is not None:
+        _validate_tiled(topo_meta, norm_nodes, norm_edges)
+
+    out = dict(name=spec.get('name') or 'custom', nodes=norm_nodes, edges=norm_edges)
+    if topo_meta is not None:
+        out['topology'] = topo_meta
+    return out
+
+
+def _validate_topology_metadata(meta):
+    """Validate + normalize the optional top-level ``topology`` tiling metadata. Returns
+    None for a generic (non-tiled) graph, else a normalized copy. A ``topology`` object
+    with any family other than the tiled one is rejected (we can only validate what we
+    understand)."""
+    if meta is None:
+        return None
+    if not isinstance(meta, dict):
+        raise SpecError('spec.topology metadata must be an object')
+    family = meta.get('family')
+    if family != TILED_FAMILY:
+        raise SpecError(
+            f'unknown spec.topology family {family!r}; expected {TILED_FAMILY!r}')
+
+    def _shape(key):
+        s = meta.get(key)
+        if (not isinstance(s, dict) or not isinstance(s.get('rows'), int)
+                or not isinstance(s.get('cols'), int)
+                or isinstance(s.get('rows'), bool) or isinstance(s.get('cols'), bool)
+                or s['rows'] <= 0 or s['cols'] <= 0):
+            raise SpecError(f'spec.topology.{key} must have positive int rows/cols')
+        return dict(rows=int(s['rows']), cols=int(s['cols']))
+
+    input_shape = _shape('input_shape')
+    patch_shape = _shape('patch_shape')
+    if (input_shape['rows'] % patch_shape['rows']
+            or input_shape['cols'] % patch_shape['cols']):
+        raise SpecError('spec.topology.patch_shape must tile input_shape exactly')
+
+    cols_meta = meta.get('columns')
+    if not isinstance(cols_meta, list) or not cols_meta:
+        raise SpecError('spec.topology.columns must be a non-empty list')
+    norm_cols, ids = [], set()
+    for c in cols_meta:
+        cid = c.get('id')
+        if not isinstance(cid, str) or not cid:
+            raise SpecError('each tiled column needs a string id')
+        if cid in ids:
+            raise SpecError(f'duplicate tiled column id {cid!r}')
+        ids.add(cid)
+        ec = c.get('e_count')
+        if not isinstance(ec, int) or isinstance(ec, bool) or ec < 1:
+            raise SpecError(f'tiled column {cid!r} e_count must be an int >= 1')
+        pids = c.get('parent_ids') or []
+        if not isinstance(pids, list) or any(not isinstance(p, str) for p in pids):
+            raise SpecError(f'tiled column {cid!r} parent_ids must be a list of column ids')
+        norm_cols.append(dict(id=cid, layer=str(c.get('layer', '')),
+                              row=int(c.get('row', 0)), col=int(c.get('col', 0)),
+                              e_count=int(ec), parent_ids=list(pids)))
+    for c in norm_cols:
+        for p in c['parent_ids']:
+            if p not in ids:
+                raise SpecError(f'tiled column {c["id"]!r} names unknown parent {p!r}')
+
+    out = dict(meta)
+    out['family'] = TILED_FAMILY
+    out['input_shape'] = input_shape
+    out['patch_shape'] = patch_shape
+    out['columns'] = norm_cols
+    return out
+
+
+def _validate_tiled(meta, nodes, edges):
+    """Structural validation for the tiled cortical-column family. Runs only when the
+    spec declares the family, so generic graphs keep their existing rules."""
+    ishape, pshape = meta['input_shape'], meta['patch_shape']
+    n_in = ishape['rows'] * ishape['cols']
+    node_by_id = {n['id']: n for n in nodes}
+    columns = {c['id']: c for c in meta['columns']}
+    input_layer = (meta['column_layers'][0]['layer']
+                   if meta.get('column_layers') else None)
+
+    # --- RGC surface: exactly one unique RGC per input pixel, in exactly one patch -----
+    rgc = [n for n in nodes if n['archetype'] == 'rg_source']
+    pixels = sorted(int(n['pixel']) for n in rgc if n.get('pixel') is not None)
+    if pixels != list(range(n_in)):
+        raise SpecError(
+            f'tiled input_shape {ishape["rows"]}x{ishape["cols"]} requires RGC cells '
+            f'owning pixels 0..{n_in - 1}; got {len(rgc)} RGC(s)')
+    rg_patch = {}
+    for n in rgc:
+        gr, gc = n['pixel'] // ishape['cols'], n['pixel'] % ishape['cols']
+        pr, pc = gr // pshape['rows'], gc // pshape['cols']
+        if n.get('patch_row') not in (None, pr) or n.get('patch_col') not in (None, pc):
+            raise SpecError(f'RGC {n["id"]!r} patch metadata disagrees with its pixel')
+        rg_patch[n['id']] = (pr, pc)
+
+    # --- column membership: each E/Eor/C/I belongs to exactly one declared column ------
+    col_roles = {cid: dict(E=[], Eor=None, C=None, I=None) for cid in columns}
+    for n in nodes:
+        role = n.get('column_role')
+        if role is None:
+            continue
+        cid = n.get('column_id')
+        if cid not in columns:
+            raise SpecError(f'node {n["id"]!r} names undeclared column {cid!r}')
+        slot = col_roles[cid]
+        if role == 'E':
+            slot['E'].append(n['id'])
+        elif slot[role] is not None:
+            raise SpecError(f'column {cid!r} has more than one {role} node')
+        else:
+            slot[role] = n['id']
+    role_of = {}
+    for cid, c in columns.items():
+        s = col_roles[cid]
+        if len(s['E']) != c['e_count']:
+            raise SpecError(f'column {cid!r} must contain exactly {c["e_count"]} ordinary '
+                            f'E, found {len(s["E"])}')
+        for role in ('Eor', 'C', 'I'):
+            if s[role] is None:
+                raise SpecError(f'column {cid!r} is missing its {role}')
+        for eid in s['E']:
+            role_of[eid] = (cid, 'E')
+        role_of[s['Eor']] = (cid, 'Eor')
+        role_of[s['C']] = (cid, 'C')
+        role_of[s['I']] = (cid, 'I')
+
+    # --- classify every edge; anything touching a tiled node must match one rule -------
+    rg_into_E, e_to_eor, e_to_i, i_to_e = {}, {}, {}, {}
+    eor_c_basal, c_to_i, link_ff, link_apical = set(), set(), {}, {}
+    for e in edges:
+        s, t, kind = e['source'], e['target'], e['kind']
+        sr, tr = role_of.get(s), role_of.get(t)
+        s_is_rg = node_by_id[s]['archetype'] == 'rg_source'
+        if kind == 'feedforward':
+            if s_is_rg:
+                if not (tr and tr[1] == 'E'):
+                    raise SpecError(f'RGC feedforward {s!r}->{t!r} must target an ordinary E')
+                c = columns[tr[0]]
+                if rg_patch[s] != (c['row'], c['col']):
+                    raise SpecError(f'RGC {s!r} feeds column {tr[0]!r} outside its patch')
+                rg_into_E.setdefault(t, set()).add(s)
+            elif sr and sr[1] == 'E' and tr and tr[1] == 'Eor':
+                if sr[0] != tr[0]:
+                    raise SpecError(f'cross-column E->Eor feedforward {s!r}->{t!r}')
+                e_to_eor.setdefault(sr[0], set()).add(s)
+            elif sr and sr[1] == 'Eor' and tr and tr[1] == 'E':
+                child, parent = sr[0], tr[0]
+                if parent not in columns[child]['parent_ids']:
+                    raise SpecError(f'column link {s!r}->{t!r}: {parent!r} is not a parent '
+                                    f'of {child!r}')
+                link_ff.setdefault(child, set()).add(t)
+            else:
+                raise SpecError(f'unexpected feedforward edge {s!r}->{t!r} in tiled graph '
+                                f'(no lateral E-E / same-layer projection is allowed)')
+        elif kind == 'relay_excitation':
+            if not (tr and tr[1] == 'I'):
+                raise SpecError(f'relay_excitation {s!r}->{t!r} must target a column I')
+            if sr and sr[1] == 'E':
+                if sr[0] != tr[0]:
+                    raise SpecError(f'cross-column E->I edge {s!r}->{t!r}')
+                e_to_i.setdefault(tr[0], set()).add(s)
+            elif sr and sr[1] == 'C':
+                if sr[0] != tr[0]:
+                    raise SpecError(f'cross-column C->I edge {s!r}->{t!r}')
+                c_to_i.add(tr[0])
+            else:
+                raise SpecError(f'unexpected relay_excitation {s!r}->{t!r} in tiled graph')
+        elif kind == 'hard_reset_inhibition':
+            if not (sr and sr[1] == 'I' and tr and tr[1] == 'E'):
+                raise SpecError(f'hard_reset {s!r}->{t!r} must be a column I onto an ordinary E')
+            if sr[0] != tr[0]:
+                raise SpecError(f'column I {s!r} resets {t!r} outside its own column')
+            i_to_e.setdefault(sr[0], set()).add(t)
+        elif kind == 'basal_excitation':
+            if not (sr and sr[1] == 'Eor' and tr and tr[1] == 'C' and sr[0] == tr[0]):
+                raise SpecError(f'basal {s!r}->{t!r} must be a column-local Eor->C')
+            eor_c_basal.add(sr[0])
+        elif kind == 'apical_excitation':
+            if not (sr and sr[1] == 'E' and tr and tr[1] == 'C'):
+                raise SpecError(f'apical {s!r}->{t!r} must be a parent ordinary E -> child C '
+                                f'(Eor is never an apical source)')
+            child = tr[0]
+            if sr[0] not in columns[child]['parent_ids']:
+                raise SpecError(f'apical {s!r}->{t!r}: {sr[0]!r} is not a parent of {child!r}')
+            link_apical.setdefault(child, set()).add(s)
+        elif sr is not None or tr is not None or s_is_rg:
+            raise SpecError(f'edge kind {kind!r} ({s!r}->{t!r}) is not part of the tiled '
+                            f'cortical-column family')
+
+    # --- per-column internal completeness (missing edge is rejected here) ---------------
+    for cid in columns:
+        ebank = set(col_roles[cid]['E'])
+        if e_to_eor.get(cid, set()) != ebank:
+            raise SpecError(f'column {cid!r}: every ordinary E must feed its Eor exactly once')
+        if e_to_i.get(cid, set()) != ebank:
+            raise SpecError(f'column {cid!r}: every ordinary E must drive its I')
+        if i_to_e.get(cid, set()) != ebank:
+            raise SpecError(f'column {cid!r}: I must hard-reset exactly its own ordinary-E bank')
+        if cid not in eor_c_basal:
+            raise SpecError(f'column {cid!r}: Eor must supply its C basal')
+        if cid not in c_to_i:
+            raise SpecError(f'column {cid!r}: C must drive its I')
+
+    # --- RGC-to-column completeness (input columns get all + only their patch RGCs) -----
+    for cid, c in columns.items():
+        is_input = (c['layer'] == input_layer)
+        expect = {rid for rid, patch in rg_patch.items() if patch == (c['row'], c['col'])}
+        for eid in col_roles[cid]['E']:
+            got = rg_into_E.get(eid, set())
+            if is_input:
+                if got != expect:
+                    raise SpecError(f'ordinary E {eid!r} in input column {cid!r} must receive '
+                                    f'all and only the {len(expect)} RGCs of its patch')
+            elif got:
+                raise SpecError(f'non-input ordinary E {eid!r} must not receive RGC feedforward')
+
+    # --- child/parent link completeness (two-way feedforward + apical) ------------------
+    for cid, c in columns.items():
+        for pid in c['parent_ids']:
+            parent_E = set(col_roles[pid]['E'])
+            if not parent_E <= link_ff.get(cid, set()):
+                raise SpecError(f'column {cid!r} Eor must feed every ordinary E of parent {pid!r}')
+            if not parent_E <= link_apical.get(cid, set()):
+                raise SpecError(f'column {cid!r} C must receive an apical from every ordinary '
+                                f'E of parent {pid!r}')
 
 
 def _default_layer(arch: str) -> str:

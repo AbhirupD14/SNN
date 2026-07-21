@@ -1,0 +1,229 @@
+{
+  "experiment": "tiled_cortical_columns_acceptance",
+  "isolation": {
+    "probe": "center_patch_isolation",
+    "config": {
+      "seed": 1,
+      "cc_e_count": 8,
+      "patch": [
+        1,
+        1
+      ],
+      "pattern": "row 1",
+      "boundaries": 500,
+      "leak_rate": 0.0
+    },
+    "resolved": {
+      "n_pix": 81,
+      "input_shape": {
+        "rows": 9,
+        "cols": 9
+      },
+      "patch_shape": {
+        "rows": 3,
+        "cols": 3
+      },
+      "columns": 10,
+      "active_patch": 4,
+      "active_column": "L1c11"
+    },
+    "per_column": {
+      "L1c00": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L1c01": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L1c02": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L1c10": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L1c11": {
+        "e_spikes": 369,
+        "eor_spikes": 72,
+        "c_deposits": 7,
+        "c_spikes": 3,
+        "i_resets": 2976,
+        "winner": {
+          "id": "L1c11E6",
+          "tau": 0.909119363
+        }
+      },
+      "L1c12": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L1c20": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L1c21": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L1c22": {
+        "e_spikes": 0,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 0,
+        "winner": null
+      },
+      "L2c00": {
+        "e_spikes": 7,
+        "eor_spikes": 0,
+        "c_deposits": 0,
+        "c_spikes": 0,
+        "i_resets": 56,
+        "winner": {
+          "id": "L2c00E7",
+          "tau": 0.422892324
+        }
+      }
+    },
+    "weight_movement": {
+      "L1c11E0": 0.0,
+      "L1c11E1": 0.0,
+      "L1c11E2": 0.0,
+      "L1c11E3": 0.0,
+      "L1c11E4": 0.0,
+      "L1c11E5": 0.0,
+      "L1c11E6": 149.967524,
+      "L1c11E7": 0.0,
+      "L1c11Eor": -479.121221,
+      "L2c00E0": 0.0,
+      "L2c00E1": 0.0,
+      "L2c00E2": 0.0,
+      "L2c00E3": 0.0,
+      "L2c00E4": 0.0,
+      "L2c00E5": 0.0,
+      "L2c00E6": 0.0,
+      "L2c00E7": -31.283367,
+      "L2c00Eor": 0.0,
+      "L1c11C": 8.880449,
+      "L2c00C": 0.0
+    },
+    "cross_column_reset_violations": 0,
+    "top_c_deposits": 0,
+    "top_c_spikes": 0,
+    "l2_apical_to_all_nine_c": 7,
+    "causal_trace": [
+      {
+        "hop": "l1_ordinary_e_winner",
+        "boundary": 5,
+        "id": "L1c11E6",
+        "tau": 0.100989014,
+        "reset_targets": [
+          "L1c11E0",
+          "L1c11E1",
+          "L1c11E2",
+          "L1c11E3",
+          "L1c11E4",
+          "L1c11E5",
+          "L1c11E6",
+          "L1c11E7"
+        ]
+      },
+      {
+        "hop": "l1_eor_spike",
+        "boundary": 32,
+        "id": "L1c11Eor",
+        "tau": 0.198763048,
+        "emitted_ff": [
+          "L1c11Eor_L2c00E0",
+          "L1c11Eor_L2c00E1",
+          "L1c11Eor_L2c00E2"
+        ]
+      },
+      {
+        "hop": "l2_ordinary_e_winner",
+        "boundary": 201,
+        "id": "L2c00E7",
+        "tau": 0.167260848
+      },
+      {
+        "hop": "active_l1_c_deposit",
+        "boundary": 201,
+        "id": "L1c11C",
+        "deposit_tau": 0.167260848,
+        "l2_winner_tau": 0.167260848
+      }
+    ],
+    "acceptance_checks": {
+      "1_only_center_rgc_emits": true,
+      "2_only_paired_l1_receives_ff": true,
+      "3_l1_hard_wta_one_winner_per_boundary": true,
+      "4_l1_e_reaches_eor": true,
+      "5_eor_learns_on_firing": true,
+      "6_eor_reaches_l2": true,
+      "7_l2_hard_wta": true,
+      "8_l2_apical_to_all_nine_c_but_only_eligible_deposits": true,
+      "9_c_recruits_only_local_i": true,
+      "10_top_l2_c_dormant": true,
+      "11_no_inactive_column_reset": true
+    },
+    "all_checks_pass": true
+  },
+  "two_patch": {
+    "probe": "two_patch_independent_columns",
+    "config": {
+      "seed": 1,
+      "cc_e_count": 8,
+      "patches": [
+        [
+          0,
+          0
+        ],
+        [
+          2,
+          2
+        ]
+      ],
+      "pattern": "row 1",
+      "boundaries": 80,
+      "leak_rate": 0.0
+    },
+    "per_column_winner_boundaries": {
+      "L1c00": 25,
+      "L1c22": 25
+    },
+    "both_columns_won_same_boundary": 3,
+    "max_l2_winners_in_a_boundary": 0,
+    "two_independent_l1_winners": true,
+    "l2_stays_single_winner": true
+  }
+}

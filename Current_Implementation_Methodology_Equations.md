@@ -498,6 +498,76 @@ As predicted in the design, `rg` shows **no contextual explaining-away**, and it
 never expected to: the dense `L2E→L1I` feedback erases winner identity because every
 winner drives every `L1I`.
 
+## Tiled cortical columns (`topology='tiled_cc'`)
+
+The tiled preset reuses every `rg_coincidence` mechanic — the conductance-LIF membrane,
+the analytic sub-boundary event scheduler, the accumulating plastic-E rule, the
+coincidence-cell basal/apical gate, and the immediate zero-latency hard reset — inside a
+reusable **cortical-column tile** instead of one neuron per pixel. A `9×9` RGC surface is
+tiled into nine `3×3` patches; each patch drives one L1 column (arranged `3×3`), and one
+L2 column receives all nine L1 outputs. The graph is composed from four pure rules
+(`build_cortical_column`, `connect_rgc_patch`, `connect_columns`, `tiled_cc_spec`) so the
+ordinary-E count `N = cc_e_count` is configurable and deeper hierarchies compose without
+copying a hard-coded graph. For any `N` the graph has exactly `10N+111` nodes and
+`129N+20` edges (default `N=8` → **191 nodes, 1052 directed edges**).
+
+**Eor is an ordinary learned excitatory neuron, not a Boolean OR.** Each column's output
+`Eor` is the *same* `ExcitatoryNeuron` class instantiated through the *same* construction
+path as the ordinary competing E, with the same threshold θ, leak, refractory, analytic
+crossing, activity trace, plastic feedforward bank, target-owned participation vector,
+accumulating rule, weight floor/cap, maturity budget, learning rate, and delay-one
+emission. Its only differences are **edges**: ordinary E drives and is reset by the local
+relay I; Eor does not touch the local WTA; ordinary E feeds the local Eor; Eor feeds the
+parent's ordinary E and its own column's C basal; Eor never supplies apical feedback.
+Learning eligibility on the event path follows the plastic archetype (every fired
+event-resolved plastic E learns its own delivered volley), never an id prefix or a
+"L2 competitor" list — so Eor and every L2 ordinary E learn exactly like an L1 ordinary E.
+Fan-in differs across the hierarchy (9 RGCs into an L1 E, `N` local E into an Eor, 9 child
+Eor into an L2 E), so each event-plastic row is initialized by the same policy applied to
+its **own** fan-in — seeded narrow jitter, then bounded proportional normalization to
+`min(l2_init_total_frac·θ, fan_in·cap)` — and the `1/d²` learning-rate factor is
+normalized **per target** (each target's closest afferent scores 1.0) so a short
+within-column edge never rescales a long inter-layer projection. Legacy presets keep the
+per-archetype reference verbatim (goldens are bit-exact).
+
+**The shared one-shot relay I gives immediate hard single-winner WTA.** Every ordinary E
+drives its column's single I (`relay_excitation`) and is reset by it
+(`hard_reset_inhibition`); the C also drives the same I. The first eligible ordinary-E
+crossing recruits I at that `tau`; I hard-resets the *entire* local ordinary-E bank —
+including the winner whose emitted spike (and its learning) survives its own reset — and
+cancels later prospective crossings in that column. I emits **at most once per boundary**:
+a later same-boundary E or C input creates no second reset. If C fires first it may recruit
+the same I and suppress the local E population before it emits; once I has fired, a later C
+spike cannot retroactively cancel an already-emitted E spike. There are no lateral or
+cross-column edges, so columns are independent: one L1 column's winner never resets another
+L1 column, and several columns may each produce one local winner in the same outer
+boundary while each remains hard single-winner (`column_winners` records one ordinary-E
+winner per column per boundary; the legacy single `winner` field is preserved for legacy
+consumers).
+
+**The top L2 C is explicitly valid and observably dormant.** Every column, including the
+top one, contains a C. The L2 column has no parent, so its C has its single Eor basal edge
+and its one-boundary basal eligibility state machine but **zero apical inputs**: with no
+apical permission the coincidence gate is never open, so it never deposits charge, never
+fires, and never learns its basal weight over an arbitrarily long basal-only run. This
+zero-apical case is legal *only* because the column metadata declares no parent
+(`has_parent=False` / empty `parent_ids`) — validation still rejects an accidentally
+unwired non-top C, and `rg_coincidence` C cells still require at least one apical.
+
+**Deferred by design.** This is a single-winner tiled hierarchy. More than one ordinary-E
+winner per column per boundary, row-plus-column composition learning, `k`-WTA / `delta_tau`
+co-winner admission, lateral inhibition, and a pure priority-queue discrete-event scheduler
+are **out of scope** and remain recorded in
+`docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`. The engine still scans all membranes
+to find the next crossing rather than using a priority queue.
+
+The deterministic headless acceptance evidence is `experiments/tiled_cc_experiment.py`
+(a center-patch isolation probe demonstrating the full `RGC → L1 E WTA → Eor → L2 E WTA →
+apical permission to all nine L1 C → gated deposit` chain with the top C dormant and zero
+cross-column reset leakage, plus a two-patch probe confirming two independent L1 winners
+under a single hard L2 winner). A dashboard screenshot is supplemental; the headless trace
+is authoritative.
+
 ## Failure modes and honest limitations
 
 * **Contamination is real.** While the incumbent still wins the overlapping pattern it

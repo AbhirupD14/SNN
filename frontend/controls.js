@@ -158,19 +158,101 @@ export class Controls {
 
   // --------------------------------------------------------------- pattern
   _wirePattern() {
-    const grid = document.getElementById('pixel-grid');
-    grid.innerHTML = '';
+    // Only the input-vector buttons are wired here (grid size is topology-driven and
+    // built in onTopology once the topology metadata arrives). Defaults to a 3x3 grid
+    // so the panel is populated before the first topology message.
     this.pixels = [];
-    for (let i = 0; i < 9; i++) {
-      const cell = document.createElement('div');
-      cell.className = 'pixel';
-      cell.addEventListener('click', () => { this.activePattern = null; this.api.post(`/api/pixel/${i}`); });
-      grid.appendChild(cell);
-      this.pixels.push(cell);
-    }
+    this.pixelOwner = new Map();          // global pixel index -> owning input-sink node id
+    this.inputShape = { rows: 3, cols: 3 };
+    this.patchShape = null;
     document.getElementById('p-random').addEventListener('click', () => { this.activePattern = null; this.api.post('/api/random'); });
     document.getElementById('p-clear').addEventListener('click', () => { this.activePattern = null; this.api.post('/api/clear'); });
     document.getElementById('p-noise').addEventListener('click', () => { this.activePattern = null; this.api.post('/api/noise/0.15'); });
+    this._buildInputGrid();
+  }
+
+  // Build the input grid from topology metadata: `topology.grid` gives rows/cols (3x3
+  // for legacy 9-pixel presets, 9x9 for tiled_cc), and the tiling block adds the 3x3
+  // patch boundaries and the local-pattern patch selector. A cell toggles its GLOBAL
+  // row-major pixel index; RGC flashing is resolved through pixel-ownership metadata,
+  // never an assumed L1E${i} id.
+  _buildInputGrid(topology) {
+    const grid = document.getElementById('pixel-grid');
+    if (!grid) return;
+    const tiling = topology?.tiling || null;
+    this.inputShape = tiling?.input_shape
+      || topology?.grid && { rows: topology.grid.rows, cols: topology.grid.cols }
+      || { rows: 3, cols: 3 };
+    this.patchShape = tiling?.patch_shape || null;
+    const { rows, cols } = this.inputShape;
+    const pr = this.patchShape?.rows, pc = this.patchShape?.cols;
+
+    // pixel-ownership map (works for any preset: RGC in tiled/rg, L1E_s in pi/old).
+    this.pixelOwner = new Map();
+    for (const n of topology?.neurons || []) {
+      if (n.pixel != null && (n.owns_input || n.type === 'S' || n.role === 'source'))
+        this.pixelOwner.set(n.pixel, n.id);
+    }
+
+    grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+    grid.classList.toggle('patched', !!this.patchShape);
+    grid.innerHTML = '';
+    this.pixels = [];
+    for (let r = 0; r < rows; r++) {
+      for (let c = 0; c < cols; c++) {
+        const idx = r * cols + c;
+        const cell = document.createElement('div');
+        cell.className = 'pixel';
+        cell.dataset.pixel = String(idx);
+        if (pr && pc) {                    // strong 3x3 patch boundaries
+          if ((c + 1) % pc === 0 && c + 1 < cols) cell.classList.add('patch-r');
+          if ((r + 1) % pr === 0 && r + 1 < rows) cell.classList.add('patch-b');
+        }
+        cell.addEventListener('click', () => { this.activePattern = null; this.api.post(`/api/pixel/${idx}`); });
+        grid.appendChild(cell);
+        this.pixels.push(cell);
+      }
+    }
+    this._buildPatchSelector(topology);
+    this._markSelectedPatch();
+  }
+
+  _buildPatchSelector(topology) {
+    const box = document.getElementById('patch-select');
+    const pg = document.getElementById('patch-grid');
+    if (!box || !pg) return;
+    const tiling = topology?.tiling;
+    const gs = tiling?.grid_shape;
+    if (!tiling || !gs) { box.hidden = true; this.patchGrid = null; return; }
+    box.hidden = false;
+    this.selectedPatch = tiling.selected_patch || null;
+    pg.style.gridTemplateColumns = `repeat(${gs.cols}, 1fr)`;
+    pg.innerHTML = '';
+    this.patchGrid = [];
+    for (let r = 0; r < gs.rows; r++) {
+      for (let c = 0; c < gs.cols; c++) {
+        const b = document.createElement('button');
+        b.className = 'patch-btn';
+        b.textContent = `${r},${c}`;
+        b.addEventListener('click', () => this.api.post('/api/patch', { row: r, col: c }));
+        pg.appendChild(b);
+        this.patchGrid.push({ r, c, el: b });
+      }
+    }
+  }
+
+  _markSelectedPatch() {
+    if (!this.patchShape || !this.selectedPatch) return;
+    const [pr, pc] = this.selectedPatch;
+    const { cols } = this.inputShape;
+    const { rows: prows, cols: pcols } = this.patchShape;
+    const inSel = new Set();
+    for (let lr = 0; lr < prows; lr++)
+      for (let lc = 0; lc < pcols; lc++)
+        inSel.add((pr * prows + lr) * cols + (pc * pcols + lc));
+    this.pixels.forEach((cell, i) => cell.classList.toggle('in-patch', inSel.has(i)));
+    for (const p of this.patchGrid || [])
+      p.el.classList.toggle('active', p.r === pr && p.c === pc);
   }
 
   buildPatternButtons(patterns) {
@@ -239,8 +321,11 @@ export class Controls {
 
   // ------------------------------------------------------------ live updates
   onTopology(topology) {
+    this._buildInputGrid(topology);         // topology-sized grid + patch controls
     this.buildPatternButtons(topology.patterns);
     this.populateNeurons(topology.neurons);
+    this.selectedPatch = topology.tiling?.selected_patch || null;
+    this._markSelectedPatch();
   }
 
   onDynamic(dyn) {
@@ -257,7 +342,10 @@ export class Controls {
     this.pixels.forEach((cell, i) => {
       const on = input[i] > 0;
       cell.classList.toggle('on', on);
-      const n = this.store.stateById.get(`L1E${i}`);
+      // Flash on the OWNING input sink's spike (RGC in tiled/rg, L1E_s in pi/old),
+      // resolved through pixel-ownership metadata rather than an assumed id scheme.
+      const ownerId = this.pixelOwner.get(i);
+      const n = ownerId && this.store.stateById.get(ownerId);
       if (n?.spiked) { cell.classList.remove('fire'); void cell.offsetWidth; cell.classList.add('fire'); }
     });
     // detect which named pattern matches the current input (if any)

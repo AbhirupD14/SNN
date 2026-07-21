@@ -62,6 +62,14 @@ export class ReceptiveFields {
   build() {
     const topo = this.store.topology;
     if (!topo) return;
+    // Tiled topology: an L1 E has a 3x3 patch RF, but L2 E (nine child-column inputs),
+    // Eor (N local afferents) and C (one basal + unweighted apicals) do NOT fit a single
+    // fixed 9-pixel retinal map, and the top3<theta "dead" heuristic is not valid for
+    // arbitrary N/roles. Per the spec, route per-target weights to the topology-generic
+    // Weights-over-time + Inspector views instead of pretending every target is a 3x3
+    // pixel map. The legacy 3x3 RF below is unchanged for the five 9-pixel presets.
+    if (topo.tiling) { this._buildTiledNotice(topo); this.built = true; return; }
+    this._tiled = false;
     const pixelByNode = new Map();
     for (const n of topo.neurons) if (n.pixel != null) pixelByNode.set(n.id, n.pixel);
     this.ffMap = new Map();
@@ -141,9 +149,33 @@ export class ReceptiveFields {
     this.store.weights.set(edgeId, Math.max(0, Math.min(cap, weight)));   // optimistic echo
   }
 
+  _buildTiledNotice(topo) {
+    this._tiled = true;
+    this.compIds = [];
+    this.cards = [];
+    this.inputCells = [];
+    if (this.inputEl) this.inputEl.innerHTML = '';
+    const t = topo.tiling;
+    const cols = (t.columns || []).length;
+    this.grid.innerHTML = `
+      <div class="rf-card" style="grid-column:1/-1;max-width:640px">
+        <div class="rf-title"><span>Tiled cortical columns · ${cols} columns · N=${t.cc_e_count} ordinary E/column</span></div>
+        <div style="padding:10px 4px;color:var(--txt-2);font-size:12px;line-height:1.5">
+          Tiled targets have heterogeneous receptive fields — an L1 ordinary E sees a 3x3
+          retinal patch, an L2 ordinary E sees nine child-column Eor inputs, an Eor sees its
+          N local ordinary-E afferents, and a coincidence C has one learned basal weight plus
+          unweighted Boolean apical permissions. They are inspected in the topology-generic
+          <b>Weights-over-time</b> view (select any ordinary E or Eor in the 3D scene) and the
+          <b>Inspector</b> (per-cell incoming weights, C basal weight, coincidence gate,
+          dormant top-C marker). The single fixed 9-pixel map is intentionally not shown here.
+        </div>
+      </div>`;
+  }
+
   update(dyn) {
     if (!this._open()) return;
     if (!this.built) this.build();
+    if (this._tiled) return;              // tiled notice is static; nothing per-frame
     const s = this.store;
     const { thr, cap } = this._caps();
 

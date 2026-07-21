@@ -113,3 +113,101 @@ def generate_layout(rng, n_pix: int, n_out: int) -> dict[str, np.ndarray]:
 
     pos['L2I'] = np.array([0.0, 0.0, L2I_Z]) + jitter(0.6, 0.6)
     return pos
+
+
+# --- tiled cortical-column functional layout --------------------------------
+# A SEPARATE, metadata-driven layout path. It never touches the legacy generator above,
+# so adding it consumes no RNG draws in legacy construction and cannot shift any golden.
+# It is parameterized entirely by column metadata + ordinary-E count N: no fixed "8 E",
+# "two layers", or one-character layer-id assumption. Repeated columns reuse one local
+# motif translated to a column center.
+TILE_PX = 2.2             # RGC pixel spacing on the retinal plane
+TILE_PATCH_GAP = 1.7      # extra gap between 3x3 patches (visible patch boundaries)
+TILE_LAYER_DZ = 11.0      # z rise per column layer above the RGC plane
+TILE_COL_SPREAD = 7.5     # column-center spacing within a layer's tile grid
+TILE_E_RING_R = 1.7       # ordinary-E ring radius inside a column
+TILE_ROLE_OFF = 2.9       # Eor/C/I offset from the column center
+_TILE_JITTER = 0.18       # small seeded jitter (reproducible scientific state)
+
+
+def _tile_axis(idx, count, patch, spacing, gap):
+    """Centered coordinate for grid cell ``idx`` of ``count`` with an added ``gap`` every
+    ``patch`` cells (so patch boundaries are visible)."""
+    raw = idx * spacing + (idx // patch) * gap
+    span = (count - 1) * spacing + ((count - 1) // patch) * gap
+    return raw - span / 2.0
+
+
+def generate_tiled_layout(rng, spec) -> dict[str, np.ndarray]:
+    """Deterministic functional coordinates for a tiled cortical-column graph, derived
+    from its ``topology`` metadata and per-node ``column_*`` / ``patch_*`` tags.
+
+    Layout: the RGC surface is one plane (z=0) with visible patch gaps; each column
+    layer rises by ``TILE_LAYER_DZ``; columns sit above their tile coordinates; inside
+    every column the ordinary E form a ring with Eor toward the next layer, C on the
+    feedback side and I on the inhibitory side."""
+    meta = spec['topology']
+    ishape, pshape = meta['input_shape'], meta['patch_shape']
+    in_rows, in_cols = ishape['rows'], ishape['cols']
+    p_rows, p_cols = pshape['rows'], pshape['cols']
+    # layer order (RGC-adjacent first) -> z index used for the column-center height.
+    layer_z = {}
+    for k, layer in enumerate(meta.get('column_layers', [])):
+        layer_z[layer['layer']] = (k + 1) * TILE_LAYER_DZ
+
+    def jit(scale=_TILE_JITTER):
+        return np.array([rng.uniform(-scale, scale) for _ in range(3)])
+
+    pos: dict[str, np.ndarray] = {}
+    node_by_id = {n['id']: n for n in spec['nodes']}
+
+    # RGC plane.
+    for n in spec['nodes']:
+        if n['archetype'] != 'rg_source':
+            continue
+        gr, gc = n['input_row'], n['input_col']
+        x = _tile_axis(gc, in_cols, p_cols, TILE_PX, TILE_PATCH_GAP)
+        y = -_tile_axis(gr, in_rows, p_rows, TILE_PX, TILE_PATCH_GAP)
+        pos[n['id']] = np.array([x, y, 0.0]) + jit(0.05)
+
+    # column layout: gather members per column.
+    columns = {c['id']: c for c in meta['columns']}
+    members = {cid: dict(E=[], Eor=None, C=None, I=None) for cid in columns}
+    for n in spec['nodes']:
+        role = n.get('column_role')
+        if role is None:
+            continue
+        slot = members[n['column_id']]
+        if role == 'E':
+            slot['E'].append(n['id'])
+        else:
+            slot[role] = n['id']
+
+    # column-layer tile extents, so each layer's columns are centered over the surface.
+    layer_grid = {L['layer']: (L['rows'], L['cols']) for L in meta.get('column_layers', [])}
+    for cid, c in columns.items():
+        layer = c['layer']
+        gr, gc = layer_grid.get(layer, (1, 1))
+        cx = _tile_axis(c['col'], gc, max(gc, 1), TILE_COL_SPREAD, 0.0)
+        cy = -_tile_axis(c['row'], gr, max(gr, 1), TILE_COL_SPREAD, 0.0)
+        cz = layer_z.get(layer, TILE_LAYER_DZ)
+        center = np.array([cx, cy, cz])
+        e_ids = members[cid]['E']
+        n_e = max(len(e_ids), 1)
+        for i, eid in enumerate(e_ids):
+            angle = 2.0 * math.pi * i / n_e
+            pos[eid] = center + np.array([TILE_E_RING_R * math.cos(angle),
+                                          TILE_E_RING_R * math.sin(angle),
+                                          0.0]) + jit()
+        # Eor toward the next layer; C on the feedback (+y) side; I on the inhibitory
+        # (-y, lower) side. All distinct and non-coincident with the ring.
+        pos[members[cid]['Eor']] = center + np.array([0.0, 0.0, TILE_ROLE_OFF]) + jit()
+        pos[members[cid]['C']] = center + np.array([TILE_ROLE_OFF, TILE_ROLE_OFF, 0.9]) + jit()
+        pos[members[cid]['I']] = center + np.array([-TILE_ROLE_OFF, -TILE_ROLE_OFF, -0.9]) + jit()
+
+    # Any node the metadata did not place (defensive) gets a deterministic offset rather
+    # than the zero placeholder.
+    for n in spec['nodes']:
+        if n['id'] not in pos:
+            pos[n['id']] = np.array([0.0, 0.0, -3.0]) + jit()
+    return pos

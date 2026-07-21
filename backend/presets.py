@@ -14,15 +14,30 @@ import re
 
 import numpy as np
 
-from .network_spec import preset_spec, validate_spec, PRESETS
-from .layout import generate_layout
+from .network_spec import (
+    preset_spec, validate_spec, PRESETS, tiled_input_size, tiled_cc_spec,
+    TILED_CC_DEFAULTS,
+)
+from .layout import generate_layout, generate_tiled_layout
+
+
+def _resolved_dims(name: str, n_pix: int, n_out: int) -> tuple[int, int]:
+    """Each preset's own construction dimensions -- so listing/loading a tiled preset
+    never inherits the currently active engine's n_pix by accident."""
+    if name == "tiled_cc":
+        return (TILED_CC_DEFAULTS["input_rows"] * TILED_CC_DEFAULTS["input_cols"], n_out)
+    return (n_pix, n_out)
 
 
 def _with_layout_positions(spec: dict, n_pix: int, n_out: int) -> dict:
-    """Attach the seeded functional 3D positions to a built-in preset's nodes so the
-    editor shows its real 3D structure. Display only -- the engine's build path fills
-    positions from its own seeded layout, so this never affects simulated behaviour."""
-    pos = generate_layout(np.random.default_rng(1), n_pix, n_out)
+    """Attach the seeded functional 3D positions to a preset's nodes so the editor shows
+    its real 3D structure. Display only -- the engine's build path fills positions from
+    its own seeded layout, so this never affects simulated behaviour. Tiled specs use the
+    metadata-driven tiled layout so their columns load at their real positions."""
+    if tiled_input_size(spec) is not None:
+        pos = generate_tiled_layout(np.random.default_rng(1), spec)
+    else:
+        pos = generate_layout(np.random.default_rng(1), n_pix, n_out)
     for node in spec["nodes"]:
         if node.get("pos") is None and node["id"] in pos:
             node["pos"] = [round(float(x), 4) for x in pos[node["id"]]]
@@ -52,10 +67,15 @@ def builtin_spec(name: str, n_pix: int, n_out: int) -> dict:
 
 def list_presets(n_pix: int, n_out: int) -> list[dict]:
     """Built-in presets first, then saved user presets (alphabetical). Each entry is a
-    lightweight summary; the full spec is fetched on load."""
-    out = [dict(name=b, builtin=True, nodes=len(preset_spec(b, n_pix, n_out)["nodes"]),
-                edges=len(preset_spec(b, n_pix, n_out)["edges"]))
-           for b in BUILTINS]
+    lightweight summary; the full spec is fetched on load. Node/edge counts use each
+    preset's OWN resolved construction dimensions (tiled_cc reports its 191/1052, not a
+    9-input miscount from the active engine)."""
+    out = []
+    for b in BUILTINS:
+        bp, bo = _resolved_dims(b, n_pix, n_out)
+        spec = preset_spec(b, bp, bo)
+        out.append(dict(name=b, builtin=True,
+                        nodes=len(spec["nodes"]), edges=len(spec["edges"])))
     try:
         names = sorted(f[:-5] for f in os.listdir(PRESET_DIR) if f.endswith(".json"))
     except OSError:
@@ -75,7 +95,8 @@ def load_spec(name: str, n_pix: int, n_out: int) -> dict:
     """Return the NetworkSpec for a built-in or saved preset. Raises KeyError if the
     saved preset is missing, ValueError if it is corrupt/invalid."""
     if name in BUILTINS:
-        return _with_layout_positions(preset_spec(name, n_pix, n_out), n_pix, n_out)
+        bp, bo = _resolved_dims(name, n_pix, n_out)
+        return _with_layout_positions(preset_spec(name, bp, bo), bp, bo)
     clean = _sanitize(name)
     if not clean:
         raise KeyError(name)
@@ -84,7 +105,9 @@ def load_spec(name: str, n_pix: int, n_out: int) -> dict:
             spec = json.load(f)
     except FileNotFoundError as e:
         raise KeyError(name) from e
-    spec = validate_spec(spec, n_pix)          # never load a structurally invalid graph
+    # A tiled saved spec is validated at its OWN declared input size (e.g. 81), not the
+    # currently active engine's n_pix, so it never fails a stale pixel-range check.
+    spec = validate_spec(spec, tiled_input_size(spec) or n_pix)
     spec["name"] = clean
     return spec
 
@@ -97,7 +120,8 @@ def save_preset(name: str, spec: dict, n_pix: int) -> str:
         raise ValueError("preset name must contain at least one letter or digit")
     if clean in BUILTINS:
         raise ValueError(f"'{clean}' is a reserved built-in preset name")
-    norm = validate_spec(spec, n_pix)          # never save a structurally invalid graph
+    # Tiled specs are validated (and persisted) at their own declared input size.
+    norm = validate_spec(spec, tiled_input_size(spec) or n_pix)
     norm["name"] = clean
     os.makedirs(PRESET_DIR, exist_ok=True)
     with open(_path(clean), "w") as f:

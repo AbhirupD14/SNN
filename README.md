@@ -7,9 +7,9 @@ excitatory cell carries a local activity trace, and the timestep is synchronous 
 explicit unit synaptic delays.
 
 The network is a **graph** built from a `NetworkSpec` (typed nodes + typed edges);
-the engine executes whatever graph it is given. **Five** built-in presets ship,
+the engine executes whatever graph it is given. **Six** built-in presets ship,
 selected by the `topology` parameter (`'pi'` default, `'old'`, `'rg'`,
-`'rg_residual'`, or `'rg_coincidence'`), and you can
+`'rg_residual'`, `'rg_coincidence'`, or `'tiled_cc'`), and you can
 build arbitrary graphs live in the browser **Topology Editor** (🧬 in the top bar) and
 save/load them as presets:
 
@@ -59,10 +59,35 @@ zero leak/refractory, L2 learning rate `0.01`, normalized L2 initial afferent to
   resets every `L2E`). **L2 WTA is emergent**: the first `L2E` to reach threshold wins
   and its `L2I` reset cancels the rest — no deterministic winner phase. See the
   measured behavior below and `docs/COINCIDENCE_PYRAMIDAL_CELL_TECHNICAL_SPEC.md`.
+- **`topology='tiled_cc'` — the tiled cortical-column hierarchy (191 neurons, 1052
+  edges at the default `cc_e_count=8`).** Reuses the `rg_coincidence` mechanics inside
+  reusable **cortical-column tiles** instead of one neuron per pixel. A `9×9` **RGC**
+  input surface is tiled into nine `3×3` patches; each patch drives one **L1 column**
+  (arranged `3×3`), and one **L2 column** receives all nine L1 outputs. Every column
+  has `N = cc_e_count` ordinary competing **E** neurons, one output **Eor**, one
+  coincidence **C**, and one immediate relay **I**. Inside a column: each `E → Eor`
+  (feedforward) and `E ⇄ I` (relay + `hard_reset`) give the current immediate hard
+  single-winner WTA; `Eor → C` is the one learned basal; `C → I` lets a mature C recruit
+  the same relay. Between columns: a child `Eor → parent E` (feedforward) and
+  `parent E → child C` (unweighted **apical**) — parent ordinary E, **never** Eor,
+  supplies the child C's apical permission. **Eor is numerically an ordinary plastic E**
+  (same class, threshold, leak, rule, cap, budget — it is *not* a Boolean OR); it differs
+  only by its edges. There are no lateral connections; columns are independent, so
+  several columns may each produce one local winner in the same boundary while each stays
+  hard single-winner. The **top L2 C has no parent and is intentionally dormant** — it
+  keeps its single Eor basal edge and eligibility state machine but has zero apical
+  inputs, so it never deposits, fires, or learns. The graph is generated from reusable
+  tile/connector rules (`build_cortical_column`, `connect_rgc_patch`, `connect_columns`,
+  `tiled_cc_spec` in `backend/network_spec.py`), so `N` is configurable and deeper
+  hierarchies compose without copying the graph: for any `N` the counts are `10N+111`
+  nodes and `129N+20` edges. Selecting it rebuilds the input surface to 81 pixels; the
+  headless acceptance probe is `experiments/tiled_cc_experiment.py`. This is a
+  single-winner tiled hierarchy — **row+column multi-winner composition and a pure
+  discrete-event scheduler remain deferred** (`docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`).
 
-The first four use the same synchronous event engine; `rg_coincidence` uses the
-analytic sub-boundary scheduler (selected automatically from graph metadata, so legacy
-presets stay byte-for-byte identical). The fixed editor vocabulary is eleven node
+`pi`/`old`/`rg`/`rg_residual` use the same synchronous event engine; `rg_coincidence`
+and `tiled_cc` use the analytic sub-boundary scheduler (selected automatically from graph
+metadata, so legacy presets stay byte-for-byte identical). The fixed editor vocabulary is eleven node
 archetypes (`rg_source`, `e_sensory`, `e_encoder`, `e_residual`, `e_competitor`,
 `e_pretrained`, `e_coincidence`, `e_latency_competitor`, `i_relay`, `predictor`,
 `switch`) and ten edge kinds (`feedforward`, `fixed_excitation`, `trace_excitation`,
@@ -261,7 +286,15 @@ primitives (`test_lif_segments.py`), the isolated C cell + learning rule
 the sub-boundary scheduler + emergent latency WTA (`test_event_scheduler.py`), the full
 `rg_coincidence` preset (`test_rg_coincidence.py`), its public protocol
 (`test_coincidence_protocol.py`), and the scientific-validation harness
-(`test_coincidence_experiment.py`).
+(`test_coincidence_experiment.py`). The `tiled_cc` cortical-column hierarchy adds the
+reusable tile builder + structural validation and exact `191`-node/`1052`-edge counts
+(`test_tiled_cc_builder.py`), ordinary-E/Eor numeric parity + generic event-plastic
+learning + local hard WTA + shared-tau apical/deposit timing (`test_tiled_cc_engine.py`),
+the 81-pixel input surface + patch embedding + dimension config (`test_tiled_cc_input.py`),
+the metadata-driven layout + serialization (`test_tiled_cc_layout.py`), the dashboard
+payload/config contract (`test_tiled_cc_dashboard_contract.py`), and the headless
+acceptance experiment (`test_tiled_cc_experiment.py`, driving
+`experiments/tiled_cc_experiment.py`).
 
 ## Overlap symmetry-breaking experiment
 

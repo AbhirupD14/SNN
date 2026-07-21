@@ -97,6 +97,8 @@ def test_config_accepts_editable_keys(engine):
     assert keys == set(config_values(engine.params))
     assert keys == {'leak_rate', 'refractory_steps', 'eta', 'c_eta',
                     'l2_init_total_frac', 'e_weight_cap', 'topology',
+                    # tiled_cc structural control (rebuilds the column bank)
+                    'cc_e_count',
                     'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'pi_eta', 'pi_g_scale',
                     'l2i_g_scale', 'pi_conductance_enabled', 'pi_plasticity_enabled',
                     # 'rg' topology controls: the RG->L1E projection's ablation toggle

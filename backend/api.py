@@ -174,6 +174,24 @@ async def toggle_pixel(index: int):
     return {"input": engine.input_vec.astype(int).tolist()}
 
 
+class PatchBody(BaseModel):
+    row: int
+    col: int
+
+
+@app.post("/api/patch")
+async def set_patch(body: PatchBody):
+    """Select the tiled patch that local pattern buttons embed into (tiled_cc only).
+    Re-broadcasts topology so the pattern bank / selected-patch marker update."""
+    try:
+        patch = engine.set_patch(body.row, body.col)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return {"patch": list(patch), "input": engine.input_vec.astype(int).tolist()}
+
+
 @app.post("/api/weight")
 async def set_weight(body: WeightBody):
     """Hand-set a plastic synapse weight (RF panel). Prefer ``synapse`` (edge id,

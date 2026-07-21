@@ -63,6 +63,10 @@ export class Inspector {
             <span class="tag">${meta.layer}</span>
             <span class="tag">${typeLabel}</span>
             <span class="tag">${meta.role}</span>
+            ${meta.column_id ? `<span class="tag" title="cortical column">${meta.column_id}</span>` : ''}
+            ${meta.column_role ? `<span class="tag" title="role within its column">${meta.column_role}${meta.column_index != null ? ' ' + meta.column_index : ''}</span>` : ''}
+            ${meta.column_row != null ? `<span class="tag" title="tile position (row,col)">tile ${meta.column_row},${meta.column_col}</span>` : ''}
+            ${meta.column_role === 'C' && meta.has_parent === false ? `<span class="tag" style="color:var(--txt-2)" title="top column has no parent: this C receives no apical permission and stays dormant">dormant top C</span>` : ''}
             ${state.assembly ? `<span class="tag" style="color:var(--win)">assembly</span>` : ''}
           </div>
         </div>

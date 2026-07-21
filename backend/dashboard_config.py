@@ -49,7 +49,8 @@ CONFIG_SPEC = [
                  {"value": "old", "label": "Old dense global inhibition"},
                  {"value": "rg", "label": "Retinal ganglion source layer (RG)"},
                  {"value": "rg_residual", "label": "RG residual/error pathway"},
-                 {"value": "rg_coincidence", "label": "RG coincidence pyramidal (event-resolved)"}],
+                 {"value": "rg_coincidence", "label": "RG coincidence pyramidal (event-resolved)"},
+                 {"value": "tiled_cc", "label": "Tiled cortical columns (9x9 -> 9 L1 -> 1 L2)"}],
      "desc": "pi: the 26-neuron predictive-inhibition experiment -- eight "
              "pattern-specific PI cells paired 1:1 with L2E, each with 9 locally "
              "plastic inhibitory outputs onto L1E_s. old: the 27-neuron original "
@@ -65,8 +66,19 @@ CONFIG_SPEC = [
              "pretrained RG->L1E, coincidence L1C cells (one learned basal + eight "
              "unweighted apical), immediate hard-reset L1I/L2I relays, and an emergent "
              "first-spike-latency L2 WTA (no deterministic winner phase). "
+             "tiled_cc: the 191-node tiled cortical-column hierarchy -- a 9x9 RGC "
+             "surface tiled into nine 3x3 patches, one L1 column per patch (cc_e_count "
+             "ordinary E + Eor + coincidence C + relay I each) arranged 3x3, and one L2 "
+             "column receiving all nine L1 Eor outputs. Selecting it rebuilds the input "
+             "to 81 pixels; the top L2 C is dormant. "
              "Applying rebuilds the network. (Use the Topology Editor for arbitrary "
              "graphs and presets.)"},
+    {"key": "cc_e_count", "label": "Tiled ordinary E per column", "kind": "range",
+     "min": 1, "max": 16, "step": 1, "decimals": 0,
+     "desc": "tiled_cc only: the number N of ordinary competing E neurons in every "
+             "cortical column (default 8 -> 191 nodes / 1052 edges; 10N+111 nodes, "
+             "129N+20 edges). Applying rebuilds and wipes learned state like any "
+             "structural change; ignored by the five legacy presets."},
 
     # --- membrane conductance / trace ---
     {"key": "alpha_inh", "label": "WTA conductance retention (L2E)", "kind": "range",

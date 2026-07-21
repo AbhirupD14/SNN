@@ -275,6 +275,10 @@ export class NeuronRenderer {
     }
     if (dynamic.changed_synapses?.length) this._applyEdgeWeights();
     this._winner = dynamic.winner;
+    // Per-column winners (tiled): highlight EVERY column's local ordinary-E winner, not
+    // just one global halo. Empty for legacy graphs, which keep the single `winner`.
+    this._columnWinnerIds = new Set(
+      Object.values(dynamic.column_winners || {}).map(w => w.id));
     if (dynamic.speed) this._simSpeed = dynamic.speed;
     this._applyFilters();
 
@@ -314,7 +318,7 @@ export class NeuronRenderer {
       let vis = true;
       const t = e.meta.type, layer = e.meta.layer;
       if (t === 'I' && !F.inh) vis = false;
-      if (layer === 'RG' && !F.rg) vis = false;
+      if ((layer === 'RG' || layer === 'RGC') && !F.rg) vis = false;
       if (layer === 'L1' && !F.l1) vis = false;
       if (layer === 'ERR' && !F.l1) vis = false;
       if (layer === 'L2' && !F.l2) vis = false;
@@ -372,7 +376,7 @@ export class NeuronRenderer {
       // Sphere glow
       e.pulse *= 0.86;
       const glow = Math.max(e.act * 0.5, e.freq * 0.9) + e.pulse * 1.6;
-      const isWin = id === this._winner;
+      const isWin = id === this._winner || !!this._columnWinnerIds?.has(id);
       e.mesh.material.emissive.setHex(isWin ? COLORS.winner : COLORS[e.meta.type]);
       e.mesh.material.emissiveIntensity = THREE.MathUtils.clamp(0.08 + glow, 0.06, 2.2);
       const sel = id === this._selected ? 1.35 : 1;
