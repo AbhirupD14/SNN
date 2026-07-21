@@ -1,0 +1,25 @@
+{
+  "steps": 400,
+  "fixed_config": {
+    "topology": "rg_coincidence",
+    "l2_init_total_frac": 0.95,
+    "eta": 0.01,
+    "c_eta": 0.001,
+    "leak_rate": 0.0,
+    "refractory_steps": 0,
+    "e_weight_cap": 500.0
+  },
+  "fingerprints": {
+    "1": "84bff06c96d92954fedcf874c9ad39df1f26bac633d3f6eee9aad5d79f047e85",
+    "2": "3068e02d3c41d5301dc30a4355f303d8da60ca850320ceb023c7fc9cf902fba4",
+    "3": "0c36fab50aa2dbe0277dd87876bd79ec69750951f409754fed4cc8316e90ac69",
+    "4": "7cf10dcd52f4dedd05ecfc940ce30d63028d19cd1e6266e1a2f02b28d7743075",
+    "5": "06a3b21f34322224ca717b1b58f6fcb0b044a61171b1b5764ad915c68fd7a759",
+    "6": "341c531e3b9ddd3f3341bcb1a8f2f06ef671dad1230623887adc491797be3b7e",
+    "7": "58bb3e3f5d477a30171ac1e8b7ca519fdeacdacce299da40e9b740e87880eb05",
+    "8": "1497d479627972a8cd97964bb62bccd89d59f7be5e6be0102bd025efd4e09f9e",
+    "4083693835": "2300db0ee1b290b6ea0b7c7557aca1104d78189c6bd69feb6db780bc6fc6c243"
+  },
+  "deterministic": true,
+  "instrumentation_off_byte_identical": true
+}

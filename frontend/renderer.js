@@ -14,10 +14,78 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 const COLORS = {
-  E: 0x5eead4, I: 0xf0788c, winner: 0xffce5c,
-  feedforward: 0x4cc38a, inhibition: 0xf0788c, excitation: 0x7c9cff, feedback: 0xc084fc,
+  // Per neuron-class body/emissive colour. 'S' is the exogenous retinal-ganglion
+  // source: amber, deliberately unlike the teal cortical excitatory cells, because it
+  // is a sensory event source rather than an inhibitable integrator.
+  E: 0x5eead4, I: 0xf0788c, S: 0xfbbf24, winner: 0xffce5c,
+  feedforward: 0x4cc38a, inhibition: 0xf0788c, feedback: 0xc084fc,
+  fixed_excitation: 0x22c55e,
+  trace_excitation: 0xf59e0b,
+  // Paired local sensory afferent L1E_s[i] -> L1E_new[i] (coincidence input): a real
+  // weighted excitatory synapse, distinct green-yellow.
+  coincidence_local: 0x9be15d,
+  // Structural E->I relay-excitation edge: a +1 event edge with no learned weight,
+  // rendered blue at a fixed opacity (independent of the weak-weight filter).
+  relay_excitation: 0x7c9cff,
+  // Predictive inhibitory output PI[j] -> L1E_s[i]: a locally-plastic conductance
+  // synapse, drawn a distinct magenta to separate it from the L2I_WTA red inhibition.
+  predictive_inhibition: 0xe066c0,
+  // --- coincidence topology (rg_coincidence) ---
+  // Fixed pretrained RG -> L1E packet (lime); learned basal L1E -> L1C (violet);
+  // unweighted apical L2E -> L1C Boolean gate (pink); and immediate hard-reset
+  // inhibition (bright red, distinct from conductance inhibition).
+  pretrained_excitation: 0xa3e635,
+  basal_excitation: 0xc084fc,
+  apical_excitation: 0xf472b6,
+  hard_reset_inhibition: 0xff5b6e,
 };
-const WEAK = 0.25;
+const WEAK = 0.25;            // fraction of the shared cap below which a learned edge is "weak"
+const STRUCTURAL_OPACITY = 0.22;   // fixed opacity for weightless structural relay edges
+// View-only spacing. Backend topology coordinates remain the functional geometry
+// used for distance/charge calculations. The renderer expands offsets inside each
+// layer much more aggressively, then separates layer centers as a second step.
+const WITHIN_LAYER_SPACING = 4.0;
+const BETWEEN_LAYER_SPACING = 4.0;
+
+// --- Frontend-only visual sizing -------------------------------------------
+// The display transform above expands the functional coordinates. When
+// WITHIN_LAYER_SPACING === BETWEEN_LAYER_SPACING that expansion is a *uniform*
+// scale of every neuron position about the network center, so the neuron bodies
+// -- whose radii were tuned for the old compact (1x) layout -- must be enlarged
+// by that same factor to keep their original, legible proportions in the fitted
+// orthographic view. This is purely visual: it never touches backend positions,
+// distances, or simulation behaviour. Tune this single constant to rescale every
+// neuron-derived visual together (spheres, charge rings, selection growth, spike
+// pulse, winner halo); the four BASE_RADII keep the populations intentionally
+// distinct relative to one another.
+const VISUAL_SCALE = WITHIN_LAYER_SPACING;
+const BASE_RADII = { RGS: 0.40, L1E: 0.44, ERRE: 0.42, L1I: 0.34, L2E: 0.55, L2I: 0.62 };
+const RING_GAP = 0.18;          // base gap between sphere surface and charge ring
+const HALO_RADIUS = 1.05;       // base winner-halo torus radius (encloses winner)
+const HALO_TUBE = 0.06;         // base winner-halo tube radius
+// Per-frame growth factors baked into the animation loop, mirrored here so the
+// camera-fit padding tracks the largest an object can actually render.
+const SELECTION_GROWTH = 1.35;  // selected-neuron mesh scale (see _loop)
+const SPIKE_PULSE_GROWTH = 1.5; // (1 + pulse*0.5) at pulse == 1
+const RING_MAX_SCALE = 2.0;     // charge(<=1.5) + pulse*0.5 at pulse == 1
+
+// Scaled radius for a neuron given its layer/type metadata.
+function neuronRadius(meta) {
+  return (BASE_RADII[meta.layer + meta.type] ?? BASE_RADII.L1E) * VISUAL_SCALE;
+}
+
+// Largest distance any rendered object reaches from its neuron center, across
+// spheres (with selection + spike growth), charge rings (with charge + pulse
+// bloom), and the winner halo. Used as camera-fit padding so enlarged neurons
+// are never clipped at the viewport edges or after a resize.
+function maxRenderedExtent() {
+  const rMax = Math.max(...Object.values(BASE_RADII)) * VISUAL_SCALE;
+  const tubeMax = 0.055 * VISUAL_SCALE;
+  const neuron = rMax * SELECTION_GROWTH * SPIKE_PULSE_GROWTH;
+  const ring = (rMax + RING_GAP * VISUAL_SCALE + tubeMax) * RING_MAX_SCALE;
+  const halo = (HALO_RADIUS + HALO_TUBE) * VISUAL_SCALE;
+  return Math.max(neuron, ring, halo);
+}
 
 export class NeuronRenderer {
   constructor(container, { onSelect }) {
@@ -26,15 +94,22 @@ export class NeuronRenderer {
     // id -> {mesh, ring, meta, pulse, spiked, act, freq, assembly}
     this.neurons = new Map();
     this.edges = new Map();       // id -> {line, mat, syn, weight, pulse}
-    this.filters = { active: false, weak: true, assembly: false, l1: true, l2: true, inh: true };
+    this.filters = { active: false, weak: true, assembly: false, rg: true, l1: true, l2: true, inh: true };
     this._last = null;
     this._selected = null;
 
     const scene = new THREE.Scene();
     this.scene = scene;
 
-    const cam = new THREE.PerspectiveCamera(45, 1, 0.1, 500);
-    cam.position.set(11, -9, 16);
+    // Orthographic projection keeps neurons that are separated in the view plane
+    // from collapsing back together through perspective/depth foreshortening. The
+    // network is still fully 3D and orbitable; only the projection is non-perspective.
+    const cam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 500);
+    // Oblique side view: enough elevation to read each local cloud, but not so much
+    // z-depth that L1, L2, and their inhibitory partners stack on top of one another.
+    // backend/simulation.py uses this same camera-target vector for projected-spacing
+    // rejection when it generates the seeded layout.
+    cam.position.set(14, -18, 9);
     this.camera = cam;
 
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
@@ -53,7 +128,7 @@ export class NeuronRenderer {
     const p2 = new THREE.PointLight(0x5eead4, 0.5, 120); p2.position.set(-16, -12, 6); scene.add(p2);
 
     const halo = new THREE.Mesh(
-      new THREE.TorusGeometry(1.05, 0.06, 12, 40),
+      new THREE.TorusGeometry(HALO_RADIUS * VISUAL_SCALE, HALO_TUBE * VISUAL_SCALE, 12, 40),
       new THREE.MeshBasicMaterial({ color: COLORS.winner, transparent: true, opacity: 0.9 }));
     halo.visible = false;
     scene.add(halo);
@@ -79,14 +154,41 @@ export class NeuronRenderer {
     for (const { line } of this.edges.values()) this.scene.remove(line);
     this.neurons.clear(); this.edges.clear();
     this.pos = new Map();
+    this.functionalPos = new Map();
+    // Shared accumulating-weight cap: learned weights arrive on the theta=1000 scale,
+    // so opacity/weak/assembly thresholds are computed as a fraction of this cap.
+    this.weightCap = topology.params?.e_weight_cap || 1;
 
+    const layerSums = new Map(), layerCounts = new Map();
+    const networkCenter = new THREE.Vector3();
     for (const m of topology.neurons) {
-      this.pos.set(m.id, new THREE.Vector3(m.pos[0], m.pos[1], m.pos[2]));
+      const raw = new THREE.Vector3(m.pos[0], m.pos[1], m.pos[2]);
+      this.functionalPos.set(m.id, raw);
+      networkCenter.add(raw);
+      if (!layerSums.has(m.layer)) layerSums.set(m.layer, new THREE.Vector3());
+      layerSums.get(m.layer).add(raw);
+      layerCounts.set(m.layer, (layerCounts.get(m.layer) || 0) + 1);
+    }
+    networkCenter.multiplyScalar(1 / Math.max(topology.neurons.length, 1));
+    const layerCenters = new Map();
+    for (const [layer, sum] of layerSums) {
+      layerCenters.set(layer, sum.multiplyScalar(1 / layerCounts.get(layer)));
+    }
+    for (const m of topology.neurons) {
+      const raw = this.functionalPos.get(m.id);
+      const layerCenter = layerCenters.get(m.layer);
+      const visualLayerCenter = networkCenter.clone().add(
+        layerCenter.clone().sub(networkCenter).multiplyScalar(BETWEEN_LAYER_SPACING));
+      const visual = visualLayerCenter.add(
+        raw.clone().sub(layerCenter).multiplyScalar(WITHIN_LAYER_SPACING));
+      this.pos.set(m.id, visual);
     }
 
     for (const m of topology.neurons) {
-      // Neuron sphere
-      const r = m.layer === 'L2' ? (m.type === 'I' ? 0.62 : 0.55) : (m.type === 'I' ? 0.34 : 0.44);
+      // Neuron sphere. Geometry is enlarged by VISUAL_SCALE so the per-frame
+      // mesh.scale in _loop (selection/spike growth) still multiplies from the
+      // correct visual base instead of being reset to the compact-layout size.
+      const r = neuronRadius(m);
       const geo = new THREE.SphereGeometry(r, 24, 18);
       const mat = new THREE.MeshStandardMaterial({
         color: 0x2b3446, emissive: COLORS[m.type], emissiveIntensity: 0.08,
@@ -98,8 +200,8 @@ export class NeuronRenderer {
 
       // Charge ring: TorusGeometry around the sphere, starts at scale 0.
       // Inner radius slightly larger than the sphere; thin tube.
-      const ringR = r + 0.18;
-      const tubeR = m.layer === 'L2' ? 0.055 : 0.042;
+      const ringR = r + RING_GAP * VISUAL_SCALE;
+      const tubeR = (m.layer === 'L2' ? 0.055 : 0.042) * VISUAL_SCALE;
       const ringGeo = new THREE.TorusGeometry(ringR, tubeR, 8, 40);
       const ringMat = new THREE.MeshBasicMaterial({
         color: COLORS[m.type], transparent: true, opacity: 0,
@@ -119,9 +221,42 @@ export class NeuronRenderer {
       const mat = new THREE.LineBasicMaterial({ color: COLORS[s.kind], transparent: true, opacity: 0.12 });
       const line = new THREE.Line(geo, mat);
       this.scene.add(line);
-      this.edges.set(s.id, { line, mat, syn: s, weight: s.weight ?? 0, pulse: 0 });
+      this.edges.set(s.id, { line, mat, syn: s, weight: s.weight, pulse: 0 });
     }
     this._applyEdgeWeights();
+    this._fitCameraToTopology();
+  }
+
+  _fitCameraToTopology() {
+    // Layout dimensions are backend-owned and can change with the seed/config.
+    // Fit the camera to the actual topology instead of assuming the old compact
+    // 3x3/ring coordinates. The padding includes neuron spheres, charge rings,
+    // selection growth, and the winner halo.
+    const points = [...this.pos.values()];
+    if (!points.length) return;
+    // Pad by the largest extent any enlarged neuron/ring/halo can reach from its
+    // center so nothing is clipped at the viewport edges on first fit or resize.
+    const box = new THREE.Box3().setFromPoints(points).expandByScalar(maxRenderedExtent());
+    const sphere = box.getBoundingSphere(new THREE.Sphere());
+    const aspect = this.container.clientWidth / Math.max(this.container.clientHeight, 1);
+    const halfHeight = sphere.radius * 1.18 / Math.min(Math.max(aspect, 0.1), 1);
+    const halfWidth = halfHeight * aspect;
+    const distance = Math.max(20, sphere.radius * 3);
+
+    const direction = this.camera.position.clone().sub(this.controls.target);
+    if (direction.lengthSq() < 1e-9) direction.set(1, -1, 1);
+    direction.normalize();
+    this.controls.target.copy(sphere.center);
+    this.camera.position.copy(sphere.center).addScaledVector(direction, distance);
+    this.camera.left = -halfWidth;
+    this.camera.right = halfWidth;
+    this.camera.top = halfHeight;
+    this.camera.bottom = -halfHeight;
+    this.camera.near = Math.max(0.1, distance - sphere.radius * 2);
+    this.camera.far = distance + sphere.radius * 4;
+    this.camera.zoom = 1;
+    this.camera.updateProjectionMatrix();
+    this.controls.update();
   }
 
   // ------------------------------------------------------------- update
@@ -150,9 +285,16 @@ export class NeuronRenderer {
     }
   }
 
+  _norm(w) { return Math.abs(w) / this.weightCap; }   // learned magnitude as a fraction of cap
+
   _applyEdgeWeights() {
     for (const e of this.edges.values()) {
-      const mag = Math.min(1, Math.abs(e.weight));
+      if (e.weight == null) {
+        // Weightless structural relay edge: fixed opacity, no weight scaling.
+        e.baseOpacity = STRUCTURAL_OPACITY;
+        continue;
+      }
+      const mag = Math.min(1, this._norm(e.weight));
       e.baseOpacity = 0.04 + 0.32 * mag;
     }
   }
@@ -165,14 +307,16 @@ export class NeuronRenderer {
     if (win) {
       assemblyNeurons.add(win);
       for (const e of this.edges.values())
-        if (e.syn.target === win && e.syn.kind === 'feedforward' && Math.abs(e.weight) > WEAK)
+        if (e.syn.target === win && e.syn.kind === 'feedforward' && this._norm(e.weight) > WEAK)
           assemblyNeurons.add(e.syn.source);
     }
     for (const [id, e] of this.neurons) {
       let vis = true;
       const t = e.meta.type, layer = e.meta.layer;
       if (t === 'I' && !F.inh) vis = false;
+      if (layer === 'RG' && !F.rg) vis = false;
       if (layer === 'L1' && !F.l1) vis = false;
+      if (layer === 'ERR' && !F.l1) vis = false;
       if (layer === 'L2' && !F.l2) vis = false;
       if (F.active && e.act < 0.05 && !e.spiked) vis = false;
       if (F.assembly && win && !assemblyNeurons.has(id)) vis = false;
@@ -181,7 +325,9 @@ export class NeuronRenderer {
     }
     for (const e of this.edges.values()) {
       let vis = true;
-      if (F.weak && Math.abs(e.weight) < WEAK) vis = false;
+      // Weightless structural relay edges must stay visible regardless of the
+      // weak-weight filter (only neuron-visibility/assembly filters apply).
+      if (e.weight != null && F.weak && this._norm(e.weight) < WEAK) vis = false;
       const sN = this.neurons.get(e.syn.source), tN = this.neurons.get(e.syn.target);
       if (sN && !sN.mesh.visible) vis = false;
       if (tN && !tN.mesh.visible) vis = false;
@@ -215,8 +361,8 @@ export class NeuronRenderer {
   _onResize() {
     const w = this.container.clientWidth, h = this.container.clientHeight;
     this.renderer.setSize(w, h);
-    this.camera.aspect = w / Math.max(h, 1);
-    this.camera.updateProjectionMatrix();
+    if (this.pos?.size) this._fitCameraToTopology();
+    else this.camera.updateProjectionMatrix();
   }
 
   _loop() {

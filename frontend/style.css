@@ -12,6 +12,7 @@
   --accent-2: #7c9cff;      /* indigo */
   --exc: #5eead4;           /* excitatory */
   --inh: #f0788c;           /* inhibitory */
+  --rg: #fbbf24;            /* exogenous retinal-ganglion source layer */
   --win: #ffce5c;           /* winner */
   --ff: #4cc38a;            /* feedforward edge */
   --in: #f0788c;            /* inhibition edge */
@@ -122,6 +123,19 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .check { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--txt-1); cursor: pointer; }
 .check input { accent-color: var(--accent); }
 
+/* ------------------------------------------------------------- model config */
+.config-note { font-size: 10.5px; color: var(--txt-2); margin: 0 0 4px; line-height: 1.4; }
+.config-item { padding: 7px 0; border-top: 1px solid var(--line); }
+.config-item:first-child { border-top: none; }
+.config-desc { font-size: 10.5px; color: var(--txt-2); margin: 5px 0 0; line-height: 1.45; }
+/* --------------------------------------------------------------- auto-cycle */
+.autocycle { margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--line);
+             display: flex; flex-direction: column; gap: 9px; }
+.ac-status { font-size: 11px; color: var(--txt-1); background: var(--bg-2);
+             border: 1px solid var(--line); border-radius: 6px; padding: 6px 9px;
+             font-variant-numeric: tabular-nums; }
+.ac-status.done { color: var(--accent); border-color: var(--accent); }
+
 /* Pixel grid (pattern input) */
 .pixel-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
 .pixel {
@@ -154,9 +168,10 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .legend > div { display: flex; align-items: center; gap: 7px; }
 .sw { width: 11px; height: 11px; border-radius: 50%; }
 .sw.exc { background: var(--exc); } .sw.inh { background: var(--inh); } .sw.win { background: var(--win); }
+.sw.rg { background: var(--rg); }
 .ln { width: 16px; height: 2px; border-radius: 2px; }
 .ln.ff { background: var(--ff); } .ln.in { background: var(--in); } .ln.ex { background: var(--ex); }
-.ln.fb { background: #c084fc; }
+.ln.pi { background: #e066c0; }
 .view-hint { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
   color: var(--txt-2); font-size: 11px; background: rgba(13,17,25,.6); padding: 4px 12px; border-radius: 20px; }
 
@@ -238,4 +253,109 @@ canvas.chart, #histogram { width: 100%; display: block; }
 .log-line.learning .kind { color: var(--win); }
 .log-line.backend .kind { color: var(--txt-1); }
 .log-line.spike .kind { color: var(--exc); }
+.log-line.inhibition .kind { color: var(--inh); }
 .log-line .msg { color: var(--txt-0); }
+
+/* ── Receptive Fields (minimal signed-spike view) ─────────────────────── */
+.rf-wrap { display: flex; flex-direction: column; gap: 12px; height: 100%; }
+.rf-head { display: flex; gap: 14px; align-items: flex-start; }
+.rf-input-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 10px; flex: 0 0 auto; }
+.rf-note { font-size: 12px; color: var(--txt-1); line-height: 1.5; margin: 0; flex: 1; }
+.rf-note code { background: var(--bg-3); padding: 1px 5px; border-radius: 4px; font-size: 11px; color: var(--exc); }
+.rf-input-legend { margin-top: 7px; font-size: 11px; color: var(--txt-2); text-align: center; }
+.pm { font-weight: 700; }
+.pm.plus { color: var(--ok); } .pm.minus { color: var(--inh); }
+
+.rf-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 900px) { .rf-grid { grid-template-columns: repeat(2, 1fr); } }
+.rf-card { background: var(--bg-2); border: 1px solid var(--line); border-radius: var(--radius); padding: 8px; transition: border-color .1s, box-shadow .1s; }
+.rf-card.rf-winner { border-color: var(--win); box-shadow: 0 0 10px rgba(255,206,92,.35); }
+.rf-card.rf-spike { border-color: var(--exc); }
+.rf-card.rf-dead { opacity: .5; }
+.rf-title { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--txt-1); margin-bottom: 7px; font-variant-numeric: tabular-nums; }
+.rf-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--inh); border: 1px solid var(--inh); border-radius: 4px; padding: 0 4px; }
+
+.rf-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+.rf-cell { aspect-ratio: 1 / 1; border-radius: 4px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--txt-2); }
+.rf-input { width: 84px; }
+.rf-cell.sig-plus { background: rgba(69,212,131,.18); color: var(--ok); border-color: rgba(69,212,131,.5); }
+.rf-cell.sig-minus { background: transparent; color: var(--inh); border-color: var(--line); }
+
+/* RF cell weight overlay (weight / cap, on top of the color). */
+.rf-cell.rf-num { font-size: 9px; font-weight: 600; color: #eafaf6; text-shadow: 0 0 3px rgba(0,0,0,.9), 0 1px 1px rgba(0,0,0,.8); font-variant-numeric: tabular-nums; }
+
+/* RF cell display toggle (weight / ratio) + edit affordances */
+.rf-controls { display: flex; align-items: center; gap: 10px; margin-top: 8px; flex-wrap: wrap; }
+.rf-toggle { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+.rf-toggle-btn { background: var(--bg-2); color: var(--txt-2); border: none; padding: 3px 10px; font-size: 11px; font-weight: 600; cursor: pointer; }
+.rf-toggle-btn + .rf-toggle-btn { border-left: 1px solid var(--line); }
+.rf-toggle-btn.is-on { background: var(--exc); color: #04201b; }
+.rf-edit-hint { font-size: 11px; color: var(--txt-2); opacity: .55; }
+.rf-edit-hint.is-active { opacity: 1; color: var(--win); }
+/* Editable cells (only while paused): show they are clickable/typable. */
+.rf-grid.rf-can-edit .rf-cell.rf-editable { cursor: text; }
+.rf-grid.rf-can-edit .rf-cell.rf-editable:hover { outline: 1px solid rgba(255,206,92,.55); outline-offset: -1px; }
+.rf-cell.rf-editing { outline: 2px solid var(--win); outline-offset: -1px; background: rgba(255,206,92,.15) !important; color: var(--txt-0); text-shadow: none; }
+
+/* ── Full-screen visualization overlays (raster / charge / weights) ────── */
+.viz-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg-1); display: flex; flex-direction: column; }
+.viz-overlay[hidden] { display: none; }
+.viz-bar { flex: none; height: 46px; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+.viz-title { font-weight: 600; color: var(--txt-0); }
+.viz-bar .check { margin: 0; }
+.viz-zoom { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--txt-2); }
+.viz-legend { font-size: 11px; color: var(--txt-2); display: flex; align-items: center; gap: 6px; }
+.viz-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
+.viz-hint { font-size: 11px; color: var(--txt-2); }
+.viz-bar .danger { margin-left: auto; }
+/* Playback transport mirrored inside the full-screen chart overlays (the overlay
+   covers the top bar, so these give play/pause/stop without closing the chart). */
+.viz-transport { display: flex; align-items: center; gap: 6px; }
+.viz-transport .btn { flex: 0 0 auto; margin: 0; min-width: 34px; }
+.viz-scroll { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; background: var(--bg-2); }
+.viz-spacer { position: absolute; top: 0; left: 0; height: 1px; pointer-events: none; }
+/* Raster & charge canvases are viewport-sized and pinned; only the visible time
+   window is drawn (virtualized), so the backing store stays small no matter how
+   deep the history. The weights canvas fits the viewport (no horizontal scroll). */
+#raster-canvas, #charge-canvas { position: sticky; left: 0; top: 0; display: block; }
+#weights-scroll { overflow: hidden; }
+#weights-canvas { display: block; }
+
+/* ───────────────────────── Topology editor overlay ─────────────────────── */
+.editor-overlay { display: flex; flex-direction: column; }
+.editor-bar { flex-wrap: wrap; height: auto; min-height: 46px; row-gap: 6px; }
+.ed-group { display: flex; align-items: center; gap: 6px; padding-right: 12px; border-right: 1px solid var(--line); }
+.ed-group:last-of-type { border-right: none; }
+.ed-group label { font-size: 11px; color: var(--txt-2); }
+.editor-bar select, .ed-name { background: var(--bg-3); color: var(--txt-0); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; font-size: 12px; max-width: 190px; }
+.ed-name { width: 120px; }
+.ed-status { font-size: 12px; color: var(--txt-2); margin-left: 8px; }
+.ed-status.is-err { color: var(--inh, #f0788c); }
+.editor-bar .danger#editor-close { margin-left: auto; }
+.editor-body { flex: 1; display: flex; min-height: 0; }
+.editor-canvas { flex: 1; position: relative; min-width: 0; background: var(--bg-1);
+  touch-action: none; overflow: hidden; }
+.editor-canvas canvas { display: block; }
+.editor-inspect { flex: 0 0 260px; background: var(--bg-2); border-left: 1px solid var(--line);
+  padding: 14px; overflow-y: auto; font-size: 12px; }
+.ed-empty { color: var(--txt-2); line-height: 1.5; }
+.ed-title { font-weight: 700; font-size: 15px; margin-bottom: 10px; }
+.ed-row { display: flex; justify-content: space-between; gap: 8px; padding: 4px 0; border-bottom: 1px solid var(--line); }
+.ed-row span { color: var(--txt-2); }
+.ed-desc { color: var(--txt-2); line-height: 1.5; margin: 10px 0; }
+.ed-note { color: var(--txt-2); font-size: 11px; line-height: 1.4; margin: 8px 0; opacity: 0.8; }
+.ed-field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.ed-field span { color: var(--txt-2); }
+.ed-field input { background: var(--bg-3); color: var(--txt-0); border: 1px solid var(--line); border-radius: 6px; padding: 5px; }
+.ed-check { display: flex; align-items: center; gap: 8px; margin: 12px 0; cursor: pointer; }
+.editor-inspect .btn.danger { margin-top: 10px; width: 100%; }
+.editor-hint { flex: none; padding: 6px 14px; font-size: 11px; color: var(--txt-2); background: var(--bg-2); border-top: 1px solid var(--line); }
+
+/* ─────────────────────── Receptive-fields overlay ──────────────────────── */
+.rf-overlay { display: flex; flex-direction: column; }
+.rf-scroll { flex: 1; overflow: auto; padding: 16px; background: var(--bg-1); }
+.rf-overlay .rf-edit-hint { font-size: 11px; color: var(--txt-2); }
+.rf-overlay .rf-edit-hint.is-active { color: var(--ok, #5eead4); }
+.rf-cell.rf-blank { opacity: 0.3; border: 1px dashed var(--line); background: transparent !important; cursor: default; }
+.rf-overlay .viz-transport { margin-left: auto; }

@@ -1,0 +1,29 @@
+Ok it's time to make some big changes. Read this document with the knowledge that I want the actual cleanup and changes to be done with Claude. Your job is to digest this and make a high fidelity, detailed technical prompt for Claude to be our workhorse. First of all, the repository is way too cluttered. There are too many tests, the class definitions have a bunch of methods that are simply unused, and the simulation options are
+huge. Let's keep all the styling and structure of the frontend but do an effective cleanup and wipe of the backend and re engineer some of these things from scratch. We still have the md files to guide us so it should
+be consistent with what we were doing before but much simpler and cleaner with less configuration options.
+
+Here are the features that this network should have:
+
+EXCITATORY NEURONS
+------------------
+Excitatory neurons have two sets of weights. One set are the weights that add to the charge (call them acc_weights). There is another vector of weights that is positive but there is a variable that holds their negative signage so that they can act as subtractors when used (call these subt_weights). When an excitatory neuron fires, it updates its weights based on the existing non linear weight update equation. This equation is based on distance, eta, p = threshold - sum(  acc_weights ), signal (+1 or -1), and the (1 - (w/w_max)^2 ) term. In the case of this simulation, set the weight cap of the subt_weights to be the neuron's threshold. We are working under the assumption that the subt_weights are pre trained and we are no longer using a weight update algorithm for that because this is pre trained. This means that inhibition will act as a hard charge wipe and reinforces the winner take all (WTA) behavior.
+
+INHIBITORY NEURONS
+------------------
+Each inhibitory neuron is an instant relay. Anytime they get a (+1) spike they instantly fire. They do not have a weight vector and simply track "was I sent a signal" and send a spike to the connected E neurons. I neurons are now very powerful frequency modulators that can cause tyranny. We accept this and try to remedy this via topology and frequency modulation. All I neurons should have 1/3 the threshold of E neurons. 
+
+TOPOLOGY UPDATE (Layer 1)
+-------------------------
+We are now making a heavy overhaul to the topology. We will keep the existing layers. Input layer has 9 E neurons and 9 I neurons with an I -> E connection. However, I propose adding another 9 E neurons into the mix. These 9 neurons will connect to the I neuron. Let's call the E neuron that is the source of the signal E_s (this is the original neuron). Let's call this new additional neuron E_new. Currently the setup is 9 sets of I -> E_s, where each I neuron has an input from some L2E_i. With this addition it will be 9 sets of E_new -> I -> E_s where E_new gets input from some L2E_i. E_new is meant to act as another layer of sensitivity and "supervise" the instant relay valve that is the I neuron. 
+
+TOPOLOGY UPDATE (Layer 2)
+-------------------------
+Layer 2 is mostly the same. We have our 8 E neurons and our one I neuron with their bidirectional connections, the dense connections from layer 1 to layer 2, and the feedback connections from layer 2 to the L1I neurons. The change that we are making is that instead of having a feedback connection from L2E to L1I, we now have connections from L2E to L1E_new.
+
+GENERAL ENGINEERING
+----------------------
+Our network really feeds off of frequency behaving how we expect. For example, say a pattern is being presented causing row1 to fire. In this setup, we assume that L1E's acc_weights are already trained. The subt_weights are yet to be trained. When row1 fires, all of the neurons in L2E get charge and eventually the one with the best initial weights fires, invoking inhibition which wipes the competition out. This is classic WTA. The then fires into L1E_new -> L1I -> L1E_s. This causes L1E_s to have a pause in firing. When frequent firing happens, we see the frequency of presentation drop. Aside from the new topology, this is all part of the existing fabric. 
+
+Here comes the new part. So our fabric has a tyrrany issue with WTA. Ideally what we should be able to do is take that winner out of the competition to allow the remaining pool to compete. The mechanism of how to do that is the new part. We cannot artificially take out the winner, it must be emergent. The solution to this must be frequency based. If we can get the input to modulate to the point where it is at 50% firing frequency, maybe we can engineer the weight caps to work in such a way that if we only presented patterns at half the frequency, the neuron wouldn't integrate. This could be facilitated by the leak or some other method. We could create equations that involve time instead if that is more emergent than engineering weight caps. This engineering step is where we will need to do some work.
+ 
+We do not want there to be a leak at this moment nor do we want a refractory period. Keep the refractory period configurable though because it would be useful to play with. The leak should default to 0 but keep it as a slider as well. All neurons should have the same thresholds and weight caps. 

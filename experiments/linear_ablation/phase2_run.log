@@ -1,0 +1,31 @@
+
+=== Phase 2: isolated E convergence (events to X% of theta active sum) ===
+  1_of_9:
+    quadratic_bounded    reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=500.0 nan=False
+    linear_bounded       reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=500.0 nan=False
+    linear_nonnegative   reach90/95/99=247/316/476  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=1000.0 nan=False
+  3_of_9:
+    quadratic_bounded    reach90/95/99=131/168/260  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=333.333 nan=False
+    linear_bounded       reach90/95/99=111/133/186  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=333.333 nan=False
+    linear_nonnegative   reach90/95/99=111/133/186  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=333.333 nan=False
+  5_of_9:
+    quadratic_bounded    reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=172.174 nan=False
+    linear_bounded       reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=155.556 nan=False
+    linear_nonnegative   reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=155.556 nan=False
+  alt_disjoint_3:
+    quadratic_bounded    reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=137.088 nan=False
+    linear_bounded       reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=107.148 nan=False
+    linear_nonnegative   reach90/95/99=None/None/None  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=107.148 nan=False
+  noisy_3_10pct:
+    quadratic_bounded    reach90/95/99=164/210/328  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=344.747 nan=False
+    linear_bounded       reach90/95/99=139/168/232  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=350.231 nan=False
+    linear_nonnegative   reach90/95/99=139/168/232  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=350.231 nan=False
+  unequal_distance_3:
+    quadratic_bounded    reach90/95/99=184/254/434  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=422.017 nan=False
+    linear_bounded       reach90/95/99=139/175/259  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=465.205 nan=False
+    linear_nonnegative   reach90/95/99=139/175/259  neg_fe=0 overshoot_ct=0 max_over=0.0 max_w=465.205 nan=False
+
+=== Phase 2: isolated C cadence (full trajectory, 20k events) ===
+  c_quadratic_bounded    cadence_full=True (mismatches=0, first@None) max_w=550.0 min_margin(w1-w)=450.0 first_from_rest=None first_reach_w1=None REJECTION_OBSERVED=False
+  c_linear_bounded       cadence_full=True (mismatches=0, first@None) max_w=550.0 min_margin(w1-w)=450.0 first_from_rest=None first_reach_w1=None REJECTION_OBSERVED=False
+  c_linear_nonnegative   cadence_full=True (mismatches=0, first@None) max_w=999.9776 min_margin(w1-w)=0.0224 first_from_rest=None first_reach_w1=None REJECTION_OBSERVED=False

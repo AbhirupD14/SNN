@@ -6,6 +6,11 @@ import { NeuronRenderer } from './renderer.js';
 import { Inspector } from './inspector.js';
 import { Charts } from './charts.js';
 import { Controls } from './controls.js';
+import { ReceptiveFields } from './receptive.js';
+import { Raster } from './raster.js';
+import { ChargeChart } from './charge.js';
+import { WeightsChart } from './weights.js';
+import { Editor } from './editor.js';
 
 const api = {
   async post(path, body) {
@@ -23,6 +28,7 @@ const store = {
   topology: null,
   meta: new Map(),          // id -> static meta
   weights: new Map(),       // synapse id -> current weight
+  confidence: new Map(),    // synapse id -> current confidence (L2E gates)
   stateById: new Map(),     // id -> latest dynamic neuron state
   patternVectors: {},
 };
@@ -31,8 +37,13 @@ const renderer = new NeuronRenderer(document.getElementById('scene'), { onSelect
 const inspector = new Inspector(store);
 const charts = new Charts(store);
 const controls = new Controls(store, renderer, api);
+const receptive = new ReceptiveFields(store, api);
+const raster = new Raster(store);
+const chargeChart = new ChargeChart(store);
+const weightsChart = new WeightsChart(store);
+const editor = new Editor(store);
 
-function select(id) { inspector.select(id); renderer.select(id); }
+function select(id) { inspector.select(id); renderer.select(id); weightsChart.setTarget(id); }
 
 // ---- FPS (simulation frames received per second) --------------------------
 let frameStamps = [];
@@ -50,10 +61,15 @@ function onMessage(msg) {
     store.topology = topo;
     store.meta = new Map(topo.neurons.map(n => [n.id, n]));
     store.weights = new Map(topo.synapses.map(s => [s.id, s.weight ?? 0]));
+    store.confidence = new Map(topo.synapses.filter(s => s.confidence != null).map(s => [s.id, s.confidence]));
     store.patternVectors = topo.pattern_vectors || {};
     renderer.build(topo);
     charts.buildStatic(topo);
     controls.onTopology(topo);
+    receptive.build();
+    raster.build(topo);
+    chargeChart.build(topo);
+    weightsChart.build();
   } else if (msg.type === 'dynamic') {
     const dyn = msg.data;
     store.dynamic = dyn;
@@ -62,6 +78,10 @@ function onMessage(msg) {
     const fps = tickFps();
     renderer.update(dyn);
     charts.update(dyn, fps);
+    receptive.update(dyn);
+    raster.update(dyn);
+    chargeChart.update(dyn);
+    weightsChart.update(dyn);
     inspector.refresh();   // re-renders if a neuron was already selected
     controls.onDynamic(dyn);
     updateTopbar(dyn, fps);

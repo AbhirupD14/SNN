@@ -1,0 +1,6370 @@
+{
+  "seeds": [
+    2001,
+    2002,
+    2003,
+    2004,
+    2005,
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025,
+    2026,
+    2027,
+    2028,
+    2029,
+    2030,
+    2031,
+    2032
+  ],
+  "schedule": [
+    [
+      "row 1",
+      2500
+    ],
+    [
+      "col 1",
+      2500
+    ],
+    [
+      "row 1",
+      2500
+    ]
+  ],
+  "fixed_config": {
+    "topology": "rg_coincidence",
+    "l2_init_total_frac": 0.95,
+    "eta": 0.01,
+    "c_eta": 0.001,
+    "leak_rate": 0.0,
+    "refractory_steps": 0,
+    "e_weight_cap": 500.0
+  },
+  "deterministic_replay": true,
+  "per_cond": {
+    "A": {
+      "success_count": 32,
+      "n": 32,
+      "success_rate": 1.0,
+      "mean_row_dom": 1.0,
+      "mean_col_dom": 1.0,
+      "mean_ret_dom": 1.0,
+      "col_turnover_rate": 1.0,
+      "return_recovery_rate": 1.0,
+      "max_individual_weight": 447.53,
+      "total_neg_fe": 0,
+      "total_overshoot": 0,
+      "max_overshoot": 0.0,
+      "total_cap_hits": 0,
+      "total_c_from_rest": 0,
+      "aborts": 0
+    },
+    "B": {
+      "success_count": 32,
+      "n": 32,
+      "success_rate": 1.0,
+      "mean_row_dom": 1.0,
+      "mean_col_dom": 1.0,
+      "mean_ret_dom": 1.0,
+      "col_turnover_rate": 1.0,
+      "return_recovery_rate": 1.0,
+      "max_individual_weight": 500.0,
+      "total_neg_fe": 0,
+      "total_overshoot": 0,
+      "max_overshoot": 0.0,
+      "total_cap_hits": 679,
+      "total_c_from_rest": 0,
+      "aborts": 0
+    }
+  },
+  "runs": [
+    {
+      "cond": "A",
+      "seed": 2001,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 235,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1012
+        },
+        {
+          "L2E6": 35,
+          "L2E5": 939
+        },
+        {
+          "L2E5": 1,
+          "L2E6": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E6": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 999.374,
+        "L2E6": 999.779,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17468,
+      "min_c_safety_margin": 455.155,
+      "w1": 1000.0,
+      "max_individual_weight": 407.74,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4853,
+      "c_coincidences": 9709,
+      "l1_resets": 4853,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.845,
+      "l1e_over_rg": 0.81,
+      "l2_ties": 11497,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2002,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 110,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1016
+        },
+        {
+          "L2E0": 17,
+          "L2E1": 977
+        },
+        {
+          "L2E1": 1,
+          "L2E0": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E0": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 999.207,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 999.207,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16235,
+      "min_c_safety_margin": 455.139,
+      "w1": 1000.0,
+      "max_individual_weight": 415.17,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4512,
+      "c_coincidences": 9027,
+      "l1_resets": 4512,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.861,
+      "l1e_over_rg": 0.8251,
+      "l2_ties": 12330,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2003,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 61,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1002
+        },
+        {
+          "L2E1": 9,
+          "L2E7": 979
+        },
+        {
+          "L2E7": 1,
+          "L2E1": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 999.886,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 999.591
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 999.886,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17613,
+      "min_c_safety_margin": 453.015,
+      "w1": 1000.0,
+      "max_individual_weight": 395.76,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4859,
+      "c_coincidences": 9721,
+      "l1_resets": 4859,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.985,
+      "l1e_over_rg": 0.8075,
+      "l2_ties": 11479,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2004,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 153,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1021
+        },
+        {
+          "L2E2": 24,
+          "L2E7": 956
+        },
+        {
+          "L2E7": 1,
+          "L2E2": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E2": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.837,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 999.554
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.837
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17704,
+      "min_c_safety_margin": 453.864,
+      "w1": 1000.0,
+      "max_individual_weight": 375.18,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4875,
+      "c_coincidences": 9752,
+      "l1_resets": 4875,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.136,
+      "l1e_over_rg": 0.8091,
+      "l2_ties": 11483,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2005,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E4",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E4",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 243,
+      "phase_winner_counts": [
+        {
+          "L2E4": 1020
+        },
+        {
+          "L2E4": 36,
+          "L2E2": 948
+        },
+        {
+          "L2E2": 1,
+          "L2E4": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E4": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.662,
+        "L2E3": 950.0,
+        "L2E4": 1000.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.662
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16140,
+      "min_c_safety_margin": 458.229,
+      "w1": 1000.0,
+      "max_individual_weight": 447.53,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4506,
+      "c_coincidences": 9014,
+      "l1_resets": 4506,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 541.771,
+      "l1e_over_rg": 0.8261,
+      "l2_ties": 12313,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2006,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E3",
+          1.0
+        ],
+        "col": [
+          "L2E0",
+          1.0
+        ],
+        "return_row": [
+          "L2E3",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 223,
+      "phase_winner_counts": [
+        {
+          "L2E3": 1005
+        },
+        {
+          "L2E3": 34,
+          "L2E0": 941
+        },
+        {
+          "L2E0": 1,
+          "L2E3": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E3": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 999.772,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 1000.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 999.772,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16088,
+      "min_c_safety_margin": 455.705,
+      "w1": 1000.0,
+      "max_individual_weight": 368.37,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4467,
+      "c_coincidences": 8937,
+      "l1_resets": 4467,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.295,
+      "l1e_over_rg": 0.824,
+      "l2_ties": 12334,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2007,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 6,
+      "last_incumbent_col": 191,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1018
+        },
+        {
+          "L2E6": 29,
+          "L2E5": 1139
+        },
+        {
+          "L2E5": 1,
+          "L2E6": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E5": 250
+        },
+        {
+          "L2E6": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 846.292,
+        "L2E6": 1000.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17473,
+      "min_c_safety_margin": 457.216,
+      "w1": 1000.0,
+      "max_individual_weight": 353.54,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4779,
+      "c_coincidences": 9558,
+      "l1_resets": 4779,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.784,
+      "l1e_over_rg": 0.816,
+      "l2_ties": 11790,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2008,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 221,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1008
+        },
+        {
+          "L2E0": 33,
+          "L2E5": 957
+        },
+        {
+          "L2E5": 2,
+          "L2E0": 998
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E0": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 999.614,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16022,
+      "min_c_safety_margin": 458.983,
+      "w1": 1000.0,
+      "max_individual_weight": 385.84,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4497,
+      "c_coincidences": 8996,
+      "l1_resets": 4497,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 541.017,
+      "l1e_over_rg": 0.828,
+      "l2_ties": 12354,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2009,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 131,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1008
+        },
+        {
+          "L2E1": 20,
+          "L2E7": 989
+        },
+        {
+          "L2E7": 1,
+          "L2E1": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 999.842
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16377,
+      "min_c_safety_margin": 455.788,
+      "w1": 1000.0,
+      "max_individual_weight": 402.34,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4524,
+      "c_coincidences": 9051,
+      "l1_resets": 4524,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.212,
+      "l1e_over_rg": 0.8264,
+      "l2_ties": 12373,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2010,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 242,
+      "phase_winner_counts": [
+        {
+          "L2E5": 1022
+        },
+        {
+          "L2E5": 36,
+          "L2E3": 934
+        },
+        {
+          "L2E3": 2,
+          "L2E5": 998
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E5": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 999.709,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16170,
+      "min_c_safety_margin": 459.065,
+      "w1": 1000.0,
+      "max_individual_weight": 397.86,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4488,
+      "c_coincidences": 8978,
+      "l1_resets": 4488,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 540.935,
+      "l1e_over_rg": 0.8266,
+      "l2_ties": 12346,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2011,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E4",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 124,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1004
+        },
+        {
+          "L2E2": 19,
+          "L2E4": 971
+        },
+        {
+          "L2E4": 1,
+          "L2E2": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E2": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0,
+        "L2E3": 950.0,
+        "L2E4": 999.867,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16322,
+      "min_c_safety_margin": 454.732,
+      "w1": 1000.0,
+      "max_individual_weight": 364.67,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4491,
+      "c_coincidences": 8984,
+      "l1_resets": 4491,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.268,
+      "l1e_over_rg": 0.8236,
+      "l2_ties": 12344,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2012,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 209,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1017
+        },
+        {
+          "L2E2": 32,
+          "L2E3": 956
+        },
+        {
+          "L2E3": 1,
+          "L2E2": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E2": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0,
+        "L2E3": 999.271,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16141,
+      "min_c_safety_margin": 458.134,
+      "w1": 1000.0,
+      "max_individual_weight": 378.51,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4506,
+      "c_coincidences": 9015,
+      "l1_resets": 4506,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 541.866,
+      "l1e_over_rg": 0.8292,
+      "l2_ties": 12405,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2013,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E6",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 174,
+      "phase_winner_counts": [
+        {
+          "L2E5": 1025
+        },
+        {
+          "L2E5": 27,
+          "L2E6": 960
+        },
+        {
+          "L2E6": 1,
+          "L2E5": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E5": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 999.585,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16221,
+      "min_c_safety_margin": 455.701,
+      "w1": 1000.0,
+      "max_individual_weight": 422.39,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4515,
+      "c_coincidences": 9033,
+      "l1_resets": 4515,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.299,
+      "l1e_over_rg": 0.8267,
+      "l2_ties": 12370,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2014,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 208,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1016
+        },
+        {
+          "L2E6": 31,
+          "L2E7": 963
+        },
+        {
+          "L2E7": 1,
+          "L2E6": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E6": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 1000.0,
+        "L2E7": 999.682
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16336,
+      "min_c_safety_margin": 458.539,
+      "w1": 1000.0,
+      "max_individual_weight": 429.25,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4515,
+      "c_coincidences": 9032,
+      "l1_resets": 4515,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 541.461,
+      "l1e_over_rg": 0.8271,
+      "l2_ties": 12356,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2015,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E0",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 246,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1019
+        },
+        {
+          "L2E1": 36,
+          "L2E0": 1122
+        },
+        {
+          "L2E0": 1,
+          "L2E1": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E0": 250
+        },
+        {
+          "L2E1": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 799.366,
+        "L2E1": 999.823,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 799.366,
+        "L2E1": 999.823,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 18791,
+      "min_c_safety_margin": 457.345,
+      "w1": 1000.0,
+      "max_individual_weight": 361.48,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5139,
+      "c_coincidences": 10280,
+      "l1_resets": 5139,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.655,
+      "l1e_over_rg": 0.7983,
+      "l2_ties": 10854,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2016,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E7",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E7",
+          1.0
+        ]
+      },
+      "first_rival_col": 6,
+      "last_incumbent_col": 149,
+      "phase_winner_counts": [
+        {
+          "L2E7": 1012
+        },
+        {
+          "L2E7": 23,
+          "L2E1": 1145
+        },
+        {
+          "L2E1": 1,
+          "L2E7": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 250
+        },
+        {
+          "L2E7": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 851.621,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 1000.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 851.621,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17467,
+      "min_c_safety_margin": 453.645,
+      "w1": 1000.0,
+      "max_individual_weight": 374.42,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4770,
+      "c_coincidences": 9540,
+      "l1_resets": 4770,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.355,
+      "l1e_over_rg": 0.8118,
+      "l2_ties": 11719,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2017,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 61,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1004
+        },
+        {
+          "L2E1": 9,
+          "L2E2": 972
+        },
+        {
+          "L2E2": 1,
+          "L2E1": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E1": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 999.786,
+        "L2E2": 999.714,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 999.786,
+        "L2E2": 999.714
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17511,
+      "min_c_safety_margin": 453.025,
+      "w1": 1000.0,
+      "max_individual_weight": 418.72,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4851,
+      "c_coincidences": 9704,
+      "l1_resets": 4851,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.975,
+      "l1e_over_rg": 0.8077,
+      "l2_ties": 11484,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2018,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 146,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1007
+        },
+        {
+          "L2E1": 23,
+          "L2E7": 947
+        },
+        {
+          "L2E7": 1,
+          "L2E1": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 999.895,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 999.698
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 999.895,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17487,
+      "min_c_safety_margin": 455.467,
+      "w1": 1000.0,
+      "max_individual_weight": 382.96,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4839,
+      "c_coincidences": 9680,
+      "l1_resets": 4839,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.533,
+      "l1e_over_rg": 0.8093,
+      "l2_ties": 11515,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2019,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E3",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E3",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 111,
+      "phase_winner_counts": [
+        {
+          "L2E3": 1013
+        },
+        {
+          "L2E3": 18,
+          "L2E1": 968
+        },
+        {
+          "L2E1": 1,
+          "L2E3": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E3": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 999.875,
+        "L2E2": 950.0,
+        "L2E3": 1000.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 999.875,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16241,
+      "min_c_safety_margin": 454.271,
+      "w1": 1000.0,
+      "max_individual_weight": 397.91,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4497,
+      "c_coincidences": 8997,
+      "l1_resets": 4497,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.729,
+      "l1e_over_rg": 0.8234,
+      "l2_ties": 12325,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2020,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E4",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 300,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1015
+        },
+        {
+          "L2E6": 45,
+          "L2E4": 941
+        },
+        {
+          "L2E4": 1,
+          "L2E6": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E6": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 999.61,
+        "L2E5": 950.0,
+        "L2E6": 999.872,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17677,
+      "min_c_safety_margin": 455.732,
+      "w1": 1000.0,
+      "max_individual_weight": 374.73,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4875,
+      "c_coincidences": 9752,
+      "l1_resets": 4875,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.268,
+      "l1e_over_rg": 0.811,
+      "l2_ties": 11502,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2021,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E7",
+          1.0
+        ],
+        "col": [
+          "L2E4",
+          1.0
+        ],
+        "return_row": [
+          "L2E7",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 96,
+      "phase_winner_counts": [
+        {
+          "L2E7": 1010
+        },
+        {
+          "L2E7": 15,
+          "L2E4": 989
+        },
+        {
+          "L2E4": 1,
+          "L2E7": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E7": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 999.869,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 1000.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16351,
+      "min_c_safety_margin": 455.853,
+      "w1": 1000.0,
+      "max_individual_weight": 377.93,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4521,
+      "c_coincidences": 9044,
+      "l1_resets": 4521,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.147,
+      "l1e_over_rg": 0.827,
+      "l2_ties": 12392,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2022,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 109,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1010
+        },
+        {
+          "L2E2": 17,
+          "L2E3": 979
+        },
+        {
+          "L2E3": 1,
+          "L2E2": 1248
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E2": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.873,
+        "L2E3": 999.891,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.873
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17886,
+      "min_c_safety_margin": 452.976,
+      "w1": 1000.0,
+      "max_individual_weight": 408.63,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4883,
+      "c_coincidences": 9767,
+      "l1_resets": 4883,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 547.024,
+      "l1e_over_rg": 0.8073,
+      "l2_ties": 11468,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2023,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 169,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1003
+        },
+        {
+          "L2E0": 25,
+          "L2E1": 1135
+        },
+        {
+          "L2E1": 1,
+          "L2E0": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E1": 250
+        },
+        {
+          "L2E0": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 999.85,
+        "L2E1": 797.823,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 999.85,
+        "L2E1": 797.823,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 18503,
+      "min_c_safety_margin": 454.978,
+      "w1": 1000.0,
+      "max_individual_weight": 378.11,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5118,
+      "c_coincidences": 10238,
+      "l1_resets": 5118,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.022,
+      "l1e_over_rg": 0.7972,
+      "l2_ties": 10865,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2024,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E6",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 7,
+      "last_incumbent_col": 3,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1027
+        },
+        {
+          "L2E0": 2,
+          "L2E6": 995
+        },
+        {
+          "L2E6": 1,
+          "L2E0": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E0": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 999.929,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16508,
+      "min_c_safety_margin": 453.765,
+      "w1": 1000.0,
+      "max_individual_weight": 440.96,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4533,
+      "c_coincidences": 9069,
+      "l1_resets": 4533,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.235,
+      "l1e_over_rg": 0.8232,
+      "l2_ties": 12322,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2025,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 148,
+      "phase_winner_counts": [
+        {
+          "L2E5": 999
+        },
+        {
+          "L2E5": 22,
+          "L2E7": 1150
+        },
+        {
+          "L2E7": 1,
+          "L2E5": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E7": 250
+        },
+        {
+          "L2E5": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 950.0,
+        "L2E7": 893.775
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17387,
+      "min_c_safety_margin": 453.79,
+      "w1": 1000.0,
+      "max_individual_weight": 379.16,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4755,
+      "c_coincidences": 9515,
+      "l1_resets": 4755,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.21,
+      "l1e_over_rg": 0.8136,
+      "l2_ties": 11777,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2026,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 6,
+      "last_incumbent_col": 18,
+      "phase_winner_counts": [
+        {
+          "L2E5": 1018
+        },
+        {
+          "L2E5": 4,
+          "L2E3": 1176
+        },
+        {
+          "L2E3": 1,
+          "L2E5": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E3": 250
+        },
+        {
+          "L2E5": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 825.974,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17530,
+      "min_c_safety_margin": 453.116,
+      "w1": 1000.0,
+      "max_individual_weight": 387.76,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4797,
+      "c_coincidences": 9594,
+      "l1_resets": 4797,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.884,
+      "l1e_over_rg": 0.8113,
+      "l2_ties": 11695,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2027,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 137,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1020
+        },
+        {
+          "L2E6": 21,
+          "L2E3": 979
+        },
+        {
+          "L2E3": 2,
+          "L2E6": 998
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E6": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 999.857,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 1000.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16474,
+      "min_c_safety_margin": 454.543,
+      "w1": 1000.0,
+      "max_individual_weight": 420.15,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4530,
+      "c_coincidences": 9062,
+      "l1_resets": 4530,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.457,
+      "l1e_over_rg": 0.825,
+      "l2_ties": 12350,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2028,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E7",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E7",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 190,
+      "phase_winner_counts": [
+        {
+          "L2E7": 1005
+        },
+        {
+          "L2E7": 28,
+          "L2E5": 1138
+        },
+        {
+          "L2E5": 1,
+          "L2E7": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E5": 250
+        },
+        {
+          "L2E7": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 830.687,
+        "L2E6": 950.0,
+        "L2E7": 999.663
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 18675,
+      "min_c_safety_margin": 455.694,
+      "w1": 1000.0,
+      "max_individual_weight": 368.48,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5130,
+      "c_coincidences": 10262,
+      "l1_resets": 5130,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.306,
+      "l1e_over_rg": 0.7987,
+      "l2_ties": 10896,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2029,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E4",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E4",
+          1.0
+        ]
+      },
+      "first_rival_col": 11,
+      "last_incumbent_col": 47,
+      "phase_winner_counts": [
+        {
+          "L2E4": 1011
+        },
+        {
+          "L2E4": 8,
+          "L2E1": 993
+        },
+        {
+          "L2E1": 1,
+          "L2E4": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E4": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 999.71,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 1000.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 999.71,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16245,
+      "min_c_safety_margin": 454.744,
+      "w1": 1000.0,
+      "max_individual_weight": 403.59,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4515,
+      "c_coincidences": 9033,
+      "l1_resets": 4515,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.256,
+      "l1e_over_rg": 0.8251,
+      "l2_ties": 12343,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2030,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E4",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E4",
+          1.0
+        ]
+      },
+      "first_rival_col": 6,
+      "last_incumbent_col": 275,
+      "phase_winner_counts": [
+        {
+          "L2E4": 1000
+        },
+        {
+          "L2E4": 41,
+          "L2E5": 1084
+        },
+        {
+          "L2E5": 1,
+          "L2E4": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E5": 250
+        },
+        {
+          "L2E4": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 999.39,
+        "L2E5": 798.952,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 18081,
+      "min_c_safety_margin": 456.168,
+      "w1": 1000.0,
+      "max_individual_weight": 378.17,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5059,
+      "c_coincidences": 10122,
+      "l1_resets": 5059,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 543.832,
+      "l1e_over_rg": 0.7995,
+      "l2_ties": 10887,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2031,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 138,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1012
+        },
+        {
+          "L2E0": 21,
+          "L2E2": 974
+        },
+        {
+          "L2E2": 1,
+          "L2E0": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E0": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 999.863,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 999.863
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16189,
+      "min_c_safety_margin": 457.79,
+      "w1": 1000.0,
+      "max_individual_weight": 417.15,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4509,
+      "c_coincidences": 9021,
+      "l1_resets": 4509,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.21,
+      "l1e_over_rg": 0.8275,
+      "l2_ties": 12387,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "A",
+      "seed": 2032,
+      "e_mode": "quadratic_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 243,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1016
+        },
+        {
+          "L2E0": 36,
+          "L2E2": 946
+        },
+        {
+          "L2E2": 1,
+          "L2E0": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E0": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 999.338,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 999.338
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 15898,
+      "min_c_safety_margin": 458.256,
+      "w1": 1000.0,
+      "max_individual_weight": 423.26,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4497,
+      "c_coincidences": 8996,
+      "l1_resets": 4497,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 541.744,
+      "l1e_over_rg": 0.8297,
+      "l2_ties": 12395,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2001,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 264,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1014
+        },
+        {
+          "L2E6": 39,
+          "L2E5": 935
+        },
+        {
+          "L2E5": 1,
+          "L2E6": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E6": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 999.996,
+        "L2E6": 1000.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 15897,
+      "min_c_safety_margin": 456.063,
+      "w1": 1000.0,
+      "max_individual_weight": 456.42,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4482,
+      "c_coincidences": 8966,
+      "l1_resets": 4482,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 543.937,
+      "l1e_over_rg": 0.8264,
+      "l2_ties": 12369,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2002,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 37,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1018
+        },
+        {
+          "L2E0": 6,
+          "L2E1": 993
+        },
+        {
+          "L2E1": 1,
+          "L2E0": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E0": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 999.996,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 999.996,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17788,
+      "min_c_safety_margin": 454.279,
+      "w1": 1000.0,
+      "max_individual_weight": 467.05,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4899,
+      "c_coincidences": 9800,
+      "l1_resets": 4899,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.721,
+      "l1e_over_rg": 0.808,
+      "l2_ties": 11449,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2003,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 5,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1004
+        },
+        {
+          "L2E1": 2,
+          "L2E7": 995
+        },
+        {
+          "L2E7": 1,
+          "L2E1": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 999.998
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16147,
+      "min_c_safety_margin": 453.667,
+      "w1": 1000.0,
+      "max_individual_weight": 438.99,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4502,
+      "c_coincidences": 9004,
+      "l1_resets": 4502,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.333,
+      "l1e_over_rg": 0.8234,
+      "l2_ties": 12343,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2004,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 202,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1023
+        },
+        {
+          "L2E2": 31,
+          "L2E7": 949
+        },
+        {
+          "L2E7": 1,
+          "L2E2": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E2": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.999,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 999.996
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.999
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17658,
+      "min_c_safety_margin": 453.859,
+      "w1": 1000.0,
+      "max_individual_weight": 392.86,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4878,
+      "c_coincidences": 9758,
+      "l1_resets": 4878,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.141,
+      "l1e_over_rg": 0.809,
+      "l2_ties": 11481,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2005,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E4",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E4",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 215,
+      "phase_winner_counts": [
+        {
+          "L2E4": 1022
+        },
+        {
+          "L2E4": 32,
+          "L2E2": 957
+        },
+        {
+          "L2E2": 1,
+          "L2E4": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E4": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.921,
+        "L2E3": 950.0,
+        "L2E4": 1000.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 999.921
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17635,
+      "min_c_safety_margin": 456.692,
+      "w1": 1000.0,
+      "max_individual_weight": 500.0,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 679,
+      "weights_above_cap": 0,
+      "c_spikes": 4890,
+      "c_coincidences": 9782,
+      "l1_resets": 4890,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 543.308,
+      "l1e_over_rg": 0.8091,
+      "l2_ties": 11434,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2006,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E3",
+          1.0
+        ],
+        "col": [
+          "L2E0",
+          1.0
+        ],
+        "return_row": [
+          "L2E3",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 218,
+      "phase_winner_counts": [
+        {
+          "L2E3": 1007
+        },
+        {
+          "L2E3": 32,
+          "L2E0": 1130
+        },
+        {
+          "L2E0": 1,
+          "L2E3": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E0": 250
+        },
+        {
+          "L2E3": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 801.917,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 1000.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 801.917,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17188,
+      "min_c_safety_margin": 455.012,
+      "w1": 1000.0,
+      "max_individual_weight": 381.81,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4752,
+      "c_coincidences": 9509,
+      "l1_resets": 4752,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.988,
+      "l1e_over_rg": 0.8113,
+      "l2_ties": 11684,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2007,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 221,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1020
+        },
+        {
+          "L2E6": 33,
+          "L2E5": 969
+        },
+        {
+          "L2E5": 1,
+          "L2E6": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E6": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 1000.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17943,
+      "min_c_safety_margin": 456.882,
+      "w1": 1000.0,
+      "max_individual_weight": 406.47,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4907,
+      "c_coincidences": 9817,
+      "l1_resets": 4907,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 543.118,
+      "l1e_over_rg": 0.8103,
+      "l2_ties": 11492,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2008,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 186,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1010
+        },
+        {
+          "L2E0": 28,
+          "L2E5": 971
+        },
+        {
+          "L2E5": 1,
+          "L2E0": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E0": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 999.999,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 999.997,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 999.999,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17579,
+      "min_c_safety_margin": 457.83,
+      "w1": 1000.0,
+      "max_individual_weight": 407.35,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4887,
+      "c_coincidences": 9776,
+      "l1_resets": 4887,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.17,
+      "l1e_over_rg": 0.8107,
+      "l2_ties": 11471,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2009,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 139,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1009
+        },
+        {
+          "L2E1": 22,
+          "L2E7": 990
+        },
+        {
+          "L2E7": 1,
+          "L2E1": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 1000.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17847,
+      "min_c_safety_margin": 454.884,
+      "w1": 1000.0,
+      "max_individual_weight": 449.23,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4905,
+      "c_coincidences": 9812,
+      "l1_resets": 4905,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.116,
+      "l1e_over_rg": 0.8096,
+      "l2_ties": 11496,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2010,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 229,
+      "phase_winner_counts": [
+        {
+          "L2E5": 1024
+        },
+        {
+          "L2E5": 34,
+          "L2E3": 940
+        },
+        {
+          "L2E3": 1,
+          "L2E5": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E5": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 999.999,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16159,
+      "min_c_safety_margin": 459.051,
+      "w1": 1000.0,
+      "max_individual_weight": 444.02,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4497,
+      "c_coincidences": 8996,
+      "l1_resets": 4497,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 540.949,
+      "l1e_over_rg": 0.8262,
+      "l2_ties": 12340,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2011,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E4",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 132,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1005
+        },
+        {
+          "L2E2": 21,
+          "L2E4": 972
+        },
+        {
+          "L2E4": 1,
+          "L2E2": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E2": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0,
+        "L2E3": 950.0,
+        "L2E4": 1000.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16314,
+      "min_c_safety_margin": 454.718,
+      "w1": 1000.0,
+      "max_individual_weight": 385.81,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4497,
+      "c_coincidences": 8996,
+      "l1_resets": 4497,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.282,
+      "l1e_over_rg": 0.8234,
+      "l2_ties": 12341,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2012,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 223,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1019
+        },
+        {
+          "L2E2": 34,
+          "L2E3": 956
+        },
+        {
+          "L2E3": 1,
+          "L2E2": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E2": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0,
+        "L2E3": 999.992,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16115,
+      "min_c_safety_margin": 458.116,
+      "w1": 1000.0,
+      "max_individual_weight": 405.51,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4512,
+      "c_coincidences": 9027,
+      "l1_resets": 4512,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 541.884,
+      "l1e_over_rg": 0.829,
+      "l2_ties": 12401,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2013,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E6",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 162,
+      "phase_winner_counts": [
+        {
+          "L2E5": 1027
+        },
+        {
+          "L2E5": 24,
+          "L2E6": 1135
+        },
+        {
+          "L2E6": 1,
+          "L2E5": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E6": 250
+        },
+        {
+          "L2E5": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 916.154,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17227,
+      "min_c_safety_margin": 455.062,
+      "w1": 1000.0,
+      "max_individual_weight": 445.52,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4781,
+      "c_coincidences": 9562,
+      "l1_resets": 4781,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.938,
+      "l1e_over_rg": 0.815,
+      "l2_ties": 11771,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2014,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 229,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1018
+        },
+        {
+          "L2E6": 34,
+          "L2E7": 960
+        },
+        {
+          "L2E7": 2,
+          "L2E6": 1248
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E6": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 999.999,
+        "L2E7": 999.999
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17817,
+      "min_c_safety_margin": 457.447,
+      "w1": 1000.0,
+      "max_individual_weight": 496.53,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4891,
+      "c_coincidences": 9786,
+      "l1_resets": 4891,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.553,
+      "l1e_over_rg": 0.8104,
+      "l2_ties": 11481,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2015,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E0",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 246,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1021
+        },
+        {
+          "L2E1": 36,
+          "L2E0": 1125
+        },
+        {
+          "L2E0": 1,
+          "L2E1": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E0": 250
+        },
+        {
+          "L2E1": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 848.539,
+        "L2E1": 1000.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 848.539,
+        "L2E1": 1000.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 18780,
+      "min_c_safety_margin": 457.322,
+      "w1": 1000.0,
+      "max_individual_weight": 373.97,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5148,
+      "c_coincidences": 10298,
+      "l1_resets": 5148,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.678,
+      "l1e_over_rg": 0.798,
+      "l2_ties": 10848,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2016,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E7",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E7",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 145,
+      "phase_winner_counts": [
+        {
+          "L2E7": 1014
+        },
+        {
+          "L2E7": 22,
+          "L2E1": 972
+        },
+        {
+          "L2E1": 2,
+          "L2E7": 1248
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E7": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 1000.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17903,
+      "min_c_safety_margin": 453.43,
+      "w1": 1000.0,
+      "max_individual_weight": 451.7,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4885,
+      "c_coincidences": 9774,
+      "l1_resets": 4885,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.57,
+      "l1e_over_rg": 0.8066,
+      "l2_ties": 11455,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2017,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 9,
+      "last_incumbent_col": 29,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1006
+        },
+        {
+          "L2E1": 5,
+          "L2E2": 983
+        },
+        {
+          "L2E2": 2,
+          "L2E1": 998
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E1": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 1000.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 1000.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16026,
+      "min_c_safety_margin": 453.685,
+      "w1": 1000.0,
+      "max_individual_weight": 475.26,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4491,
+      "c_coincidences": 8984,
+      "l1_resets": 4491,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.315,
+      "l1e_over_rg": 0.8237,
+      "l2_ties": 12347,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2018,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E1",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E1",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 118,
+      "phase_winner_counts": [
+        {
+          "L2E1": 1009
+        },
+        {
+          "L2E1": 19,
+          "L2E7": 956
+        },
+        {
+          "L2E7": 1,
+          "L2E1": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E1": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 999.999
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 1000.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 15963,
+      "min_c_safety_margin": 456.388,
+      "w1": 1000.0,
+      "max_individual_weight": 417.92,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4476,
+      "c_coincidences": 8954,
+      "l1_resets": 4476,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 543.612,
+      "l1e_over_rg": 0.8254,
+      "l2_ties": 12380,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2019,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E3",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E3",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 81,
+      "phase_winner_counts": [
+        {
+          "L2E3": 1015
+        },
+        {
+          "L2E3": 11,
+          "L2E1": 1163
+        },
+        {
+          "L2E1": 1,
+          "L2E3": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E1": 250
+        },
+        {
+          "L2E3": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 864.973,
+        "L2E2": 950.0,
+        "L2E3": 1000.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 864.973,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 18854,
+      "min_c_safety_margin": 453.04,
+      "w1": 1000.0,
+      "max_individual_weight": 410.43,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5157,
+      "c_coincidences": 10316,
+      "l1_resets": 5157,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.96,
+      "l1e_over_rg": 0.794,
+      "l2_ties": 10793,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2020,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E4",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 342,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1017
+        },
+        {
+          "L2E6": 51,
+          "L2E4": 934
+        },
+        {
+          "L2E4": 1,
+          "L2E6": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E6": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 999.997,
+        "L2E5": 950.0,
+        "L2E6": 1000.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16072,
+      "min_c_safety_margin": 456.7,
+      "w1": 1000.0,
+      "max_individual_weight": 398.92,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4500,
+      "c_coincidences": 9003,
+      "l1_resets": 4500,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 543.3,
+      "l1e_over_rg": 0.8276,
+      "l2_ties": 12375,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2021,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E7",
+          1.0
+        ],
+        "col": [
+          "L2E4",
+          1.0
+        ],
+        "return_row": [
+          "L2E7",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 88,
+      "phase_winner_counts": [
+        {
+          "L2E7": 1012
+        },
+        {
+          "L2E7": 14,
+          "L2E4": 994
+        },
+        {
+          "L2E4": 1,
+          "L2E7": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E7": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 1000.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 1000.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17860,
+      "min_c_safety_margin": 454.943,
+      "w1": 1000.0,
+      "max_individual_weight": 399.95,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4904,
+      "c_coincidences": 9811,
+      "l1_resets": 4904,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.057,
+      "l1e_over_rg": 0.81,
+      "l2_ties": 11512,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2022,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E2",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E2",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 137,
+      "phase_winner_counts": [
+        {
+          "L2E2": 1012
+        },
+        {
+          "L2E2": 21,
+          "L2E3": 975
+        },
+        {
+          "L2E3": 1,
+          "L2E2": 1248
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E2": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0,
+        "L2E3": 1000.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17860,
+      "min_c_safety_margin": 452.971,
+      "w1": 1000.0,
+      "max_individual_weight": 456.1,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4886,
+      "c_coincidences": 9773,
+      "l1_resets": 4886,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 547.029,
+      "l1e_over_rg": 0.8072,
+      "l2_ties": 11466,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2023,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 160,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1005
+        },
+        {
+          "L2E0": 25,
+          "L2E1": 965
+        },
+        {
+          "L2E1": 1,
+          "L2E0": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E0": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 999.999,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 999.999,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17414,
+      "min_c_safety_margin": 455.539,
+      "w1": 1000.0,
+      "max_individual_weight": 409.83,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4866,
+      "c_coincidences": 9734,
+      "l1_resets": 4866,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 544.461,
+      "l1e_over_rg": 0.8085,
+      "l2_ties": 11471,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2024,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E6",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 5,
+      "last_incumbent_col": 1,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1029
+        },
+        {
+          "L2E0": 1,
+          "L2E6": 1187
+        },
+        {
+          "L2E6": 1,
+          "L2E0": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E6": 250
+        },
+        {
+          "L2E0": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 921.52,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 19106,
+      "min_c_safety_margin": 452.631,
+      "w1": 1000.0,
+      "max_individual_weight": 480.57,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5199,
+      "c_coincidences": 10400,
+      "l1_resets": 5199,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 547.369,
+      "l1e_over_rg": 0.7936,
+      "l2_ties": 10781,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2025,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E7",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 6,
+      "last_incumbent_col": 142,
+      "phase_winner_counts": [
+        {
+          "L2E5": 1000
+        },
+        {
+          "L2E5": 22,
+          "L2E7": 1154
+        },
+        {
+          "L2E7": 1,
+          "L2E5": 1249
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E7": 250
+        },
+        {
+          "L2E5": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 950.0,
+        "L2E7": 952.079
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 18887,
+      "min_c_safety_margin": 453.118,
+      "w1": 1000.0,
+      "max_individual_weight": 434.83,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 5138,
+      "c_coincidences": 10277,
+      "l1_resets": 5138,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.882,
+      "l1e_over_rg": 0.7966,
+      "l2_ties": 10896,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2026,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E5",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E5",
+          1.0
+        ]
+      },
+      "first_rival_col": 6,
+      "last_incumbent_col": 18,
+      "phase_winner_counts": [
+        {
+          "L2E5": 1020
+        },
+        {
+          "L2E5": 4,
+          "L2E3": 1179
+        },
+        {
+          "L2E3": 1,
+          "L2E5": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E3": 250
+        },
+        {
+          "L2E5": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 880.79,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17506,
+      "min_c_safety_margin": 453.105,
+      "w1": 1000.0,
+      "max_individual_weight": 406.57,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4803,
+      "c_coincidences": 9606,
+      "l1_resets": 4803,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.895,
+      "l1e_over_rg": 0.811,
+      "l2_ties": 11688,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2027,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E6",
+          1.0
+        ],
+        "col": [
+          "L2E3",
+          1.0
+        ],
+        "return_row": [
+          "L2E6",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 174,
+      "phase_winner_counts": [
+        {
+          "L2E6": 1021
+        },
+        {
+          "L2E6": 27,
+          "L2E3": 972
+        },
+        {
+          "L2E3": 2,
+          "L2E6": 1248
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E6": 200
+        },
+        {
+          "L2E3": 200
+        },
+        {
+          "L2E6": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 1000.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 1000.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17921,
+      "min_c_safety_margin": 453.769,
+      "w1": 1000.0,
+      "max_individual_weight": 471.01,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4903,
+      "c_coincidences": 9810,
+      "l1_resets": 4903,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 546.231,
+      "l1e_over_rg": 0.8085,
+      "l2_ties": 11478,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2028,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E7",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E7",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 195,
+      "phase_winner_counts": [
+        {
+          "L2E7": 1007
+        },
+        {
+          "L2E7": 30,
+          "L2E5": 971
+        },
+        {
+          "L2E5": 1,
+          "L2E7": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E7": 200
+        },
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E7": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 1000.0,
+        "L2E6": 950.0,
+        "L2E7": 1000.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16127,
+      "min_c_safety_margin": 457.286,
+      "w1": 1000.0,
+      "max_individual_weight": 402.74,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4509,
+      "c_coincidences": 9021,
+      "l1_resets": 4509,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.714,
+      "l1e_over_rg": 0.8263,
+      "l2_ties": 12353,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2029,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E4",
+          1.0
+        ],
+        "col": [
+          "L2E1",
+          1.0
+        ],
+        "return_row": [
+          "L2E4",
+          1.0
+        ]
+      },
+      "first_rival_col": 7,
+      "last_incumbent_col": 3,
+      "phase_winner_counts": [
+        {
+          "L2E4": 1013
+        },
+        {
+          "L2E4": 2,
+          "L2E1": 1007
+        },
+        {
+          "L2E1": 1,
+          "L2E4": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E1": 200
+        },
+        {
+          "L2E4": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 999.999,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 1000.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 999.999,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16269,
+      "min_c_safety_margin": 454.709,
+      "w1": 1000.0,
+      "max_individual_weight": 433.65,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4530,
+      "c_coincidences": 9063,
+      "l1_resets": 4530,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 545.291,
+      "l1e_over_rg": 0.8245,
+      "l2_ties": 12333,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2030,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E4",
+          1.0
+        ],
+        "col": [
+          "L2E5",
+          1.0
+        ],
+        "return_row": [
+          "L2E4",
+          1.0
+        ]
+      },
+      "first_rival_col": 10,
+      "last_incumbent_col": 286,
+      "phase_winner_counts": [
+        {
+          "L2E4": 1003
+        },
+        {
+          "L2E4": 43,
+          "L2E5": 914
+        },
+        {
+          "L2E5": 1,
+          "L2E4": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E4": 200
+        },
+        {
+          "L2E5": 200
+        },
+        {
+          "L2E4": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 1000.0,
+        "L2E5": 999.996,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 15490,
+      "min_c_safety_margin": 457.852,
+      "w1": 1000.0,
+      "max_individual_weight": 407.13,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4437,
+      "c_coincidences": 8877,
+      "l1_resets": 4437,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.148,
+      "l1e_over_rg": 0.8272,
+      "l2_ties": 12371,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2031,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 109,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1014
+        },
+        {
+          "L2E0": 17,
+          "L2E2": 984
+        },
+        {
+          "L2E2": 1,
+          "L2E0": 999
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E0": 200
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 1000.0,
+        "L2E1": 950.0,
+        "L2E2": 1000.0
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 16188,
+      "min_c_safety_margin": 457.754,
+      "w1": 1000.0,
+      "max_individual_weight": 470.94,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4523,
+      "c_coincidences": 9046,
+      "l1_resets": 4523,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 542.246,
+      "l1e_over_rg": 0.8269,
+      "l2_ties": 12378,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    },
+    {
+      "cond": "B",
+      "seed": 2032,
+      "e_mode": "linear_bounded",
+      "c_mode": "c_quadratic_bounded",
+      "abort": null,
+      "owners": {
+        "row": [
+          "L2E0",
+          1.0
+        ],
+        "col": [
+          "L2E2",
+          1.0
+        ],
+        "return_row": [
+          "L2E0",
+          1.0
+        ]
+      },
+      "first_rival_col": 8,
+      "last_incumbent_col": 165,
+      "phase_winner_counts": [
+        {
+          "L2E0": 1018
+        },
+        {
+          "L2E0": 25,
+          "L2E2": 967
+        },
+        {
+          "L2E2": 1,
+          "L2E0": 1248
+        }
+      ],
+      "final500_winner_counts": [
+        {
+          "L2E0": 200
+        },
+        {
+          "L2E2": 200
+        },
+        {
+          "L2E0": 250
+        }
+      ],
+      "init_totals": {
+        "L2E0": 950.0,
+        "L2E1": 950.0,
+        "L2E2": 950.0,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "final_totals": {
+        "L2E0": 999.999,
+        "L2E1": 950.0,
+        "L2E2": 999.998,
+        "L2E3": 950.0,
+        "L2E4": 950.0,
+        "L2E5": 950.0,
+        "L2E6": 950.0,
+        "L2E7": 950.0
+      },
+      "init_total_mean": 950.0,
+      "final_totals_sample": {
+        "L2E0": 999.999,
+        "L2E1": 950.0,
+        "L2E2": 999.998
+      },
+      "overshoot_max": 0.0,
+      "floor_hits": 17457,
+      "min_c_safety_margin": 456.704,
+      "w1": 1000.0,
+      "max_individual_weight": 487.89,
+      "neg_fe_count": 0,
+      "most_neg_fe": 0.0,
+      "overshoot_count": 0,
+      "cap_hits": 0,
+      "weights_above_cap": 0,
+      "c_spikes": 4889,
+      "c_coincidences": 9779,
+      "l1_resets": 4889,
+      "c_fired_from_rest": 0,
+      "max_c_weight": 543.296,
+      "l1e_over_rg": 0.8123,
+      "l2_ties": 11509,
+      "gates": {
+        "row_dominance_ge_090": true,
+        "col_dominance_ge_080": true,
+        "return_dominance_ge_080": true,
+        "col_owner_differs_from_row": true,
+        "return_owner_equals_row": true
+      },
+      "all_gates_pass": true
+    }
+  ]
+}

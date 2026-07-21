@@ -15,6 +15,89 @@ export class Controls {
     this._wireFilters();
     this._wireTabs();
     this._wireResize();
+    this._wireConfig();
+  }
+
+  // -------------------------------------------------------------- model config
+  async _wireConfig() {
+    const box = document.getElementById('config-controls');
+    if (!box) return;
+    let cfg;
+    try {
+      cfg = await (await fetch('/api/config')).json();
+    } catch (e) { console.warn('config fetch failed', e); return; }
+    this.configDefaults = { ...cfg.values };   // startup values == defaults
+    this.configInputs = {};
+
+    box.innerHTML = '';
+    // Build one control element (and register its value getter in configInputs).
+    const makeItem = (s) => {
+      const item = document.createElement('div');
+      item.className = 'config-item';
+      const val = cfg.values[s.key];
+      if (s.kind === 'toggle') {
+        const lab = document.createElement('label');
+        lab.className = 'check';
+        const cb = document.createElement('input');
+        cb.type = 'checkbox'; cb.checked = !!val;
+        lab.appendChild(cb);
+        lab.appendChild(document.createTextNode(' ' + s.label));
+        item.appendChild(lab);
+        this.configInputs[s.key] = () => cb.checked;
+      } else if (s.kind === 'select') {
+        // Multi-choice string control (e.g. competitive weight-update mode).
+        const lab = document.createElement('label');
+        lab.className = 'field';
+        const span = document.createElement('span');
+        span.textContent = s.label;
+        const sel = document.createElement('select');
+        for (const o of (s.options || [])) {
+          const opt = document.createElement('option');
+          opt.value = o.value;
+          opt.textContent = o.label || o.value;
+          if (o.value === val) opt.selected = true;
+          sel.appendChild(opt);
+        }
+        lab.append(span, sel);
+        item.appendChild(lab);
+        this.configInputs[s.key] = () => sel.value;
+      } else {
+        const lab = document.createElement('label');
+        lab.className = 'field';
+        const span = document.createElement('span');
+        const b = document.createElement('b');
+        const decimals = s.decimals ?? 3;
+        b.textContent = (+val).toFixed(decimals);
+        span.append(s.label + ' ', b);
+        const range = document.createElement('input');
+        range.type = 'range';
+        range.min = s.min; range.max = s.max; range.step = s.step; range.value = val;
+        range.addEventListener('input', () => {
+          b.textContent = (+range.value).toFixed(decimals);
+        });
+        lab.append(span, range);
+        item.appendChild(lab);
+        this.configInputs[s.key] = () => +range.value;
+      }
+      const desc = document.createElement('p');
+      desc.className = 'config-desc';
+      desc.textContent = s.desc;
+      item.appendChild(desc);
+      return item;
+    };
+
+    for (const spec of cfg.spec) box.appendChild(makeItem(spec));
+
+    document.getElementById('config-apply')?.addEventListener('click', () => {
+      const overrides = {};
+      for (const [k, get] of Object.entries(this.configInputs)) overrides[k] = get();
+      this.api.post('/api/config', { overrides });
+    });
+    document.getElementById('config-reset-defaults')?.addEventListener('click', () => {
+      this.api.post('/api/config', { overrides: this.configDefaults });
+      // rebuild the panel so the controls snap back to the applied defaults
+      setTimeout(() => this._wireConfig(), 200);
+    });
   }
 
   // --------------------------------------------------------- resizable bottom
@@ -47,10 +130,26 @@ export class Controls {
   // ------------------------------------------------------------- execution
   _wireExecution() {
     const bind = (ids, fn) => ids.forEach(id => document.getElementById(id)?.addEventListener('click', fn));
-    bind(['g-start', 'x-start', 'x-resume'], () => this.api.post('/api/start'));
-    bind(['g-pause', 'x-pause'], () => this.api.post('/api/pause'));
+    // Sidebar controls plus the transport mirrored inside the full-screen chart
+    // overlays (raster/charge/weights), which cover the top bar's run indicator.
+    bind(['g-start', 'x-start', 'x-resume', 'raster-play', 'charge-play', 'weights-play', 'rf-play'],
+         () => this.api.post('/api/start'));
+    bind(['g-pause', 'x-pause', 'raster-pause', 'charge-pause', 'weights-pause', 'rf-pause'],
+         () => this.api.post('/api/pause'));
     bind(['g-step', 'x-step'], () => this.api.post('/api/step'));
     bind(['g-reset', 'x-reset'], () => this.api.post('/api/reset'));
+    // Reseed = randomized reset: fresh random initial weights under the same
+    // config. Wipes learned state (like Reset), so confirm before firing.
+    bind(['g-reseed', 'x-reseed'], () => {
+      if (window.confirm('Reseed draws new random initial weights and wipes all learned state. Continue?'))
+        this.api.post('/api/reseed');
+    });
+    // Overlay Stop = reset: halts AND rebuilds the network from fresh weights, so
+    // it wipes all learned state -- confirm before firing.
+    bind(['raster-stop', 'charge-stop', 'weights-stop'], () => {
+      if (window.confirm('Stop resets the simulation and wipes all learned weights. Continue?'))
+        this.api.post('/api/reset');
+    });
 
     const speed = document.getElementById('speed'), val = document.getElementById('speed-val');
     speed.addEventListener('input', () => { val.textContent = speed.value; });
@@ -118,7 +217,7 @@ export class Controls {
   // ---------------------------------------------------------------- filters
   _wireFilters() {
     const map = { 'f-active': 'active', 'f-weak': 'weak', 'f-assembly': 'assembly',
-                  'f-l1': 'l1', 'f-l2': 'l2', 'f-inh': 'inh' };
+                  'f-rg': 'rg', 'f-l1': 'l1', 'f-l2': 'l2', 'f-inh': 'inh' };
     for (const [elId, key] of Object.entries(map)) {
       const el = document.getElementById(elId);
       el.addEventListener('change', () => this.renderer.setFilters({ [key]: el.checked }));
@@ -128,6 +227,9 @@ export class Controls {
   // ------------------------------------------------------------------- tabs
   _wireTabs() {
     document.querySelectorAll('.tab').forEach(tab => tab.addEventListener('click', () => {
+      // Raster / Charge / Weights are not bottom panels -- they open full-screen
+      // overlays (handled in their own modules), so they don't switch the drawer.
+      if (['raster', 'charge', 'weights', 'rf'].includes(tab.dataset.tab)) return;
       document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
       document.querySelectorAll('.tab-panel').forEach(p => p.classList.remove('active'));
       tab.classList.add('active');
@@ -142,6 +244,15 @@ export class Controls {
   }
 
   onDynamic(dyn) {
+    // Reflect run state on the overlay transport (the full-screen chart covers the
+    // top bar, so this is the only run/pause indicator visible while it is open):
+    // highlight Play while running, Pause while halted.
+    const running = !!dyn.running;
+    for (const id of ['raster-play', 'charge-play', 'weights-play'])
+      document.getElementById(id)?.classList.toggle('active-toggle', running);
+    for (const id of ['raster-pause', 'charge-pause', 'weights-pause'])
+      document.getElementById(id)?.classList.toggle('active-toggle', !running);
+
     const input = dyn.input || [];
     this.pixels.forEach((cell, i) => {
       const on = input[i] > 0;

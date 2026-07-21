@@ -1,0 +1,11 @@
+
+=== Phase 4: composition readiness (carried-state vs controlled-state) ===
+  learned weights unchanged during every probe: True
+  A [carried   ]: distinct=8/8 row_finite=0 col_finite=4 both_finite=0 mean_gap=None
+  A [controlled]: distinct=8/8 row_finite=0 col_finite=0 both_finite=0 mean_gap=None
+  B [carried   ]: distinct=8/8 row_finite=0 col_finite=3 both_finite=0 mean_gap=None
+  B [controlled]: distinct=8/8 row_finite=0 col_finite=0 both_finite=0 mean_gap=None
+  D [carried   ]: distinct=5/8 row_finite=1 col_finite=4 both_finite=1 mean_gap=0.0
+  D [controlled]: distinct=5/8 row_finite=0 col_finite=0 both_finite=0 mean_gap=None
+  F [carried   ]: distinct=5/8 row_finite=1 col_finite=4 both_finite=1 mean_gap=0.0
+  F [controlled]: distinct=5/8 row_finite=0 col_finite=0 both_finite=0 mean_gap=None

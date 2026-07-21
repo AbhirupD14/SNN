@@ -1,0 +1,1939 @@
+{
+  "n_events": 10000,
+  "e": {
+    "1_of_9": {
+      "quadratic_bounded": {
+        "mode": "quadratic_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 946.656,
+            "active": 106.033,
+            "inactive": 840.623,
+            "max_w": 106.033
+          },
+          "2": {
+            "total": 943.086,
+            "active": 106.543,
+            "inactive": 836.544,
+            "max_w": 106.543
+          },
+          "5": {
+            "total": 930.864,
+            "active": 108.283,
+            "inactive": 822.581,
+            "max_w": 108.283
+          },
+          "10": {
+            "total": 904.299,
+            "active": 112.046,
+            "inactive": 792.253,
+            "max_w": 112.046
+          },
+          "25": {
+            "total": 743.387,
+            "active": 134.26,
+            "inactive": 609.127,
+            "max_w": 134.26
+          },
+          "50": {
+            "total": 253.408,
+            "active": 253.408,
+            "inactive": 0.0,
+            "max_w": 253.408
+          },
+          "100": {
+            "total": 418.944,
+            "active": 418.944,
+            "inactive": 0.0,
+            "max_w": 418.944
+          },
+          "250": {
+            "total": 496.349,
+            "active": 496.349,
+            "inactive": 0.0,
+            "max_w": 496.349
+          },
+          "500": {
+            "total": 499.977,
+            "active": 499.977,
+            "inactive": 0.0,
+            "max_w": 499.977
+          },
+          "1000": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "2500": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "5000": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "10000": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 8661,
+        "floor_hits": 79672,
+        "nan_or_inf": false,
+        "final_total": 500.0,
+        "final_max_w": 500.0,
+        "final_min_w": 0.0
+      },
+      "linear_bounded": {
+        "mode": "linear_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 946.5,
+            "active": 106.056,
+            "inactive": 840.444,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 942.755,
+            "active": 106.591,
+            "inactive": 836.164,
+            "max_w": 106.591
+          },
+          "5": {
+            "total": 929.872,
+            "active": 108.431,
+            "inactive": 821.441,
+            "max_w": 108.431
+          },
+          "10": {
+            "total": 901.642,
+            "active": 112.464,
+            "inactive": 789.179,
+            "max_w": 112.464
+          },
+          "25": {
+            "total": 728.628,
+            "active": 137.18,
+            "inactive": 591.448,
+            "max_w": 137.18
+          },
+          "50": {
+            "total": 280.934,
+            "active": 280.934,
+            "inactive": 0.0,
+            "max_w": 280.934
+          },
+          "100": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "250": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "500": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "1000": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "2500": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "5000": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          },
+          "10000": {
+            "total": 500.0,
+            "active": 500.0,
+            "inactive": 0.0,
+            "max_w": 500.0
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 9914,
+        "floor_hits": 79680,
+        "nan_or_inf": false,
+        "final_total": 500.0,
+        "final_max_w": 500.0,
+        "final_min_w": 0.0
+      },
+      "linear_nonnegative": {
+        "mode": "linear_nonnegative",
+        "events": 10000,
+        "reach_pct": {
+          "90": 247,
+          "95": 316,
+          "99": 476
+        },
+        "checkpoints": {
+          "1": {
+            "total": 946.5,
+            "active": 106.056,
+            "inactive": 840.444,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 942.755,
+            "active": 106.591,
+            "inactive": 836.164,
+            "max_w": 106.591
+          },
+          "5": {
+            "total": 929.872,
+            "active": 108.431,
+            "inactive": 821.441,
+            "max_w": 108.431
+          },
+          "10": {
+            "total": 901.642,
+            "active": 112.464,
+            "inactive": 789.179,
+            "max_w": 112.464
+          },
+          "25": {
+            "total": 728.628,
+            "active": 137.18,
+            "inactive": 591.448,
+            "max_w": 137.18
+          },
+          "50": {
+            "total": 280.934,
+            "active": 280.934,
+            "inactive": 0.0,
+            "max_w": 280.934
+          },
+          "100": {
+            "total": 564.961,
+            "active": 564.961,
+            "inactive": 0.0,
+            "max_w": 564.961
+          },
+          "250": {
+            "total": 903.66,
+            "active": 903.66,
+            "inactive": 0.0,
+            "max_w": 903.66
+          },
+          "500": {
+            "total": 992.191,
+            "active": 992.191,
+            "inactive": 0.0,
+            "max_w": 992.191
+          },
+          "1000": {
+            "total": 999.949,
+            "active": 999.949,
+            "inactive": 0.0,
+            "max_w": 999.949
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 1000.0
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 1000.0
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 1000.0
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 79680,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 1000.0,
+        "final_min_w": 0.0
+      }
+    },
+    "3_of_9": {
+      "quadratic_bounded": {
+        "mode": "quadratic_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": 131,
+          "95": 168,
+          "99": 260
+        },
+        "checkpoints": {
+          "1": {
+            "total": 948.567,
+            "active": 318.1,
+            "inactive": 630.467,
+            "max_w": 106.033
+          },
+          "2": {
+            "total": 947.091,
+            "active": 319.573,
+            "inactive": 627.517,
+            "max_w": 106.524
+          },
+          "5": {
+            "total": 942.391,
+            "active": 324.249,
+            "inactive": 618.142,
+            "max_w": 108.083
+          },
+          "10": {
+            "total": 933.558,
+            "active": 332.967,
+            "inactive": 600.591,
+            "max_w": 110.989
+          },
+          "25": {
+            "total": 897.315,
+            "active": 367.85,
+            "inactive": 529.465,
+            "max_w": 122.617
+          },
+          "50": {
+            "total": 779.878,
+            "active": 472.213,
+            "inactive": 307.665,
+            "max_w": 157.404
+          },
+          "100": {
+            "total": 814.768,
+            "active": 814.768,
+            "inactive": 0.0,
+            "max_w": 271.589
+          },
+          "250": {
+            "total": 988.23,
+            "active": 988.23,
+            "inactive": 0.0,
+            "max_w": 329.41
+          },
+          "500": {
+            "total": 999.827,
+            "active": 999.827,
+            "inactive": 0.0,
+            "max_w": 333.276
+          },
+          "1000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 59598,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 333.333,
+        "final_min_w": 0.0
+      },
+      "linear_bounded": {
+        "mode": "linear_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": 111,
+          "95": 133,
+          "99": 186
+        },
+        "checkpoints": {
+          "1": {
+            "total": 948.5,
+            "active": 318.167,
+            "inactive": 630.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 946.955,
+            "active": 319.712,
+            "inactive": 627.243,
+            "max_w": 106.571
+          },
+          "5": {
+            "total": 942.036,
+            "active": 324.63,
+            "inactive": 617.406,
+            "max_w": 108.21
+          },
+          "10": {
+            "total": 932.804,
+            "active": 333.862,
+            "inactive": 598.942,
+            "max_w": 111.287
+          },
+          "25": {
+            "total": 895.311,
+            "active": 371.356,
+            "inactive": 523.956,
+            "max_w": 123.785
+          },
+          "50": {
+            "total": 780.805,
+            "active": 485.862,
+            "inactive": 294.943,
+            "max_w": 161.954
+          },
+          "100": {
+            "total": 864.106,
+            "active": 864.106,
+            "inactive": 0.0,
+            "max_w": 288.035
+          },
+          "250": {
+            "total": 998.591,
+            "active": 998.591,
+            "inactive": 0.0,
+            "max_w": 332.864
+          },
+          "500": {
+            "total": 999.999,
+            "active": 999.999,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "1000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 59598,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 333.333,
+        "final_min_w": 0.0
+      },
+      "linear_nonnegative": {
+        "mode": "linear_nonnegative",
+        "events": 10000,
+        "reach_pct": {
+          "90": 111,
+          "95": 133,
+          "99": 186
+        },
+        "checkpoints": {
+          "1": {
+            "total": 948.5,
+            "active": 318.167,
+            "inactive": 630.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 946.955,
+            "active": 319.712,
+            "inactive": 627.243,
+            "max_w": 106.571
+          },
+          "5": {
+            "total": 942.036,
+            "active": 324.63,
+            "inactive": 617.406,
+            "max_w": 108.21
+          },
+          "10": {
+            "total": 932.804,
+            "active": 333.862,
+            "inactive": 598.942,
+            "max_w": 111.287
+          },
+          "25": {
+            "total": 895.311,
+            "active": 371.356,
+            "inactive": 523.956,
+            "max_w": 123.785
+          },
+          "50": {
+            "total": 780.805,
+            "active": 485.862,
+            "inactive": 294.943,
+            "max_w": 161.954
+          },
+          "100": {
+            "total": 864.106,
+            "active": 864.106,
+            "inactive": 0.0,
+            "max_w": 288.035
+          },
+          "250": {
+            "total": 998.591,
+            "active": 998.591,
+            "inactive": 0.0,
+            "max_w": 332.864
+          },
+          "500": {
+            "total": 999.999,
+            "active": 999.999,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "1000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 333.333
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 59598,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 333.333,
+        "final_min_w": 0.0
+      }
+    },
+    "5_of_9": {
+      "quadratic_bounded": {
+        "mode": "quadratic_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 950.478,
+            "active": 530.166,
+            "inactive": 420.311,
+            "max_w": 106.033
+          },
+          "2": {
+            "total": 950.949,
+            "active": 532.531,
+            "inactive": 418.418,
+            "max_w": 106.506
+          },
+          "5": {
+            "total": 952.326,
+            "active": 539.486,
+            "inactive": 412.84,
+            "max_w": 107.897
+          },
+          "10": {
+            "total": 954.504,
+            "active": 550.63,
+            "inactive": 403.874,
+            "max_w": 110.126
+          },
+          "25": {
+            "total": 960.263,
+            "active": 581.033,
+            "inactive": 379.229,
+            "max_w": 116.207
+          },
+          "50": {
+            "total": 967.826,
+            "active": 623.34,
+            "inactive": 344.486,
+            "max_w": 124.668
+          },
+          "100": {
+            "total": 977.99,
+            "active": 685.664,
+            "inactive": 292.326,
+            "max_w": 137.133
+          },
+          "250": {
+            "total": 991.345,
+            "active": 782.162,
+            "inactive": 209.183,
+            "max_w": 156.432
+          },
+          "500": {
+            "total": 997.537,
+            "active": 836.456,
+            "inactive": 161.081,
+            "max_w": 167.291
+          },
+          "1000": {
+            "total": 999.732,
+            "active": 858.112,
+            "inactive": 141.619,
+            "max_w": 171.622
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 860.866,
+            "inactive": 139.134,
+            "max_w": 172.173
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 860.87,
+            "inactive": 139.13,
+            "max_w": 172.174
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 860.87,
+            "inactive": 139.13,
+            "max_w": 172.174
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 0,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 172.174,
+        "final_min_w": 34.782
+      },
+      "linear_bounded": {
+        "mode": "linear_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 950.5,
+            "active": 530.278,
+            "inactive": 420.222,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 950.995,
+            "active": 532.753,
+            "inactive": 418.242,
+            "max_w": 106.551
+          },
+          "5": {
+            "total": 952.45,
+            "active": 540.03,
+            "inactive": 412.42,
+            "max_w": 108.006
+          },
+          "10": {
+            "total": 954.781,
+            "active": 551.682,
+            "inactive": 403.099,
+            "max_w": 110.336
+          },
+          "25": {
+            "total": 961.109,
+            "active": 583.322,
+            "inactive": 377.786,
+            "max_w": 116.664
+          },
+          "50": {
+            "total": 969.75,
+            "active": 626.526,
+            "inactive": 343.223,
+            "max_w": 125.305
+          },
+          "100": {
+            "total": 981.698,
+            "active": 686.27,
+            "inactive": 295.429,
+            "max_w": 137.254
+          },
+          "250": {
+            "total": 995.947,
+            "active": 757.513,
+            "inactive": 238.434,
+            "max_w": 151.503
+          },
+          "500": {
+            "total": 999.671,
+            "active": 776.135,
+            "inactive": 223.536,
+            "max_w": 155.227
+          },
+          "1000": {
+            "total": 999.998,
+            "active": 777.767,
+            "inactive": 222.231,
+            "max_w": 155.553
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 777.778,
+            "inactive": 222.222,
+            "max_w": 155.556
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 777.778,
+            "inactive": 222.222,
+            "max_w": 155.556
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 777.778,
+            "inactive": 222.222,
+            "max_w": 155.556
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 0,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 155.556,
+        "final_min_w": 55.556
+      },
+      "linear_nonnegative": {
+        "mode": "linear_nonnegative",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 950.5,
+            "active": 530.278,
+            "inactive": 420.222,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 950.995,
+            "active": 532.753,
+            "inactive": 418.242,
+            "max_w": 106.551
+          },
+          "5": {
+            "total": 952.45,
+            "active": 540.03,
+            "inactive": 412.42,
+            "max_w": 108.006
+          },
+          "10": {
+            "total": 954.781,
+            "active": 551.682,
+            "inactive": 403.099,
+            "max_w": 110.336
+          },
+          "25": {
+            "total": 961.109,
+            "active": 583.322,
+            "inactive": 377.786,
+            "max_w": 116.664
+          },
+          "50": {
+            "total": 969.75,
+            "active": 626.526,
+            "inactive": 343.223,
+            "max_w": 125.305
+          },
+          "100": {
+            "total": 981.698,
+            "active": 686.27,
+            "inactive": 295.429,
+            "max_w": 137.254
+          },
+          "250": {
+            "total": 995.947,
+            "active": 757.513,
+            "inactive": 238.434,
+            "max_w": 151.503
+          },
+          "500": {
+            "total": 999.671,
+            "active": 776.135,
+            "inactive": 223.536,
+            "max_w": 155.227
+          },
+          "1000": {
+            "total": 999.998,
+            "active": 777.767,
+            "inactive": 222.231,
+            "max_w": 155.553
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 777.778,
+            "inactive": 222.222,
+            "max_w": 155.556
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 777.778,
+            "inactive": 222.222,
+            "max_w": 155.556
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 777.778,
+            "inactive": 222.222,
+            "max_w": 155.556
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 0,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 155.556,
+        "final_min_w": 55.556
+      }
+    },
+    "alt_disjoint_3": {
+      "quadratic_bounded": {
+        "mode": "quadratic_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 948.567,
+            "active": 315.234,
+            "inactive": 633.333,
+            "max_w": 106.033
+          },
+          "2": {
+            "total": 947.093,
+            "active": 316.708,
+            "inactive": 630.385,
+            "max_w": 105.569
+          },
+          "5": {
+            "total": 942.407,
+            "active": 315.148,
+            "inactive": 627.26,
+            "max_w": 106.063
+          },
+          "10": {
+            "total": 933.643,
+            "active": 316.902,
+            "inactive": 616.741,
+            "max_w": 105.634
+          },
+          "25": {
+            "total": 898.267,
+            "active": 314.539,
+            "inactive": 583.728,
+            "max_w": 106.275
+          },
+          "50": {
+            "total": 790.54,
+            "active": 319.002,
+            "inactive": 471.538,
+            "max_w": 106.334
+          },
+          "100": {
+            "total": 634.86,
+            "active": 322.032,
+            "inactive": 312.828,
+            "max_w": 107.344
+          },
+          "250": {
+            "total": 639.665,
+            "active": 324.366,
+            "inactive": 315.299,
+            "max_w": 108.122
+          },
+          "500": {
+            "total": 647.465,
+            "active": 328.155,
+            "inactive": 319.31,
+            "max_w": 109.385
+          },
+          "1000": {
+            "total": 662.317,
+            "active": 335.372,
+            "inactive": 326.945,
+            "max_w": 111.791
+          },
+          "2500": {
+            "total": 701.466,
+            "active": 354.403,
+            "inactive": 347.063,
+            "max_w": 118.134
+          },
+          "5000": {
+            "total": 752.166,
+            "active": 379.07,
+            "inactive": 373.096,
+            "max_w": 126.357
+          },
+          "10000": {
+            "total": 818.265,
+            "active": 411.264,
+            "inactive": 407.001,
+            "max_w": 137.088
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 29793,
+        "nan_or_inf": false,
+        "final_total": 818.265,
+        "final_max_w": 137.088,
+        "final_min_w": 0.0
+      },
+      "linear_bounded": {
+        "mode": "linear_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 948.5,
+            "active": 315.167,
+            "inactive": 633.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 946.955,
+            "active": 316.712,
+            "inactive": 630.243,
+            "max_w": 105.571
+          },
+          "5": {
+            "total": 942.036,
+            "active": 315.071,
+            "inactive": 626.965,
+            "max_w": 106.087
+          },
+          "10": {
+            "total": 932.804,
+            "active": 316.921,
+            "inactive": 615.883,
+            "max_w": 105.64
+          },
+          "25": {
+            "total": 895.311,
+            "active": 314.381,
+            "inactive": 580.93,
+            "max_w": 106.318
+          },
+          "50": {
+            "total": 780.805,
+            "active": 319.167,
+            "inactive": 461.638,
+            "max_w": 106.389
+          },
+          "100": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "250": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "500": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "1000": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "2500": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "5000": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "10000": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 29799,
+        "nan_or_inf": false,
+        "final_total": 633.333,
+        "final_max_w": 107.148,
+        "final_min_w": 0.0
+      },
+      "linear_nonnegative": {
+        "mode": "linear_nonnegative",
+        "events": 10000,
+        "reach_pct": {
+          "90": null,
+          "95": null,
+          "99": null
+        },
+        "checkpoints": {
+          "1": {
+            "total": 948.5,
+            "active": 315.167,
+            "inactive": 633.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 946.955,
+            "active": 316.712,
+            "inactive": 630.243,
+            "max_w": 105.571
+          },
+          "5": {
+            "total": 942.036,
+            "active": 315.071,
+            "inactive": 626.965,
+            "max_w": 106.087
+          },
+          "10": {
+            "total": 932.804,
+            "active": 316.921,
+            "inactive": 615.883,
+            "max_w": 105.64
+          },
+          "25": {
+            "total": 895.311,
+            "active": 314.381,
+            "inactive": 580.93,
+            "max_w": 106.318
+          },
+          "50": {
+            "total": 780.805,
+            "active": 319.167,
+            "inactive": 461.638,
+            "max_w": 106.389
+          },
+          "100": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "250": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "500": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "1000": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "2500": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "5000": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          },
+          "10000": {
+            "total": 633.333,
+            "active": 321.443,
+            "inactive": 311.891,
+            "max_w": 107.148
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 29799,
+        "nan_or_inf": false,
+        "final_total": 633.333,
+        "final_max_w": 107.148,
+        "final_min_w": 0.0
+      }
+    },
+    "noisy_3_10pct": {
+      "quadratic_bounded": {
+        "mode": "quadratic_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": 164,
+          "95": 210,
+          "99": 328
+        },
+        "checkpoints": {
+          "1": {
+            "total": 947.611,
+            "active": 317.144,
+            "inactive": 630.467,
+            "max_w": 106.033
+          },
+          "2": {
+            "total": 946.108,
+            "active": 318.646,
+            "inactive": 627.463,
+            "max_w": 106.534
+          },
+          "5": {
+            "total": 941.325,
+            "active": 322.351,
+            "inactive": 618.974,
+            "max_w": 108.121
+          },
+          "10": {
+            "total": 936.058,
+            "active": 330.015,
+            "inactive": 606.044,
+            "max_w": 111.046
+          },
+          "25": {
+            "total": 911.978,
+            "active": 360.315,
+            "inactive": 551.663,
+            "max_w": 121.658
+          },
+          "50": {
+            "total": 866.768,
+            "active": 420.358,
+            "inactive": 446.41,
+            "max_w": 141.941
+          },
+          "100": {
+            "total": 689.005,
+            "active": 689.005,
+            "inactive": 0.0,
+            "max_w": 240.402
+          },
+          "250": {
+            "total": 971.341,
+            "active": 971.341,
+            "inactive": 0.0,
+            "max_w": 336.122
+          },
+          "500": {
+            "total": 998.952,
+            "active": 998.941,
+            "inactive": 0.011,
+            "max_w": 344.402
+          },
+          "1000": {
+            "total": 999.999,
+            "active": 999.999,
+            "inactive": 0.0,
+            "max_w": 344.746
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 344.747
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 344.747
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 344.747
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 56973,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 344.747,
+        "final_min_w": 0.0
+      },
+      "linear_bounded": {
+        "mode": "linear_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": 139,
+          "95": 168,
+          "99": 232
+        },
+        "checkpoints": {
+          "1": {
+            "total": 947.5,
+            "active": 317.167,
+            "inactive": 630.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 945.925,
+            "active": 318.742,
+            "inactive": 627.183,
+            "max_w": 106.581
+          },
+          "5": {
+            "total": 940.911,
+            "active": 322.642,
+            "inactive": 618.269,
+            "max_w": 108.252
+          },
+          "10": {
+            "total": 935.413,
+            "active": 330.757,
+            "inactive": 604.656,
+            "max_w": 111.351
+          },
+          "25": {
+            "total": 910.578,
+            "active": 363.184,
+            "inactive": 547.394,
+            "max_w": 122.722
+          },
+          "50": {
+            "total": 866.368,
+            "active": 428.165,
+            "inactive": 438.203,
+            "max_w": 144.706
+          },
+          "100": {
+            "total": 724.844,
+            "active": 724.844,
+            "inactive": 0.0,
+            "max_w": 253.916
+          },
+          "250": {
+            "total": 993.225,
+            "active": 993.225,
+            "inactive": 0.0,
+            "max_w": 348.171
+          },
+          "500": {
+            "total": 999.982,
+            "active": 999.981,
+            "inactive": 0.0,
+            "max_w": 350.225
+          },
+          "1000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 58089,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 350.231,
+        "final_min_w": 0.0
+      },
+      "linear_nonnegative": {
+        "mode": "linear_nonnegative",
+        "events": 10000,
+        "reach_pct": {
+          "90": 139,
+          "95": 168,
+          "99": 232
+        },
+        "checkpoints": {
+          "1": {
+            "total": 947.5,
+            "active": 317.167,
+            "inactive": 630.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 945.925,
+            "active": 318.742,
+            "inactive": 627.183,
+            "max_w": 106.581
+          },
+          "5": {
+            "total": 940.911,
+            "active": 322.642,
+            "inactive": 618.269,
+            "max_w": 108.252
+          },
+          "10": {
+            "total": 935.413,
+            "active": 330.757,
+            "inactive": 604.656,
+            "max_w": 111.351
+          },
+          "25": {
+            "total": 910.578,
+            "active": 363.184,
+            "inactive": 547.394,
+            "max_w": 122.722
+          },
+          "50": {
+            "total": 866.368,
+            "active": 428.165,
+            "inactive": 438.203,
+            "max_w": 144.706
+          },
+          "100": {
+            "total": 724.844,
+            "active": 724.844,
+            "inactive": 0.0,
+            "max_w": 253.916
+          },
+          "250": {
+            "total": 993.225,
+            "active": 993.225,
+            "inactive": 0.0,
+            "max_w": 348.171
+          },
+          "500": {
+            "total": 999.982,
+            "active": 999.981,
+            "inactive": 0.0,
+            "max_w": 350.225
+          },
+          "1000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 350.231
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 58089,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 350.231,
+        "final_min_w": 0.0
+      }
+    },
+    "unequal_distance_3": {
+      "quadratic_bounded": {
+        "mode": "quadratic_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": 184,
+          "95": 254,
+          "99": 434
+        },
+        "checkpoints": {
+          "1": {
+            "total": 948.041,
+            "active": 317.574,
+            "inactive": 630.467,
+            "max_w": 106.033
+          },
+          "2": {
+            "total": 946.004,
+            "active": 318.517,
+            "inactive": 627.487,
+            "max_w": 106.529
+          },
+          "5": {
+            "total": 939.391,
+            "active": 321.572,
+            "inactive": 617.819,
+            "max_w": 108.137
+          },
+          "10": {
+            "total": 926.469,
+            "active": 327.508,
+            "inactive": 598.961,
+            "max_w": 111.258
+          },
+          "25": {
+            "total": 867.813,
+            "active": 353.953,
+            "inactive": 513.86,
+            "max_w": 125.138
+          },
+          "50": {
+            "total": 635.642,
+            "active": 451.66,
+            "inactive": 183.982,
+            "max_w": 175.911
+          },
+          "100": {
+            "total": 736.516,
+            "active": 736.516,
+            "inactive": 0.0,
+            "max_w": 315.406
+          },
+          "250": {
+            "total": 948.186,
+            "active": 948.186,
+            "inactive": 0.0,
+            "max_w": 403.585
+          },
+          "500": {
+            "total": 994.354,
+            "active": 994.354,
+            "inactive": 0.0,
+            "max_w": 420.081
+          },
+          "1000": {
+            "total": 999.919,
+            "active": 999.919,
+            "inactive": 0.0,
+            "max_w": 421.989
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 422.017
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 422.017
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 422.017
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 59658,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 422.017,
+        "final_min_w": 0.0
+      },
+      "linear_bounded": {
+        "mode": "linear_bounded",
+        "events": 10000,
+        "reach_pct": {
+          "90": 139,
+          "95": 175,
+          "99": 259
+        },
+        "checkpoints": {
+          "1": {
+            "total": 947.95,
+            "active": 317.617,
+            "inactive": 630.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 945.816,
+            "active": 318.606,
+            "inactive": 627.21,
+            "max_w": 106.576
+          },
+          "5": {
+            "total": 938.874,
+            "active": 321.822,
+            "inactive": 617.052,
+            "max_w": 108.269
+          },
+          "10": {
+            "total": 925.273,
+            "active": 328.126,
+            "inactive": 597.148,
+            "max_w": 111.587
+          },
+          "25": {
+            "total": 863.467,
+            "active": 356.767,
+            "inactive": 506.699,
+            "max_w": 126.661
+          },
+          "50": {
+            "total": 627.174,
+            "active": 466.269,
+            "inactive": 160.905,
+            "max_w": 184.294
+          },
+          "100": {
+            "total": 790.665,
+            "active": 790.665,
+            "inactive": 0.0,
+            "max_w": 355.028
+          },
+          "250": {
+            "total": 988.219,
+            "active": 988.219,
+            "inactive": 0.0,
+            "max_w": 459.004
+          },
+          "500": {
+            "total": 999.903,
+            "active": 999.903,
+            "inactive": 0.0,
+            "max_w": 465.153
+          },
+          "1000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 59664,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 465.205,
+        "final_min_w": 0.0
+      },
+      "linear_nonnegative": {
+        "mode": "linear_nonnegative",
+        "events": 10000,
+        "reach_pct": {
+          "90": 139,
+          "95": 175,
+          "99": 259
+        },
+        "checkpoints": {
+          "1": {
+            "total": 947.95,
+            "active": 317.617,
+            "inactive": 630.333,
+            "max_w": 106.056
+          },
+          "2": {
+            "total": 945.816,
+            "active": 318.606,
+            "inactive": 627.21,
+            "max_w": 106.576
+          },
+          "5": {
+            "total": 938.874,
+            "active": 321.822,
+            "inactive": 617.052,
+            "max_w": 108.269
+          },
+          "10": {
+            "total": 925.273,
+            "active": 328.126,
+            "inactive": 597.148,
+            "max_w": 111.587
+          },
+          "25": {
+            "total": 863.467,
+            "active": 356.767,
+            "inactive": 506.699,
+            "max_w": 126.661
+          },
+          "50": {
+            "total": 627.174,
+            "active": 466.269,
+            "inactive": 160.905,
+            "max_w": 184.294
+          },
+          "100": {
+            "total": 790.665,
+            "active": 790.665,
+            "inactive": 0.0,
+            "max_w": 355.028
+          },
+          "250": {
+            "total": 988.219,
+            "active": 988.219,
+            "inactive": 0.0,
+            "max_w": 459.004
+          },
+          "500": {
+            "total": 999.903,
+            "active": 999.903,
+            "inactive": 0.0,
+            "max_w": 465.153
+          },
+          "1000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          },
+          "2500": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          },
+          "5000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          },
+          "10000": {
+            "total": 1000.0,
+            "active": 1000.0,
+            "inactive": 0.0,
+            "max_w": 465.205
+          }
+        },
+        "neg_fe_count": 0,
+        "overshoot_count": 0,
+        "max_overshoot": 0.0,
+        "cap_hits": 0,
+        "floor_hits": 59664,
+        "nan_or_inf": false,
+        "final_total": 1000.0,
+        "final_max_w": 465.205,
+        "final_min_w": 0.0
+      }
+    }
+  },
+  "c": {
+    "c_quadratic_bounded": {
+      "mode": "c_quadratic_bounded",
+      "events": 20000,
+      "w1": 1000.0,
+      "c_init": 505.0,
+      "c_max": 550.0,
+      "fire_pattern_first16": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "two_event_cadence_ok_full": true,
+      "cadence_mismatch_count": 0,
+      "first_cadence_mismatch": null,
+      "first_one_from_rest": null,
+      "first_reach_w1": null,
+      "first_exceed_2theta": null,
+      "first_nonfinite": null,
+      "min_safety_margin": 450.0,
+      "final_weight": 550.0,
+      "max_weight": 550.0,
+      "finite": true,
+      "stayed_below_w1": true,
+      "ever_fired_from_rest": false,
+      "rejection_condition_observed": false,
+      "weight_checkpoints": {
+        "0": 505.0,
+        "1": 505.0777,
+        "10": 505.387,
+        "50": 506.9006,
+        "100": 508.7174,
+        "250": 513.7032,
+        "1000": 530.763,
+        "2500": 544.4647,
+        "5000": 549.2898,
+        "10000": 549.9882,
+        "19999": 550.0
+      }
+    },
+    "c_linear_bounded": {
+      "mode": "c_linear_bounded",
+      "events": 20000,
+      "w1": 1000.0,
+      "c_init": 505.0,
+      "c_max": 550.0,
+      "fire_pattern_first16": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "two_event_cadence_ok_full": true,
+      "cadence_mismatch_count": 0,
+      "first_cadence_mismatch": null,
+      "first_one_from_rest": null,
+      "first_reach_w1": null,
+      "first_exceed_2theta": null,
+      "first_nonfinite": null,
+      "min_safety_margin": 450.0,
+      "final_weight": 550.0,
+      "max_weight": 550.0,
+      "finite": true,
+      "stayed_below_w1": true,
+      "ever_fired_from_rest": false,
+      "rejection_condition_observed": false,
+      "weight_checkpoints": {
+        "0": 505.0,
+        "1": 505.495,
+        "10": 507.4701,
+        "50": 517.2276,
+        "100": 529.1532,
+        "250": 550.0,
+        "1000": 550.0,
+        "2500": 550.0,
+        "5000": 550.0,
+        "10000": 550.0,
+        "19999": 550.0
+      }
+    },
+    "c_linear_nonnegative": {
+      "mode": "c_linear_nonnegative",
+      "events": 20000,
+      "w1": 1000.0,
+      "c_init": 505.0,
+      "c_max": 550.0,
+      "fire_pattern_first16": [
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1,
+        0,
+        1
+      ],
+      "two_event_cadence_ok_full": true,
+      "cadence_mismatch_count": 0,
+      "first_cadence_mismatch": null,
+      "first_one_from_rest": null,
+      "first_reach_w1": null,
+      "first_exceed_2theta": null,
+      "first_nonfinite": null,
+      "min_safety_margin": 0.0224,
+      "final_weight": 999.9776,
+      "max_weight": 999.9776,
+      "finite": true,
+      "stayed_below_w1": true,
+      "ever_fired_from_rest": false,
+      "rejection_condition_observed": false,
+      "weight_checkpoints": {
+        "0": 505.0,
+        "1": 505.495,
+        "10": 507.4701,
+        "50": 517.2276,
+        "100": 529.1532,
+        "250": 563.1914,
+        "1000": 699.8424,
+        "2500": 858.2688,
+        "5000": 959.4187,
+        "10000": 996.673,
+        "19999": 999.9776
+      }
+    }
+  }
+}
