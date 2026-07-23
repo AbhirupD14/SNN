@@ -18,7 +18,9 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from .dashboard_config import CONFIG_SPEC, DASHBOARD_OVERRIDES, config_values
+from .dashboard_config import (
+    CONFIG_SPEC, DASHBOARD_OVERRIDES, DASHBOARD_STARTUP_PATCH_PATTERNS, config_values,
+)
 from .simulation import SimulationEngine
 from .serializer import topology_message, full_state
 from .websocket import ConnectionManager, SimulationRunner
@@ -57,6 +59,15 @@ app = FastAPI(title="SNN Dashboard")
 
 # The active experiment is intentionally visible in one small dictionary.
 engine = SimulationEngine(seed=_load_seed(), **DASHBOARD_OVERRIDES)
+# Open on a live composition when the startup preset is tiled: pre-load a couple of 3x3
+# patches with different patterns so the per-patch learning is visible on Play. Ignored for a
+# non-tiled startup preset. A Reset keeps these (the engine carries the per-patch map).
+if engine.tiled_meta is not None:
+    for _pr, _pc, _name in DASHBOARD_STARTUP_PATCH_PATTERNS:
+        try:
+            engine.set_patch_pattern(_pr, _pc, _name)
+        except (ValueError, KeyError):
+            pass
 manager = ConnectionManager()
 runner = SimulationRunner(engine, manager)
 
@@ -190,6 +201,40 @@ async def set_patch(body: PatchBody):
     await manager.broadcast(topology_message(engine))
     await runner.broadcast_dynamic()
     return {"patch": list(patch), "input": engine.input_vec.astype(int).tolist()}
+
+
+class PatchPatternBody(BaseModel):
+    row: int
+    col: int
+    name: str | None = None            # None clears that patch
+
+
+@app.post("/api/patch_pattern")
+async def set_patch_pattern(body: PatchPatternBody):
+    """Assign a named pattern (or clear with name=null) to one 3x3 patch and rebuild the
+    input as the union of ALL assigned patches (tiled only), so different patches can be
+    driven by different patterns at once and changed independently while learning continues.
+    Re-broadcasts topology so the per-patch labels update."""
+    try:
+        engine.set_patch_pattern(body.row, body.col, body.name)
+    except KeyError:
+        return JSONResponse({"error": f"unknown pattern '{body.name}'"}, status_code=404)
+    except ValueError as e:
+        return JSONResponse({"error": str(e)}, status_code=400)
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return {"patch_patterns": engine.patch_pattern_map(),
+            "input": engine.input_vec.astype(int).tolist()}
+
+
+@app.post("/api/patch_patterns/clear")
+async def clear_patch_patterns():
+    """Clear every per-patch assignment and blank the input surface (tiled only)."""
+    engine.clear_patch_patterns()
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return {"patch_patterns": engine.patch_pattern_map(),
+            "input": engine.input_vec.astype(int).tolist()}
 
 
 @app.post("/api/weight")

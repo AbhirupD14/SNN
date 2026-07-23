@@ -45,6 +45,7 @@ that actually receives the pixel owns ``pixel``.
 
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass
 
 # Inhibitory firing threshold as a fraction of the excitatory threshold theta. This is a
@@ -201,7 +202,8 @@ DIRECTED_ONLY_KINDS = ('pretrained_excitation', 'basal_excitation', 'apical_exci
 # The public built-in presets. The obsolete pi/old/rg/rg_residual graphs are no longer
 # offered as built-ins (their spec builders remain in this module only as reusable
 # low-level mechanics for custom/saved graphs and unit tests, NOT as public presets).
-PRESETS = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated')
+PRESETS = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated',
+           'rg_direct_cc4')
 
 # Built-in presets that build a tiled cortical-column hierarchy on the fixed 81-pixel
 # surface (as opposed to the legacy n_pix/n_out presets). Used for size resolution and
@@ -249,6 +251,10 @@ def preset_spec(name: str, n_pix: int, n_out: int, cc_e_count: int = 8) -> dict:
         # Fixed-shape eight-competitor feature-gated tiled variant (L1=8, L2=8): nine paired
         # feature C/I gates per 3x3 RF + a separate WTA I per module. Does not read cc_e_count.
         return tiled_cc_feature_gated_spec()
+    if name == 'rg_direct_cc4':
+        # Direct 3x3 RGC -> four ordinary E + one central WTA I (dual FE/FES experiment).
+        # Fixed 3x3/4-E shape (does not read n_out); n_pix sizes the RGC surface.
+        return rg_direct_cc4_spec(n_pix=n_pix)
     if name == 'rg':
         return _rg_spec(n_pix, n_out)
     if name == 'rg_residual':
@@ -478,6 +484,86 @@ def _rg_coincidence_spec(n_pix: int, n_out: int) -> dict:
         E(f'hr_l2_{j}', 'L2I', f'L2E{j}', 'hard_reset_inhibition', sign=-1)
 
     return dict(name='rg_coincidence', nodes=nodes, edges=edges)
+
+
+# --- Direct 3x3 cortical column: 4 ordinary E + one central WTA I (experimental) -----
+# The smallest useful circuit for the dual FE/FES self-regulating experiment. A 3x3 RGC
+# surface feeds four ordinary event-resolved/latency E competitors densely; each E drives
+# one central WTA inhibitory relay, which hard-resets exactly those four E. There is NO
+# feature relay, coincidence C, feature-specific I, Eor, apical edge, predictive/
+# hierarchical feedback, L2/L3 node, or any path that drops/halves/suppresses an RGC
+# feature. The single I exists only to enforce local winner-take-all among the four E.
+# Metadata-driven: nodes carry column_* tags so layout/diagnostics never parse ids.
+RG_DIRECT_CC4_ID = 'cc'                     # column id for the four E + WTA I
+RG_DIRECT_CC4_N_E = 4                       # exactly four ordinary competitors (fixed shape)
+
+
+def _rg_direct_cc4_positions(n_pix: int, n_e: int) -> dict:
+    """Deterministic functional positions: a 3x3 RGC sheet on z=0 and the four E on a small
+    ring around the central I one layer up, so the intended column is visually obvious and
+    the per-synapse 1/d^2 learning-rate influence is well-defined (no zero placeholder)."""
+    import math as _m
+    width = int(_m.ceil(_m.sqrt(n_pix)))
+    grid = 3.8
+    z_col = 8.0
+    ring_r = 1.6
+    pos = {}
+    for i in range(n_pix):
+        row, col = divmod(i, width)
+        pos[f'RGC{i}'] = [(col - (width - 1) / 2.0) * grid,
+                          ((width - 1) / 2.0 - row) * grid, 0.0]
+    for k in range(n_e):
+        ang = 2.0 * _m.pi * k / n_e
+        pos[f'{RG_DIRECT_CC4_ID}E{k}'] = [ring_r * _m.cos(ang), ring_r * _m.sin(ang), z_col]
+    pos[f'{RG_DIRECT_CC4_ID}I'] = [0.0, 0.0, z_col]
+    return pos
+
+
+def rg_direct_cc4_spec(*, n_pix: int = 9, n_e: int = RG_DIRECT_CC4_N_E) -> dict:
+    """The 'rg_direct_cc4' preset: a direct 3x3 RGC -> four-competitor cortical column.
+
+        RGC[i] --feedforward (dense, plastic)--> ccE[k]   (9*n_e edges)
+        ccE[k] --relay_excitation--> ccI                  (n_e edges)
+        ccI    --hard_reset_inhibition--> ccE[k]          (n_e edges)
+
+    At the canonical 3x3/4-E shape: 9 RGC + 4 E + 1 I = 14 nodes; 36 + 4 + 4 = 44 edges.
+    Positions are attached so the four E ring the central I. Ordinary E are event-resolved
+    latency competitors (compatible with hard_reset_inhibition); plasticity lives on the
+    receiving E. No C/Eor/relay/feature/feedback node exists in this graph."""
+    n_e = int(n_e)
+    if n_e < 1:
+        raise ValueError(f'n_e must be >= 1, got {n_e}')
+    cid = RG_DIRECT_CC4_ID
+    pos = _rg_direct_cc4_positions(n_pix, n_e)
+    width = int(math.ceil(math.sqrt(n_pix)))
+    nodes: list = []
+    for i in range(n_pix):
+        row, col = divmod(i, width)
+        nodes.append(dict(id=f'RGC{i}', archetype='rg_source', layer='RGC', pixel=i,
+                          label=f'RGC[{row},{col}]', input_row=row, input_col=col,
+                          patch_id=0, pos=pos[f'RGC{i}']))
+    e_ids = [f'{cid}E{k}' for k in range(n_e)]
+    for k, eid in enumerate(e_ids):
+        nodes.append(dict(id=eid, archetype='e_latency_competitor', layer='CC',
+                          label=f'{cid}·E{k}', column_id=cid, column_role='E',
+                          column_index=k, column_row=0, column_col=0, pos=pos[eid]))
+    i_id = f'{cid}I'
+    nodes.append(dict(id=i_id, archetype='i_relay', layer='CC', label=f'{cid}·I',
+                      column_id=cid, column_role='I', column_row=0, column_col=0,
+                      pos=pos[i_id]))
+
+    edges: list = []
+    for i in range(n_pix):                                   # dense RGC -> every E
+        for k, eid in enumerate(e_ids):
+            edges.append(dict(id=f'RGC{i}_{eid}', source=f'RGC{i}', target=eid,
+                              kind='feedforward', projection='rg_to_column'))
+    for eid in e_ids:                                        # every E drives the WTA I
+        edges.append(dict(id=f'{eid}_{i_id}', source=eid, target=i_id,
+                          kind='relay_excitation', projection='column_e_to_i'))
+    for eid in e_ids:                                        # WTA I hard-resets every E
+        edges.append(dict(id=f'{i_id}_{eid}', source=i_id, target=eid,
+                          kind='hard_reset_inhibition', sign=-1, projection='column_i_to_e'))
+    return dict(name='rg_direct_cc4', nodes=nodes, edges=edges)
 
 
 # =====================================================================================

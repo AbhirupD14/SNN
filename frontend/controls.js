@@ -184,6 +184,7 @@ export class Controls {
       || topology?.grid && { rows: topology.grid.rows, cols: topology.grid.cols }
       || { rows: 3, cols: 3 };
     this.patchShape = tiling?.patch_shape || null;
+    this.isTiled = !!tiling;               // tiled -> pattern buttons compose per selected patch
     const { rows, cols } = this.inputShape;
     const pr = this.patchShape?.rows, pc = this.patchShape?.cols;
 
@@ -226,6 +227,10 @@ export class Controls {
     if (!tiling || !gs) { box.hidden = true; this.patchGrid = null; return; }
     box.hidden = false;
     this.selectedPatch = tiling.selected_patch || null;
+    // Current per-patch assignments: "r,c" -> pattern name (drives labels + composition view).
+    this.patchPatterns = new Map();
+    for (const p of tiling.patch_patterns || [])
+      this.patchPatterns.set(`${p.row},${p.col}`, p.name);
     pg.style.gridTemplateColumns = `repeat(${gs.cols}, 1fr)`;
     pg.innerHTML = '';
     this.patchGrid = [];
@@ -233,8 +238,19 @@ export class Controls {
       for (let c = 0; c < gs.cols; c++) {
         const b = document.createElement('button');
         b.className = 'patch-btn';
-        b.textContent = `${r},${c}`;
+        const assigned = this.patchPatterns.get(`${r},${c}`);
+        b.textContent = assigned || `${r},${c}`;
+        b.classList.toggle('assigned', !!assigned);
+        b.title = assigned
+          ? `patch ${r},${c}: "${assigned}" — click to select, right-click to clear`
+          : `patch ${r},${c} — click to select, then click a pattern to drive it here`;
+        // left-click selects this patch (the pattern buttons then compose into it)
         b.addEventListener('click', () => this.api.post('/api/patch', { row: r, col: c }));
+        // right-click clears just this patch (keeps the other patches' patterns)
+        b.addEventListener('contextmenu', (e) => {
+          e.preventDefault();
+          this.api.post('/api/patch_pattern', { row: r, col: c, name: null });
+        });
         pg.appendChild(b);
         this.patchGrid.push({ r, c, el: b });
       }
@@ -265,7 +281,14 @@ export class Controls {
       b.textContent = name;
       b.addEventListener('click', () => {
         this.activePattern = name;
-        this.api.post('/api/pattern', { name });   // name in body: handles '/' and '\'
+        if (this.isTiled && this.selectedPatch) {
+          // Tiled: drive this pattern into the SELECTED 3x3 patch and compose it with the
+          // other patches' patterns (different patterns per patch, changed independently).
+          const [row, col] = this.selectedPatch;
+          this.api.post('/api/patch_pattern', { row, col, name });
+        } else {
+          this.api.post('/api/pattern', { name });   // whole input (non-tiled presets)
+        }
       });
       box.appendChild(b);
       this.patBtns[name] = b;

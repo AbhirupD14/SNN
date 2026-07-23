@@ -1,9 +1,11 @@
-"""Contract for the built-in preset registry: the project exposes exactly four current
-built-in topologies (rg_coincidence, tiled_cc, tiled_cc_l1_4, tiled_cc_feature_gated). The
-fourth (feature-gated) was added to restore rg_coincidence's feature-specific inhibition
-inside the tiled L1 layer; the previous three are unchanged historical controls. The four
-obsolete presets (pi, old, rg, rg_residual) are rejected as built-ins, the dashboard
-surface is the retained six controls, and custom/saved graphs still load.
+"""Contract for the built-in preset registry: the project exposes exactly five current
+built-in topologies (rg_coincidence, tiled_cc, tiled_cc_l1_4, tiled_cc_feature_gated,
+rg_direct_cc4). The feature-gated variant restored rg_coincidence's feature-specific
+inhibition inside the tiled L1 layer; the direct rg_direct_cc4 column is the experimental
+dual FE/FES acceptance topology (four ordinary E + one central WTA I). The earlier presets
+are unchanged historical controls. The four obsolete presets (pi, old, rg, rg_residual) are
+rejected as built-ins, the dashboard surface is the retained controls plus the one new dual
+FE/FES toggle, and custom/saved graphs still load.
 """
 
 import pytest
@@ -13,16 +15,17 @@ from backend.network_spec import PRESETS, preset_spec
 from backend.dashboard_config import CONFIG_SPEC, config_values
 from backend import presets as ps
 
-RETAINED = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated')
+RETAINED = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated',
+            'rg_direct_cc4')
 OBSOLETE = ('pi', 'old', 'rg', 'rg_residual')
 
 
-def test_builtin_preset_names_are_exactly_the_retained_four():
+def test_builtin_preset_names_are_exactly_the_retained_set():
     assert tuple(PRESETS) == RETAINED
     assert tuple(VALID_TOPOLOGIES) == RETAINED
 
 
-def test_dashboard_selector_has_exactly_the_four():
+def test_dashboard_selector_has_exactly_the_retained_set():
     topo = next(c for c in CONFIG_SPEC if c['key'] == 'topology')
     assert [o['value'] for o in topo['options']] == list(RETAINED)
 
@@ -36,7 +39,7 @@ def test_feature_gated_preset_is_the_only_change_to_the_prior_three():
     assert fg['tiling']['variant'] == 'feature_gated'
 
 
-def test_preset_store_lists_exactly_the_four_builtins(tmp_path, monkeypatch):
+def test_preset_store_lists_exactly_the_builtins(tmp_path, monkeypatch):
     # Point the user-preset dir at an empty temp dir so only built-ins are listed.
     monkeypatch.setattr(ps, 'PRESET_DIR', str(tmp_path))
     builtins = [p['name'] for p in ps.list_presets(9, 8) if p['builtin']]
@@ -74,9 +77,27 @@ def test_obsolete_names_rejected_everywhere(name):
 def test_dashboard_config_keys_are_exactly_the_retained_set():
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == {'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta',
-                    'l2_init_total_frac'}
+                    'l2_init_total_frac', 'dual_fe_fes'}
     assert keys == set(config_values(SimulationEngine().params))
     assert EDITABLE_KEYS == keys                         # browser apply surface matches
+
+
+def test_dual_fe_fes_toggle_is_the_one_new_control():
+    dual = [c for c in CONFIG_SPEC if c['key'] == 'dual_fe_fes']
+    assert len(dual) == 1 and dual[0]['kind'] == 'toggle'
+    assert SimulationEngine().params['dual_fe_fes'] is False   # default off (production rule)
+
+
+def test_rg_direct_cc4_registered_and_runs_flag_off_and_on():
+    for dual in (False, True):
+        e = SimulationEngine(topology='rg_direct_cc4', leak_rate=0.0, dual_fe_fes=dual)
+        assert e.mode == 'rg_direct_cc4'
+        top = e.topology()
+        assert len(top['neurons']) == 14 and len(top['synapses']) == 44
+        assert top['params']['dual_fe_fes'] is dual
+        e.set_pattern('row 1')
+        for _ in range(6):
+            e.step()                                          # same topology, both flag states
 
 
 def test_tiled_cc_retains_eight_e_structure():

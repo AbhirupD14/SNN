@@ -62,10 +62,83 @@ DEFAULT_REFRACTORY = 0
 # The C basal rule keeps its OWN mechanism-specific cap and is unaffected: production
 # default `c_linear_bounded` (multiplier dropped, C cap retained); `c_quadratic_bounded`
 # historical; `c_linear_nonnegative` a cap-free C diagnostic. None are dashboard controls.
-E_UPDATE_MODES = ('quadratic_bounded', 'linear_bounded', 'linear_fe', 'linear_nonnegative')
+E_UPDATE_MODES = ('quadratic_bounded', 'linear_bounded', 'linear_fe', 'linear_nonnegative',
+                  'dual_fe_fes')
 # Cap-free ordinary-E modes: floor at w_floor, no upper clip (FE supplies saturation).
 _E_CAP_FREE_MODES = ('linear_fe', 'linear_nonnegative')
-C_UPDATE_MODES = ('c_quadratic_bounded', 'c_linear_bounded', 'c_linear_nonnegative')
+C_UPDATE_MODES = ('c_quadratic_bounded', 'c_linear_bounded', 'c_linear_nonnegative',
+                  'c_dual_fe_fes')
+
+# --- Experimental dual node/synapse free-energy (dual FE/FES) learning rule --------------
+# An OPT-IN experimental mode (`dual_fe_fes` for ordinary/latency E, `c_dual_fe_fes` for a
+# coincidence cell's learned basal). Both replace the production budget-FE rule with a pair
+# of INVERSE-QUADRATIC slowdown factors -- a node factor from the neuron's pre-reset
+# accumulated causal charge and a per-synapse factor from that synapse's pre-update weight:
+#
+#     FE     = e   + (1 - e)   / (1 + B * ((Iaccq / theta)   - 0.5)^2)     # node, shared
+#     FES_i  = wte + (1 - wte) / (1 + B * ((2 * wt_i / theta) - 0.5)^2)    # per synapse i
+#     dw_i   = LR * FE * FES_i * input_signal_i * influence_i
+#     wt_i  <- max(wte, wt_i + dw_i)                                       # floor wte, NO cap
+#
+# FE == 1 exactly at Iaccq/theta == 0.5; FES_i == 1 exactly at wt_i/theta == 0.25 (the
+# maximum-plasticity middle every plastic weight in this mode initializes at). There is NO
+# per-synapse upper cap -- the FE/FES slowdown plus the input statistics are the only
+# regulation, which is exactly what the experiment tests. The lower bound is the raw wte.
+DUAL_E_DEFAULT = 0.001
+DUAL_WTE_DEFAULT = 0.001
+DUAL_B_DEFAULT = 5.0
+
+
+def _validate_dual_params(e, wte, B):
+    """Validate the shared dual FE/FES parameters (raises ValueError). Used by both the
+    ordinary-E and coincidence-basal constructors so the flag has one contract."""
+    e, wte, B = float(e), float(wte), float(B)
+    if not (0.0 < e <= 1.0):
+        raise ValueError(f'dual FE e must satisfy 0 < e <= 1, got {e}')
+    if not (0.0 < wte <= 1.0):
+        raise ValueError(f'dual FES wte must satisfy 0 < wte <= 1, got {wte}')
+    if not (math.isfinite(B) and B >= 0.0):
+        raise ValueError(f'dual FE/FES B must be finite and >= 0, got {B}')
+    return e, wte, B
+
+
+def dual_fe(iaccq, theta, e=DUAL_E_DEFAULT, B=DUAL_B_DEFAULT):
+    """Node free-energy factor FE from the pre-reset accumulated causal charge ``iaccq``.
+    Full precision; the ratio is NOT clamped, so an overshoot (iaccq > theta) is retained."""
+    ratio = iaccq / theta
+    return e + (1.0 - e) / (1.0 + B * (ratio - 0.5) ** 2)
+
+
+def dual_fes(w, theta, wte=DUAL_WTE_DEFAULT, B=DUAL_B_DEFAULT):
+    """Per-synapse factor FES from a pre-update weight ``w`` (scalar or array). Full
+    precision; not clamped, so a weight above theta/2 is retained (its FES shrinks)."""
+    ratio = (2.0 * w / theta) - 0.5
+    return wte + (1.0 - wte) / (1.0 + B * ratio * ratio)
+
+
+# --- Coincidence-cell (single-weight, threshold-firing) FE/FES references ----------------
+# An ordinary E has MANY afferents whose ~theta/4 shares SUM to theta, so its FE peaks at the
+# accumulated charge theta/2 and its FES peaks at the per-synapse middle theta/4. A coincidence
+# cell is different: it has ONE learned basal weight, it deposits an impulse, and it only fires
+# once its accumulated basal charge crosses theta -- so it ALWAYS fires at Iaccq ~= theta, and
+# that single weight must itself reach ~theta for one-shot recognition (a single deposit >=
+# theta). The ordinary-E peaks therefore pin the C at Iaccq=theta -> FE=0.445 and pull its weight
+# toward theta/4 (never one-shot). The C references below instead place peak plasticity at the
+# C's real operating point: FE peaks at Iaccq = theta (max learning at the firing charge; an
+# overshoot from multiple deposits still slows it), and FES peaks at w = theta/2 (max plasticity
+# climbing toward the one-shot target theta, slowing as it approaches/passes it -- so the single
+# weight saturates near theta instead of theta/4).
+def dual_fe_c(iaccq, theta, e=DUAL_E_DEFAULT, B=DUAL_B_DEFAULT):
+    """Coincidence node factor: peak (==1) at Iaccq == theta, the C's threshold-firing charge."""
+    r = (iaccq / theta) - 1.0
+    return e + (1.0 - e) / (1.0 + B * r * r)
+
+
+def dual_fes_c(w, theta, wte=DUAL_WTE_DEFAULT, B=DUAL_B_DEFAULT):
+    """Coincidence per-weight factor: peak (==1) at w == theta/2, so the single basal weight is
+    maximally plastic climbing toward the one-shot target theta and slows past it."""
+    r = (w / theta) - 0.5
+    return wte + (1.0 - wte) / (1.0 + B * r * r)
 
 # --- Conductance / trace defaults (documented, engine may override) ---------
 # Membrane: C dV/dt = -g_L (V - E_L) - g_inh (V - E_inh) + I_exc, with C = 1,
@@ -159,6 +232,13 @@ class ConductanceLIFNeuron:
         # --- per-boundary gather + bookkeeping ---
         self.pending_exc = 0.0           # boundary-start gathering (legacy + event)
         self.remaining_excitation = 0.0  # frozen drive packet consumed by the event loop
+        # ``iaccq`` is the pre-reset instantaneous accumulated causal excitatory charge used
+        # by the experimental dual FE/FES rule (never by production learning). Event path:
+        # the frozen delivered drive packet, captured at freeze BEFORE the spike/reset
+        # consumes it (can exceed theta -- overshoot is retained, not clamped). Legacy path:
+        # the post-integration pre-reset membrane. Harmless (write-only) unless dual mode
+        # reads it, so it never perturbs an existing trace.
+        self.iaccq = 0.0
         self.v_pre_reset = 0.0           # MAX depolarized endpoint this boundary (pre reset)
         self.spiked = False
         self.v_pre = 0.0
@@ -195,6 +275,11 @@ class ConductanceLIFNeuron:
         constant ``remaining_excitation`` drive packet the segment loop consumes."""
         self.remaining_excitation += self.pending_exc
         self.pending_exc = 0.0
+        # Capture the accumulated causal drive for the dual FE/FES rule BEFORE the event
+        # loop's fire/hard-reset can zero remaining_excitation. This is the delivered packet
+        # (= accumulated charge over the unit boundary for a pure integrator), and it may
+        # exceed theta for a strong incumbent -- retained, never clamped.
+        self.iaccq = self.remaining_excitation
         return self.remaining_excitation
 
     def apply_charge_impulse(self, charge):
@@ -239,6 +324,10 @@ class ConductanceLIFNeuron:
             v_inf = (self.g_L * self.v_rest + self.g_inh * self.e_inh + i_exc) / g_total
             self.V = v_inf + (self.V - v_inf) * math.exp(-g_total * dt)
         self.v_pre_reset = self.V
+        # Legacy whole-boundary path: the pre-reset accumulated membrane is the causal
+        # charge the dual FE/FES rule reads (from rest with no leak this equals the
+        # delivered packet). Captured before any threshold test / reset.
+        self.iaccq = self.V
         return self.V
 
     # ------------------------------------------------- exact segment primitives
@@ -389,6 +478,7 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
                  leak_rate=DEFAULT_LEAK, refractory_steps=DEFAULT_REFRACTORY,
                  eta=DEFAULT_ETA, learn=True, update_mode='linear_fe',
                  maturity_budget_frac=1.10,
+                 dual_e=DUAL_E_DEFAULT, dual_wte=DUAL_WTE_DEFAULT, dual_B=DUAL_B_DEFAULT,
                  e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
                  alpha_a=DEFAULT_ALPHA_A, beta_v=DEFAULT_BETA_V,
                  beta_s=DEFAULT_BETA_S, a_max=DEFAULT_A_MAX):
@@ -401,6 +491,8 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
         if update_mode not in E_UPDATE_MODES:
             raise ValueError(f'update_mode must be one of {E_UPDATE_MODES}, got {update_mode!r}')
         self.update_mode = update_mode
+        # Experimental dual FE/FES parameters (only read when update_mode == 'dual_fe_fes').
+        self.dual_e, self.dual_wte, self.dual_B = _validate_dual_params(dual_e, dual_wte, dual_B)
         # Learning budget target as a multiple of the FIRING threshold. The rule drives
         # sum(acc_weights) toward maturity_budget_frac * threshold from below, so a value
         # > 1.0 lets a matured single-pattern specialist's active afferents overshoot the
@@ -453,8 +545,11 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
             return
         w = self.acc_weights
         participation = np.asarray(participation, dtype=bool)
-        p = self.maturity_budget_frac * self.threshold - float(w.sum())
         signal = np.where(participation, 1.0, -1.0)
+        if self.update_mode == 'dual_fe_fes':
+            self._update_dual_fe_fes(w, participation, signal)
+            return
+        p = self.maturity_budget_frac * self.threshold - float(w.sum())
         base = self.eta * p * signal * self.acc_distance_factor
         if self.update_mode == 'quadratic_bounded':
             delta = base * (1.0 - (w / self.w_max) ** 2)
@@ -467,6 +562,52 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
             np.clip(w + delta, self.w_floor, self.w_max, out=w)  # headless bounded modes
         if self.record_updates:
             self._log_acc_update(w_before, delta, p)
+
+    def _update_dual_fe_fes(self, w, participation, signal):
+        """Experimental dual node/synapse FE/FES update (see the module-level equations).
+
+            FE      = e   + (1 - e)   / (1 + B * ((Iaccq/theta)   - 0.5)^2)   # node, shared
+            FES_i   = wte + (1 - wte) / (1 + B * ((2*wt_i/theta) - 0.5)^2)    # per synapse i
+            dw_i    = eta * FE * FES_i * signal_i * influence_i
+            wt_i   <- max(wte, wt_i + dw_i)                                   # floor wte, NO cap
+
+        ``Iaccq`` is this cell's pre-reset accumulated causal charge (``self.iaccq``), shared
+        by every plastic afferent updated in this one causal event. ``FES_i`` is evaluated
+        independently from each synapse's own PRE-update weight, so a vector update still
+        moves each synapse by its own factor. Participating afferents carry ``+1`` and
+        nonparticipating ``-1`` (absence never becomes a positive update). ``influence_i`` is
+        the unchanged deterministic distance factor. All full precision."""
+        theta = self.threshold
+        iaccq = float(self.iaccq)
+        fe = dual_fe(iaccq, theta, self.dual_e, self.dual_B)
+        fes = dual_fes(w, theta, self.dual_wte, self.dual_B)      # per-synapse (pre-update w)
+        raw_delta = self.eta * fe * fes * signal * self.acc_distance_factor
+        w_before = w.copy() if self.record_updates else None
+        np.maximum(w + raw_delta, self.dual_wte, out=w)          # floor at the raw wte, no cap
+        if self.record_updates:
+            self._log_dual_update(w_before, raw_delta, iaccq, fe, fes, signal)
+
+    def _log_dual_update(self, w_before, raw_delta, iaccq, fe, fes, signal):
+        """One dual FE/FES learning-event record, precise enough to reconstruct any single
+        synapse update by hand (opt-in; never affects dynamics)."""
+        w_after = self.acc_weights
+        applied = w_after - w_before
+        self.update_log.append(dict(
+            cell=self.id, mode=self.update_mode,
+            iaccq=float(iaccq), theta=float(self.threshold),
+            fe=float(fe), B=float(self.dual_B), e=float(self.dual_e), wte=float(self.dual_wte),
+            lr=float(self.eta),
+            pre_w=[float(x) for x in w_before], fes=[float(x) for x in np.atleast_1d(fes)],
+            signal=[float(x) for x in signal],
+            influence=[float(x) for x in self.acc_distance_factor],
+            raw_dw=[float(x) for x in raw_delta], applied_dw=[float(x) for x in applied],
+            post_w=[float(x) for x in w_after],
+            pre_sum=float(w_before.sum()), post_sum=float(w_after.sum()),
+            min_w=float(w_after.min()), max_w=float(w_after.max()),
+            n_floor=int((w_after <= self.dual_wte + 1e-12).sum()),
+            spiked=bool(self.spiked), spike_tau=(None if self.spike_tau is None
+                                                 else float(self.spike_tau)),
+            nonfinite=bool(not np.all(np.isfinite(w_after)))))
 
     def _log_acc_update(self, w_before, raw_delta, fe_pre):
         """Append one learning-event record (opt-in; never affects dynamics)."""
@@ -554,6 +695,7 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
                  apical_edge_ids=(), basal_weight=0.0, basal_distance_factor=1.0,
                  w_max=E_WEIGHT_CAP, eta_c=DEFAULT_ETA, learn=True, use_fe=True,
                  update_mode='c_linear_bounded', maturity_budget_frac=1.10,
+                 dual_e=DUAL_E_DEFAULT, dual_wte=DUAL_WTE_DEFAULT, dual_B=DUAL_B_DEFAULT,
                  role='coincidence',
                  threshold=E_THRESHOLD, leak_rate=DEFAULT_LEAK,
                  refractory_steps=DEFAULT_REFRACTORY,
@@ -571,6 +713,8 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         if update_mode not in C_UPDATE_MODES:
             raise ValueError(f'update_mode must be one of {C_UPDATE_MODES}, got {update_mode!r}')
         self.update_mode = update_mode
+        # Experimental dual FE/FES parameters (only read when update_mode == 'c_dual_fe_fes').
+        self.dual_e, self.dual_wte, self.dual_B = _validate_dual_params(dual_e, dual_wte, dual_B)
         # Basal-weight learning budget target as a multiple of the leak-corrected
         # full-boundary reference w1 = theta/kappa. C deposits are impulses, whose
         # from-reset threshold is theta, so this retained reference gives conservative
@@ -769,6 +913,8 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         A = 1.0 if self.apical_active else 0.0
         s = self._deposit_signal
         phi = float(self.basal.distance_factors[0])
+        if self.update_mode == 'c_dual_fe_fes':
+            return self._update_basal_dual_fe_fes(w, A, s, phi)
         kappa = 1.0 if self.g_L == 0.0 else (1.0 - math.exp(-self.g_L)) / self.g_L
         w1 = self.threshold / kappa
         budget_fe = self.maturity_budget_frac * w1 - w
@@ -789,6 +935,41 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
                 fe_pre=float(budget_fe), raw_dw=float(dw),
                 applied_dw=float(w_new - w), at_cap=bool(
                     self.update_mode != 'c_linear_nonnegative' and w_new >= self.w_max - 1e-9)))
+        return w_new
+
+    def _update_basal_dual_fe_fes(self, w, A, s, phi):
+        """Experimental dual FE/FES basal update, same node/synapse factors as ordinary E:
+
+            FE   = e   + (1 - e)   / (1 + B * ((Iaccq/theta)   - 0.5)^2)
+            FES  = wte + (1 - wte) / (1 + B * ((2*w/theta)     - 0.5)^2)
+            dw   = eta_C * FE * FES * A * s * phi
+            w   <- max(wte, w + dw)                                   # floor wte, NO cap
+
+        ``Iaccq`` is the pre-reset instantaneous accumulated BASAL charge (``self.v_pre``, the
+        somatic membrane just before this firing boundary's reset -- all C charge is basal
+        deposits). The Boolean apical eligibility ``A`` and causal basal signal ``s`` are
+        preserved; apical never becomes learned charge or an extra weight. No upper cap.
+
+        Uses the COINCIDENCE-cell references (``dual_fe_c`` / ``dual_fes_c``): FE peaks at the
+        threshold-firing charge Iaccq=theta and FES peaks at w=theta/2, so this single basal
+        weight learns fast at its operating point and saturates near the one-shot target theta
+        (a single deposit >= theta) -- not the ordinary-E theta/4, which never fires alone."""
+        theta = self.threshold
+        iaccq = float(self.v_pre)
+        fe = dual_fe_c(iaccq, theta, self.dual_e, self.dual_B)
+        fes = dual_fes_c(w, theta, self.dual_wte, self.dual_B)
+        dw = self.eta_c * fe * fes * A * s * phi
+        w_new = max(self.dual_wte, w + dw)                           # floor wte, no cap
+        self.basal.weights[0] = w_new
+        if self.record_updates:
+            self.update_log.append(dict(
+                cell=self.id, mode=self.update_mode, w_pre=float(w), w_post=float(w_new),
+                iaccq=float(iaccq), theta=float(theta), fe=float(fe), fes=float(fes),
+                B=float(self.dual_B), e=float(self.dual_e), wte=float(self.dual_wte),
+                lr=float(self.eta_c), A=float(A), signal=float(s), influence=float(phi),
+                raw_dw=float(dw), applied_dw=float(w_new - w),
+                at_floor=bool(w_new <= self.dual_wte + 1e-12),
+                nonfinite=bool(not math.isfinite(w_new))))
         return w_new
 
 

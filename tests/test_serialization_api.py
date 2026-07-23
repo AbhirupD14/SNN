@@ -72,11 +72,12 @@ def test_config_accepts_editable_keys(engine):
     assert set(applied) == {'leak_rate', 'refractory_steps'}
     assert engine.params['leak_rate'] == 0.1
     assert engine.latency_competitors[0].leak_rate == 0.1    # rebuild propagated it
-    # The dashboard control surface is exactly the retained six controls.
+    # The dashboard control surface is exactly the retained controls plus the one new
+    # experimental dual FE/FES toggle.
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == set(config_values(engine.params))
     assert keys == {'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta',
-                    'l2_init_total_frac'}
+                    'l2_init_total_frac', 'dual_fe_fes'}
 
 
 def test_reset_and_reseed_cycle(engine):
@@ -101,6 +102,21 @@ def test_api_module_imports_and_builds():
     from backend.dashboard_config import DASHBOARD_OVERRIDES
 
     assert api.engine is not None
+    # The dashboard now STARTS on the dual FE/FES rule running on the 9x9 tiled hierarchy at
+    # its confirmation parameters (tiled_cc, dual on, eta=1.0, c_eta=0.5), so 3x3 patches can be
+    # composed. The engine's general-purpose default stays rg_coincidence with the production
+    # rule (see the registry contract).
+    from backend.dashboard_config import DASHBOARD_STARTUP_PATCH_PATTERNS
     startup = SimulationEngine(seed=1, **DASHBOARD_OVERRIDES)
-    assert startup.params['topology'] == 'rg_coincidence'
-    assert len(startup.topology()['neurons']) == 45
+    assert startup.params['topology'] == 'tiled_cc'
+    assert startup.params['dual_fe_fes'] is True
+    assert startup.latency_competitors[0].update_mode == 'dual_fe_fes'
+    assert len(startup.topology()['neurons']) == 191
+    # the startup preload composes two 3x3 patches so Play shows per-patch learning (asserted
+    # on a fresh engine -- api.engine is shared global state other tests may have cycled).
+    for pr, pc, name in DASHBOARD_STARTUP_PATCH_PATTERNS:
+        startup.set_patch_pattern(pr, pc, name)
+    assert len(startup.patch_pattern_map()) == len(DASHBOARD_STARTUP_PATCH_PATTERNS) >= 2
+    # SimulationEngine's own default is unchanged (production rule, coincidence preset).
+    assert SimulationEngine().params['topology'] == 'rg_coincidence'
+    assert SimulationEngine().params['dual_fe_fes'] is False
