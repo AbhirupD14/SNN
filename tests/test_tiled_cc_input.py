@@ -81,13 +81,13 @@ def test_reset_and_reseed_preserve_dims():
 
 
 def test_dashboard_switch_legacy_tiled_legacy_resolves_dims():
-    e = SimulationEngine(seed=1, topology='pi')       # 9/8
-    assert (e.n_pix, len(e.topology()['neurons'])) == (9, 26)
+    e = SimulationEngine(seed=1, topology='rg_coincidence')       # 9-input coincidence graph
+    assert (e.n_pix, len(e.topology()['neurons'])) == (9, 45)
     e.apply_config({'topology': 'tiled_cc'})
     assert (e.n_pix, len(e.topology()['neurons'])) == (81, 191)
     assert e.input_vec.shape == (81,) and e.input_vec.sum() == 0.0     # old input cleared
-    e.apply_config({'topology': 'rg'})
-    assert (e.n_pix, len(e.topology()['neurons'])) == (9, 36)          # legacy restored 9/8
+    e.apply_config({'topology': 'rg_coincidence'})
+    assert (e.n_pix, len(e.topology()['neurons'])) == (9, 45)          # 9-input graph restored
 
 
 def test_invalid_input_and_patch_fail_loudly():
@@ -114,12 +114,12 @@ def test_topology_pattern_bank_is_topology_sized():
     assert all(len(v) == 81 for v in topo['pattern_vectors'].values())
     assert set(topo['patterns']) == {'row 1', 'col 1', 'diag \\', 'diag /'}
     # legacy engine keeps the 3x3 vectors
-    leg = SimulationEngine(seed=1, topology='pi').topology()
+    leg = SimulationEngine(seed=1, topology='rg_coincidence').topology()
     assert all(len(v) == 9 for v in leg['pattern_vectors'].values())
 
 
 def test_legacy_presets_unaffected_by_tiled_additions():
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
     assert e.tiled_meta is None
     d = e.step()
     assert d['column_winners'] == {}                    # empty for legacy graphs

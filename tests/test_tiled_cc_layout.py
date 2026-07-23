@@ -84,7 +84,7 @@ def test_legacy_layout_and_payload_keys_unchanged():
     a = generate_layout(np.random.default_rng(1), 9, 8)
     b = generate_layout(np.random.default_rng(1), 9, 8)
     assert set(a) == set(b) and all(np.allclose(a[k], b[k]) for k in a)
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
     d = e.step()
     assert {'timestep', 'neurons', 'winner', 'input', 'stats',
             'column_winners'} <= set(d)

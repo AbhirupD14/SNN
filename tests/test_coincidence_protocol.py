@@ -75,21 +75,35 @@ def test_hard_reset_events_schema_when_present():
     assert seen['kind'] == 'hard_reset'
 
 
-# ------------------------------------------- legacy payloads byte-unchanged
+# ---- non-coincidence (synchronous custom) payloads carry no coincidence fields ----
+def _sync_engine():
+    """A minimal non-coincidence, non-event-resolved custom graph (stand-in for the old
+    legacy presets): one sensory source, one competitor, one relay."""
+    e = SimulationEngine(seed=1)
+    e.apply_topology({'name': 'sync', 'nodes': [
+        {'id': 'S0', 'archetype': 'e_sensory', 'pixel': 0},
+        {'id': 'C0', 'archetype': 'e_competitor'},
+        {'id': 'R', 'archetype': 'i_relay'}],
+        'edges': [{'id': 'ff', 'source': 'S0', 'target': 'C0', 'kind': 'feedforward'},
+                  {'id': 're', 'source': 'C0', 'target': 'R', 'kind': 'relay_excitation'},
+                  {'id': 'in', 'source': 'R', 'target': 'C0', 'kind': 'inhibition'}]})
+    return e
+
+
 def test_legacy_dynamic_payload_has_no_coincidence_fields():
-    e = SimulationEngine(seed=1, topology='pi')
-    e.set_pattern('row 1')
+    e = _sync_engine()
+    e.set_input([1, 0, 0, 0, 0, 0, 0, 0, 0])
     d = e.step()
     n0 = d['neurons'][0]
     assert 'spike_tau' not in n0
     assert 'basal_weight' not in n0 and 'coincidence_active' not in n0
-    # additive top-level diagnostics are present but empty for a legacy graph.
+    # additive top-level diagnostics are present but empty for a non-coincidence graph.
     assert d['hard_reset_events'] == [] and d['latency_ties'] == []
 
 
 def test_old_payload_field_set_preserved_for_legacy():
-    e = SimulationEngine(seed=1, topology='old')
-    e.set_pattern('col 1')
+    e = _sync_engine()
+    e.set_input([0, 0, 0, 1, 0, 0, 0, 0, 0])
     d = e.step()
     assert set(d) >= {'timestep', 'running', 'neurons', 'changed_synapses', 'emitted',
                       'inhibitory_pulses', 'input', 'winner', 'stats', 'log'}

@@ -241,8 +241,16 @@ def test_high_cap_accepted_init_above_cap_still_rejected():
 
 
 # ------------------------------------------------ legacy graphs stay legacy
-def test_legacy_presets_are_not_event_resolved():
-    for topo in ('pi', 'old', 'rg', 'rg_residual'):
-        e = SimulationEngine(seed=1, topology=topo)
-        assert e.event_resolved is False
-        assert e.coincidence == [] and e.latency_competitors == [] and e.pretrained == []
+def test_non_coincidence_custom_graph_is_not_event_resolved():
+    # A custom graph with no coincidence/latency archetypes runs the synchronous engine
+    # (stand-in for the removed legacy presets): not event-resolved, no C/latency/pretrained.
+    e = SimulationEngine(seed=1)
+    e.apply_topology({'name': 'sync', 'nodes': [
+        {'id': 'S0', 'archetype': 'e_sensory', 'pixel': 0},
+        {'id': 'C0', 'archetype': 'e_competitor'},
+        {'id': 'R', 'archetype': 'i_relay'}],
+        'edges': [{'id': 'ff', 'source': 'S0', 'target': 'C0', 'kind': 'feedforward'},
+                  {'id': 're', 'source': 'C0', 'target': 'R', 'kind': 'relay_excitation'},
+                  {'id': 'in', 'source': 'R', 'target': 'C0', 'kind': 'inhibition'}]})
+    assert e.event_resolved is False
+    assert e.coincidence == [] and e.latency_competitors == [] and e.pretrained == []

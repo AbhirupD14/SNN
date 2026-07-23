@@ -103,7 +103,8 @@ from snn.neurons import (  # noqa: E402
 from backend.layout import generate_layout, generate_tiled_layout, grid_dims  # noqa: E402
 from backend.network_spec import (  # noqa: E402
     preset_spec, validate_spec, ARCHETYPES, I_THRESHOLD_FRAC,
-    tiled_cc_spec, embed_patch_pattern, tiled_input_size, TILED_FAMILY, TILED_CC_DEFAULTS,
+    tiled_cc_spec, tiled_cc_feature_gated_spec, embed_patch_pattern, tiled_input_size,
+    TILED_FAMILY, TILED_CC_DEFAULTS, TILED_PRESETS,
 )
 
 
@@ -140,19 +141,23 @@ LOG_MAX = 400
 SYNAPTIC_DELAY = 1                                 # integer delay on every internal projection
 
 LEAK_DEFAULT = 0.03
-# Shared accumulating-weight cap = theta/2: a FIXED gain (no single afferent may hold more
-# than half of theta), not derived from the input/output counts. Overridable via config.
-E_WEIGHT_CAP_DEFAULT = E_THRESHOLD / 2.0           # 500
+# LEGACY / HEADLESS-ONLY: a per-synapse cap on ordinary-E weights. Production learning is
+# now cap-free (`linear_fe`): the neuron-wide FE budget supplies saturation, so ordinary-E
+# weights have a zero floor and NO individual upper bound (see snn.neurons). This value is
+# retained ONLY as `w_max` for the headless bounded regression modes (linear_bounded /
+# quadratic_bounded); it has NO effect on production init, learning, or /api/weight edits,
+# and is not a dashboard control.
+E_WEIGHT_CAP_DEFAULT = E_THRESHOLD / 2.0           # 500 (legacy; headless bounded modes only)
 DEFAULTS = dict(
     seed=1,
     n_pix=N_PIX,                                   # input count (construction-time; not runtime-editable)
     n_out=N_OUT,                                   # competitor/output count (construction-time)
     cc_e_count=TILED_CC_DEFAULTS['cc_e_count'],    # tiled_cc: ordinary E per column (>=1)
     e_threshold=E_THRESHOLD,
-    e_weight_cap=E_WEIGHT_CAP_DEFAULT,             # 500 = theta/2 (shared accumulating cap)
+    e_weight_cap=E_WEIGHT_CAP_DEFAULT,             # LEGACY/headless w_max for bounded modes only (no production effect)
     e_weight_floor=0.0,                            # lower clip on learned weights (0 = legacy)
     # --- linear weight-update ablation (headless; defaults reproduce production) ---
-    e_weight_update_mode='linear_bounded',         # PRODUCTION default (promoted); also: quadratic_bounded (historical) | linear_nonnegative (cap-free diagnostic)
+    e_weight_update_mode='linear_fe',              # PRODUCTION default (cap-free FE, floor-only); also: linear_bounded | quadratic_bounded (historical headless, capped)
     c_weight_update_mode='c_linear_bounded',       # PRODUCTION default (multiplier dropped); also: c_quadratic_bounded (historical) | c_linear_nonnegative (cap-free diagnostic)
     # Learning budget target for the E/L2E accumulating rule as a multiple of the firing
     # threshold (>= 1.0). >1.0 gives a matured single-pattern specialist budget headroom so
@@ -167,7 +172,7 @@ DEFAULTS = dict(
     leak_rate=LEAK_DEFAULT,                        # -> baseline leak conductance g_L
     refractory_steps=0,
     input_period=1,
-    topology='pi',                                 # preset selector (see VALID_TOPOLOGIES)
+    topology='rg_coincidence',                     # default preset selector (see VALID_TOPOLOGIES)
 
     # --- conductance / trace (membrane) ---
     # Inhibitory-conductance retention is deliberately SPLIT by target population so
@@ -238,21 +243,16 @@ DEFAULTS = dict(
     pretrained_exc_margin=1.05,                    # RG->L1E fixed packet / (theta/kappa)
     crossing_time_tolerance=1e-12,                 # fixed numeric tie tolerance (not a control)
 )
-# Keys a browser/experiment config-apply may change. Everything else is derived.
+# Keys the browser/dashboard config-apply may change. Exactly the retained dashboard
+# controls that affect at least one of the three current presets. Every other DEFAULTS
+# key stays a construction-time / headless-only parameter (settable via the constructor
+# for experiments and low-level tests, but NOT accepted from the browser apply path):
+# the dashboard cannot spin up PI/SwitchI/residual/encoder/legacy-conductance behavior or
+# extra population-size variants (cc_e_count) -- the two tiled presets fix those sizes.
 EDITABLE_KEYS = {
-    'eta', 'leak_rate', 'refractory_steps', 'e_weight_cap', 'input_period',
-    'topology', 'alpha_inh', 'alpha_inh_l1', 'alpha_a', 'beta_v', 'beta_s',
-    'a_max', 'e_inh', 'pi_eta', 'pi_w_max', 'pi_lt_decay', 'pi_g_scale',
-    'pi_conductance_enabled', 'pi_plasticity_enabled', 'l2i_g_scale',
-    'enc_plasticity_enabled', 'enc_init_jitter', 'enc_w_init',
-    'residual_exc_scale', 'switch_trace_decay', 'switch_trace_threshold',
-    'switch_residual_charge_frac', 'switch_trace_charge_frac',
-    'switch_g_scale', 'switch_conductance_enabled',
-    'c_eta', 'c_fe_enabled', 'l2_init_total_frac', 'e_weight_floor',
-    'e_weight_update_mode', 'c_weight_update_mode', 'e_maturity_budget_frac',
-    'c_maturity_budget_frac', 'cc_e_count',
+    'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta', 'l2_init_total_frac',
 }
-VALID_TOPOLOGIES = ('pi', 'old', 'rg', 'rg_residual', 'rg_coincidence', 'tiled_cc')
+VALID_TOPOLOGIES = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated')
 
 
 class BoundaryEventScheduler:
@@ -339,12 +339,12 @@ class SimulationEngine:
         # surface (see _resolve_dims); its column bank is sized by cc_e_count, not n_out.
         self._base_n_pix = params['n_pix']
         self._base_n_out = params['n_out']
-        # The canonical tiled_cc input surface is fixed; a headless n_pix override that
+        # The canonical tiled input surface is fixed; a headless n_pix override that
         # disagrees with 81 must fail loudly rather than build a partly tiled graph.
-        if params['topology'] == 'tiled_cc' and 'n_pix' in overrides \
+        if params['topology'] in TILED_PRESETS and 'n_pix' in overrides \
                 and self._base_n_pix != TILED_CC_INPUT:
             raise ValueError(
-                f'tiled_cc has a fixed {TILED_CC_DEFAULTS["input_rows"]}x'
+                f'{params["topology"]} has a fixed {TILED_CC_DEFAULTS["input_rows"]}x'
                 f'{TILED_CC_DEFAULTS["input_cols"]} ({TILED_CC_INPUT}) input surface; '
                 f'do not override n_pix (got {self._base_n_pix}). Use cc_e_count to size '
                 f'the columns, or a custom tiled spec for other shapes.')
@@ -429,7 +429,7 @@ class SimulationEngine:
                 self.n_pix = int(ishape['rows']) * int(ishape['cols'])
             else:
                 self.n_pix = self._base_n_pix
-        elif p['topology'] == 'tiled_cc':
+        elif p['topology'] in TILED_PRESETS:
             self.n_pix = TILED_CC_INPUT
         else:
             self.n_pix = self._base_n_pix
@@ -454,6 +454,16 @@ class SimulationEngine:
         elif p['topology'] == 'tiled_cc':
             self.mode = 'tiled_cc'
             spec = validate_spec(tiled_cc_spec(cc_e_count=self.cc_e_count), self.n_pix)
+        elif p['topology'] == 'tiled_cc_l1_4':
+            # Fixed-shape tiled variant (L1=4, L2=8); does not read cc_e_count.
+            self.mode = 'tiled_cc_l1_4'
+            spec = validate_spec(preset_spec('tiled_cc_l1_4', self.n_pix, self.n_out),
+                                 self.n_pix)
+        elif p['topology'] == 'tiled_cc_feature_gated':
+            # Fixed-shape feature-gated variant (L1=8, L2=8, nine feature C/I gates per
+            # 3x3 RF + a separate WTA I); does not read cc_e_count.
+            self.mode = 'tiled_cc_feature_gated'
+            spec = validate_spec(tiled_cc_feature_gated_spec(), self.n_pix)
         else:
             self.mode = str(p['topology'])             # 'pi' | 'old' | 'rg' | ...
             spec = preset_spec(self.mode, self.n_pix, self.n_out)
@@ -620,41 +630,28 @@ class SimulationEngine:
             return (d_ref / max(ff_dists[eid], d_ref)) ** DISTANCE_POWER
 
         # ---- construct neurons per archetype (plastic cells draw jitter in node order) ----
+        # Ordinary-E init is cap-free: floor at 0 only, never clipped to a per-synapse
+        # ceiling (production learning is likewise cap-free; the FE budget saturates totals).
         def jitter(mean, size):
             j = rng.uniform(1.0 - INIT_JITTER_FRAC, 1.0 + INIT_JITTER_FRAC, size=size)
-            return np.clip(mean * j, 0.0, cap)
+            return np.maximum(mean * j, 0.0)
 
         def normalized_latency_row(raw):
-            """Preserve seeded direction while setting a common latency-WTA total.
+            """Preserve seeded direction while setting a common latency-WTA row total.
 
-            A full coincidence bank has nine afferents and reaches exactly
-            ``l2_init_total_frac * theta``. A smaller custom bank cannot exceed its
-            physical ``n_afferents * cap`` capacity; the bounded proportional fill
-            handles that case without making valid editor graphs unbuildable.
+            Each row is scaled so its afferents sum to exactly ``l2_init_total_frac * theta``
+            (equal initial free energy), preserving the seeded within-row jitter direction.
+            No per-synapse cap and no water-filling: an individual seeded weight may take any
+            nonnegative value, and the neuron-wide FE budget -- not a ceiling -- bounds totals.
             """
-            raw = np.asarray(raw, dtype=float)
+            raw = np.maximum(np.asarray(raw, dtype=float), 0.0)
             if raw.size == 0:
                 return raw
-            target = min(float(p['l2_init_total_frac']) * thr, raw.size * cap)
-            out = np.zeros_like(raw)
-            active = np.ones(raw.size, dtype=bool)
-            remaining = target
-            while np.any(active):
-                active_sum = float(raw[active].sum())
-                if active_sum <= 0.0:
-                    out[active] = remaining / int(active.sum())
-                    break
-                proposal = raw[active] * (remaining / active_sum)
-                over = proposal > cap
-                if not np.any(over):
-                    out[active] = proposal
-                    break
-                active_idx = np.flatnonzero(active)
-                capped_idx = active_idx[over]
-                out[capped_idx] = cap
-                remaining -= cap * len(capped_idx)
-                active[capped_idx] = False
-            return out
+            target = float(p['l2_init_total_frac']) * thr
+            s = float(raw.sum())
+            if s <= 0.0:
+                return np.full(raw.size, target / raw.size)
+            return raw * (target / s)
 
         ff_mean = self.ff_init_mean                    # per-afferent init, derived from n_pix
         enc_mean = ff_mean if p['enc_w_init'] is None else float(p['enc_w_init'])
@@ -693,8 +690,8 @@ class SimulationEngine:
                         jitter(ff_mean, len(srcs)))
                 else:
                     j = jitter(enc_mean, len(srcs))
-                    ff_w[n['id']] = j if enc_jitter else np.clip(
-                        np.full(len(srcs), enc_mean), 0.0, cap)
+                    ff_w[n['id']] = j if enc_jitter else np.maximum(
+                        np.full(len(srcs), enc_mean), 0.0)   # cap-free ordinary-E init
 
         # ---- coincidence dendrite wiring: one basal + >=1 apical afferent per C cell.
         # d_ref for the basal distance influence is the smallest positive basal-edge
@@ -950,7 +947,7 @@ class SimulationEngine:
             for f in ('column_id', 'column_role', 'column_index', 'column_row',
                       'column_col', 'patch', 'patch_id', 'patch_row', 'patch_col',
                       'patch_local_row', 'patch_local_col', 'input_row', 'input_col',
-                      'has_parent'):
+                      'feature_index', 'has_parent'):
                 if n.get(f) is not None:
                     m[f] = n[f]
             meta[n['id']] = m
@@ -1584,22 +1581,30 @@ class SimulationEngine:
         else:
             self._sched_exc(neuron_id, charge)           # lands next boundary
 
+    def _floor_ordinary_ff(self, weight: float) -> float:
+        """Ordinary feedforward weights are cap-free: accept any finite nonnegative value
+        (zero floor, NO upper cap). Non-finite input is rejected."""
+        w = float(weight)
+        if not math.isfinite(w):
+            raise ValueError(f'weight must be finite, got {weight!r}')
+        return max(0.0, w)
+
     def set_feedforward_weight(self, j: int, i: int, weight: float) -> float:
         if not (0 <= j < len(self.l2e) and 0 <= i < len(self.l2e[j].acc_weights)):
             raise IndexError(f'feedforward index out of range: j={j}, i={i}')
-        w = float(np.clip(weight, 0.0, self.params['e_weight_cap']))
+        w = self._floor_ordinary_ff(weight)
         self.l2e[j].acc_weights[i] = w
         return w
 
     def set_synapse_weight(self, edge_id: str, weight: float) -> float:
         """Hand-set any plastic synapse weight by its edge id (topology-agnostic):
-        feedforward -> competitor.acc_weights (clip [0, e_weight_cap]); predictive
-        -> predictor.w (clip [0, pi_w_max]). Raises KeyError for a non-plastic/unknown
-        edge. Best used while paused."""
+        ordinary feedforward -> competitor.acc_weights (floor 0, cap-free); predictive
+        -> predictor.w (clip [0, pi_w_max]); C basal -> C-specific cap. Raises KeyError for
+        a non-plastic/unknown edge. Best used while paused."""
         ref = self._ff_weight_ref.get(edge_id)
         if ref is not None:
             cell, widx = ref
-            w = float(np.clip(weight, 0.0, self.params['e_weight_cap']))
+            w = self._floor_ordinary_ff(weight)
             cell.acc_weights[widx] = w
             return w
         ref = self._pred_weight_ref.get(edge_id)
@@ -1627,10 +1632,6 @@ class SimulationEngine:
                 raise ValueError('l2_init_total_frac must satisfy 0 < rho < 1')
             if k == 'c_eta' and v is not None and float(v) < 0.0:
                 raise ValueError('c_eta must be non-negative or None')
-            if k == 'cc_e_count':
-                if int(v) < 1:
-                    raise ValueError('cc_e_count must be >= 1')
-                v = int(v)
             self.params[k] = v
             applied.append(k)
         # Selecting a named preset topology discards any applied custom graph.
@@ -1739,6 +1740,7 @@ class SimulationEngine:
         if self.tiled_meta is not None:
             out['tiling'] = dict(
                 family=self.tiled_meta['family'],
+                variant=self.tiled_meta.get('variant'),
                 input_shape=self.tiled_meta['input_shape'],
                 patch_shape=self.tiled_meta['patch_shape'],
                 grid_shape=self.tiled_meta.get('grid_shape'),
@@ -1751,7 +1753,15 @@ class SimulationEngine:
     def _public_params(self):
         p = self.params
         thr = float(p['e_threshold'])
+        # e_maturity_budget = the neuron-wide FE budget B = maturity_budget_frac*theta.
+        # This is the natural display reference for ordinary-E weights (there is NO hard
+        # per-synapse cap): a matured one-afferent specialist approaches B. e_weight_cap is
+        # reported for legacy/headless bounded modes only and must not be read as a production
+        # ceiling.
+        e_budget_frac = float(p['e_maturity_budget_frac'])
         out = dict(seed=p['seed'], e_threshold=thr, e_weight_cap=float(p['e_weight_cap']),
+                   e_maturity_budget_frac=e_budget_frac,
+                   e_maturity_budget=e_budget_frac * thr,
                    eta=float(p['eta']), leak_rate=float(p['leak_rate']),
                    refractory_steps=int(p['refractory_steps']),
                    input_period=int(p['input_period']),

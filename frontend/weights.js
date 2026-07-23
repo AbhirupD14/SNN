@@ -1,10 +1,11 @@
 // Full-screen weights-over-time view: the selected cell's incoming feedforward
-// weights (one series per afferent) as a fraction of the weight cap, over the full
-// (bounded) training history. Topology-generic: the afferent set is read from the
-// live topology (feedforward edges into the target), so it works for any plastic cell
-// with any fan-in, not just a fixed 9-pixel L2E. In the 'rg' topology that includes
-// each L1E encoder's single RG afferent, which is how the RG->L1E weight trajectory is
-// read off the dashboard. Pick a target by clicking a competitor/encoder in the 3D view.
+// weights (one series per afferent) as a fraction of the neuron-wide maturity budget
+// B = e_maturity_budget_frac*theta (ordinary-E weights are cap-free; the FE budget, not
+// a per-synapse ceiling, is the natural reference), over the full (bounded) training
+// history. Topology-generic: the afferent set is read from the live topology (feedforward
+// edges into the target), so it works for any plastic cell with any fan-in -- an L2E's
+// child-Eor afferents, an Eor's local ordinary-E afferents, etc. Pick a target by
+// clicking a competitor/Eor in the 3D view.
 //
 // Fit-to-width (no horizontal scroll): the whole history compresses into the viewport.
 
@@ -61,6 +62,10 @@ export class WeightsChart {
 
   _reset() { this.hist = []; }
 
+  // Public reset used by the replay player before rebuilding a bounded history
+  // window ending at a seek target (the live path uses _reset on rebuild).
+  reset() { this._reset(); this._schedule(); }
+
   setTarget(id) {
     if (!id || id === this.target) return;
     const meta = this.store.meta?.get(id);
@@ -86,10 +91,13 @@ export class WeightsChart {
            if (this.targetEl) this.targetEl.textContent = this.target || '—'; this._draw(); }
   close() { this.overlay.hidden = true; }
 
-  _cap() {
+  // Display reference for ordinary-E weights: the neuron-wide maturity budget
+  // B = e_maturity_budget_frac * theta. There is NO hard per-synapse cap; a matured
+  // one-afferent specialist approaches B, so series are normalized against it.
+  _ref() {
     const p = this.store.topology?.params || {};
-    const frac = p.l2e_weight_cap_frac ?? 1;
-    return (frac * (p.threshold_l2 ?? 1)) || 1;
+    const thr = p.threshold_l2 ?? 1;
+    return (p.e_maturity_budget ?? (thr * (p.e_maturity_budget_frac ?? 1.1))) || 1;
   }
 
   _draw() {
@@ -111,7 +119,7 @@ export class WeightsChart {
     const cMut = css.getPropertyValue('--txt-2').trim() || '#5f6b82';
 
     const x0 = PAD.l, x1 = vw - PAD.r, y0 = PAD.t, y1 = vh - PAD.b;
-    const YMAX = 1.1, cap = this._cap();
+    const YMAX = 1.1, ref = this._ref();
     const N = this.hist.length, M = this.edges.length;
     const xOf = (i) => N <= 1 ? x0 : x0 + (i / (N - 1)) * (x1 - x0);
     const yOf = (v) => y1 - Math.max(0, Math.min(YMAX, v)) / YMAX * (y1 - y0);
@@ -121,12 +129,12 @@ export class WeightsChart {
     ctx.fillStyle = cMut; ctx.font = '10px ui-monospace, monospace';
     ctx.textBaseline = 'middle'; ctx.textAlign = 'right';
     ctx.fillText('0', x0 - 5, y1);
-    const yCap = yOf(1.0);
+    const yBudget = yOf(1.0);
     ctx.strokeStyle = 'rgba(255,255,255,0.16)'; ctx.setLineDash([4, 4]);
-    ctx.beginPath(); ctx.moveTo(x0, yCap); ctx.lineTo(x1, yCap); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillText('cap', x0 - 5, yCap);
+    ctx.beginPath(); ctx.moveTo(x0, yBudget); ctx.lineTo(x1, yBudget); ctx.stroke(); ctx.setLineDash([]);
+    ctx.fillText('budget', x0 - 5, yBudget);
     ctx.textAlign = 'left';
-    ctx.fillText(`${this.target || '—'} · ${M} feedforward afferents ÷ cap (${cap.toFixed(0)}) · ${N} samples · newest →`,
+    ctx.fillText(`${this.target || '—'} · ${M} feedforward afferents ÷ FE budget (${ref.toFixed(0)}) · ${N} samples · newest →`,
                  x0 + 4, y0 - 8 < 6 ? 8 : y0 - 8);
 
     if (N < 2 || !M) {
@@ -142,11 +150,11 @@ export class WeightsChart {
       ctx.strokeStyle = `hsl(${hue}, 70%, 55%)`; ctx.lineWidth = 1.4;
       ctx.beginPath();
       for (let k = 0; k < N; k++) {
-        const v = this.hist[k][i] / cap;
+        const v = this.hist[k][i] / ref;
         k ? ctx.lineTo(xOf(k), yOf(v)) : ctx.moveTo(xOf(k), yOf(v));
       }
       ctx.stroke();
-      const last = this.hist[N - 1][i] / cap;
+      const last = this.hist[N - 1][i] / ref;
       ctx.fillStyle = `hsl(${hue}, 70%, 62%)`;
       ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
       ctx.fillText(`${this.edges[i].label} ${last.toFixed(2)}`, x1 + 4, yOf(last));

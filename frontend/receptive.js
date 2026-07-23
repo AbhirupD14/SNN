@@ -3,7 +3,8 @@
 // the sensory afferent mapped to that input pixel (topology.synapses of kind
 // 'feedforward', keyed by the source node's pixel). Cells with no such edge are blank.
 //
-// Cells show the ACTUAL weight ('weight' mode) or weight / per-afferent cap ('ratio').
+// Cells show the ACTUAL weight ('weight' mode) or weight / maturity-budget reference
+// ('ratio', B = e_maturity_budget_frac*theta). Ordinary-E weights are cap-free.
 // When PAUSED each mapped cell is editable: type a value + Enter to set that exact
 // synapse via /api/weight {synapse: edgeId}. A unit whose three strongest afferents
 // can no longer sum to threshold is flagged "dead".
@@ -52,8 +53,11 @@ export class ReceptiveFields {
   _caps() {
     const p = this.store.topology?.params || {};
     const thr = p.threshold_l2 || 1;
-    const cap = thr * (p.l2e_weight_cap_frac ?? 1);
-    return { thr, cap: cap || 1 };
+    // Ordinary-E weights are cap-free; scale displays against the neuron-wide maturity
+    // budget B = e_maturity_budget_frac * theta (a matured one-afferent cell approaches B),
+    // NOT a hard per-synapse ceiling.
+    const ref = p.e_maturity_budget ?? (thr * (p.e_maturity_budget_frac ?? 1.1));
+    return { thr, ref: ref || 1 };
   }
 
   // Rebuild from the CURRENT topology (called on every topology broadcast, so it
@@ -143,10 +147,10 @@ export class ReceptiveFields {
     if (!edgeId) { this.update(this.store.dynamic); return; }   // no synapse to set
     const val = parseFloat((cell.textContent || '').trim());
     if (!Number.isFinite(val)) { this.update(this.store.dynamic); return; }
-    const { cap } = this._caps();
-    const weight = this.mode === 'ratio' ? val * cap : val;
+    const { ref } = this._caps();
+    const weight = this.mode === 'ratio' ? val * ref : val;
     this.api.post('/api/weight', { synapse: edgeId, weight });
-    this.store.weights.set(edgeId, Math.max(0, Math.min(cap, weight)));   // optimistic echo
+    this.store.weights.set(edgeId, Math.max(0, weight));   // optimistic echo (cap-free, floor 0)
   }
 
   _buildTiledNotice(topo) {
@@ -177,7 +181,7 @@ export class ReceptiveFields {
     if (!this.built) this.build();
     if (this._tiled) return;              // tiled notice is static; nothing per-frame
     const s = this.store;
-    const { thr, cap } = this._caps();
+    const { thr, ref } = this._caps();
 
     this.running = !!(dyn && dyn.running);
     const editable = !this.running;
@@ -214,12 +218,12 @@ export class ReceptiveFields {
         fireRatios.push(w / thr);
         cell.contentEditable = editable ? 'true' : 'false';
         cell.classList.toggle('rf-editable', editable);
-        const norm = Math.max(0, Math.min(1, w / cap));
+        const norm = Math.max(0, Math.min(1, w / ref));
         cell.style.background = norm > 0.001
           ? `rgba(94,234,212,${(0.08 + 0.92 * norm).toFixed(3)})` : 'transparent';
         if (document.activeElement === cell) continue;
         cell.textContent = this.mode === 'ratio'
-          ? (w / cap).toFixed(3)
+          ? (w / ref).toFixed(3)
           : (w >= 0.05 ? w.toFixed(1) : '0');
       }
       const top3 = [...fireRatios].sort((a, b) => b - a).slice(0, 3).reduce((a, b) => a + b, 0);

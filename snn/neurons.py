@@ -47,14 +47,24 @@ DEFAULT_LEAK = 0.0
 DEFAULT_REFRACTORY = 0
 
 # --- Accumulating weight-update modes ----------------------------------------
-# The ordinary E/L2E PRODUCTION default is now `linear_bounded` (promoted after a
-# 32/32 fresh-seed confirmation): the per-synapse (1 - (w/w_max)^2) multiplier is
-# dropped from the default E update, and the E hard cap is retained. `quadratic_bounded`
-# is the HISTORICAL E rule, kept as a headless mode; `linear_nonnegative` is a cap-free
-# diagnostic only. The C basal rule now MIRRORS this: production default `c_linear_bounded`
-# (multiplier dropped, cap retained); `c_quadratic_bounded` is the historical C rule kept
-# as a headless mode; `c_linear_nonnegative` is a cap-free diagnostic. None are dashboard controls.
-E_UPDATE_MODES = ('quadratic_bounded', 'linear_bounded', 'linear_nonnegative')
+# The ordinary E/L2E PRODUCTION default is `linear_fe` (free-energy, floor-only):
+#     p     = maturity_budget_frac*threshold - sum(acc_weights)   # neuron-wide FE term
+#     dw_i  = eta * p * signal_i * distance_factor_i
+#     w_i  <- max(0, w_i + dw_i)                                   # ZERO floor, NO upper cap
+# As sum(w) approaches the budget B = maturity_budget_frac*threshold the FE term p -> 0
+# and learning halts on its own -- so an INDIVIDUAL ordinary-E weight has a zero floor and
+# NO individual upper bound, free to exceed the historical theta/2 ceiling (a one-afferent
+# specialist approaches B ~= 1.10*theta ~= 1100 at theta=1000). The bounded variants remain
+# HEADLESS-only regression modes that never run in production: `linear_bounded` (floor +
+# hard cap, the historical promoted rule) and `quadratic_bounded` (adds the
+# (1-(w/w_max)^2) multiplier). `linear_nonnegative` is a deprecated synonym for `linear_fe`
+# (identical floor-only behavior), kept so historical experiments/tests still resolve.
+# The C basal rule keeps its OWN mechanism-specific cap and is unaffected: production
+# default `c_linear_bounded` (multiplier dropped, C cap retained); `c_quadratic_bounded`
+# historical; `c_linear_nonnegative` a cap-free C diagnostic. None are dashboard controls.
+E_UPDATE_MODES = ('quadratic_bounded', 'linear_bounded', 'linear_fe', 'linear_nonnegative')
+# Cap-free ordinary-E modes: floor at w_floor, no upper clip (FE supplies saturation).
+_E_CAP_FREE_MODES = ('linear_fe', 'linear_nonnegative')
 C_UPDATE_MODES = ('c_quadratic_bounded', 'c_linear_bounded', 'c_linear_nonnegative')
 
 # --- Conductance / trace defaults (documented, engine may override) ---------
@@ -377,7 +387,7 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
     def __init__(self, nid, role, *, acc_weights, acc_distance_factor,
                  threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP, w_floor=0.0,
                  leak_rate=DEFAULT_LEAK, refractory_steps=DEFAULT_REFRACTORY,
-                 eta=DEFAULT_ETA, learn=True, update_mode='linear_bounded',
+                 eta=DEFAULT_ETA, learn=True, update_mode='linear_fe',
                  maturity_budget_frac=1.10,
                  e_inh=DEFAULT_E_INH, alpha_inh=DEFAULT_ALPHA_INH,
                  alpha_a=DEFAULT_ALPHA_A, beta_v=DEFAULT_BETA_V,
@@ -414,21 +424,26 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
     def update_acc_weights(self, participation):
         """The one accumulating-weight rule. Runs when this neuron fires.
 
-        PRODUCTION default is ``linear_bounded``:
+        PRODUCTION default is ``linear_fe`` (free-energy, floor-only, NO upper cap):
 
-            p          = maturity_budget_frac*threshold - sum(acc_weights)  # pre-update, signed
+            p          = maturity_budget_frac*threshold - sum(acc_weights)  # pre-update, signed FE
             signal_i   = +1 if afferent i spiked in the causal volley else -1
             base_i     = eta * p * signal_i * distance_factor_i
-            delta_i    = base_i                                # linear_bounded (default)
-            w_i        = clip(w_i + delta_i, w_floor, w_max)   # E cap retained, floor 0
+            delta_i    = base_i                                # linear (no multiplier)
+            w_i        = max(w_i + delta_i, w_floor)           # ZERO floor, NO upper bound
+
+        Saturation is the neuron-wide FE term, not a per-synapse ceiling: as sum(w) rises
+        toward the budget B = maturity_budget_frac*threshold, p -> 0 and updates vanish, so
+        an individual weight may exceed the historical theta/2 cap (a one-afferent
+        specialist approaches B).
 
         ``update_mode`` selects the variant:
-          * ``linear_bounded``     -- delta = base; clip [w_floor, w_max]. **PRODUCTION
-            default** (promoted after a 32/32 fresh-seed confirmation); no quadratic term;
+          * ``linear_fe``          -- delta = base; floor only, NO cap. **PRODUCTION default**.
+            (``linear_nonnegative`` is an accepted deprecated synonym, identical behavior.)
+          * ``linear_bounded``     -- delta = base; clip [w_floor, w_max]. Historical bounded
+            rule, HEADLESS regression only;
           * ``quadratic_bounded``  -- delta = base * (1 - (w/w_max)^2); clip [w_floor, w_max].
-            The HISTORICAL rule, kept as a headless mode;
-          * ``linear_nonnegative`` -- delta = base; floor only (NO upper cap). Cap-free
-            diagnostic only.
+            The oldest rule, HEADLESS regression only.
 
         ``w_floor`` (default 0) sets the lower clip: at 0 a fully depressed afferent can
         still recover additively if it later participates, but it holds no charge and is
@@ -443,13 +458,13 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
         base = self.eta * p * signal * self.acc_distance_factor
         if self.update_mode == 'quadratic_bounded':
             delta = base * (1.0 - (w / self.w_max) ** 2)
-        else:                                        # linear_bounded / linear_nonnegative
+        else:                                        # linear_fe / linear_bounded
             delta = base
         w_before = w.copy() if self.record_updates else None
-        if self.update_mode == 'linear_nonnegative':
-            np.maximum(w + delta, self.w_floor, out=w)     # floor only; cap-free probe
+        if self.update_mode in _E_CAP_FREE_MODES:
+            np.maximum(w + delta, self.w_floor, out=w)     # floor only; FE supplies saturation
         else:
-            np.clip(w + delta, self.w_floor, self.w_max, out=w)
+            np.clip(w + delta, self.w_floor, self.w_max, out=w)  # headless bounded modes
         if self.record_updates:
             self._log_acc_update(w_before, delta, p)
 
@@ -458,7 +473,7 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
         w_after = self.acc_weights
         pre_sum, post_sum = float(w_before.sum()), float(w_after.sum())
         applied = w_after - w_before
-        bounded = self.update_mode != 'linear_nonnegative'
+        bounded = self.update_mode not in _E_CAP_FREE_MODES
         self.update_log.append(dict(
             cell=self.id, mode=self.update_mode,
             pre_sum=pre_sum, post_sum=post_sum,

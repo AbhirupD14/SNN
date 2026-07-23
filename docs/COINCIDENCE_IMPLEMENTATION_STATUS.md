@@ -1,6 +1,6 @@
 # Coincidence Pyramidal Cell — Implementation Status
 
-Controlling docs: `Claude_Coincidence_Pyramidal_Cell_Implementation_Prompt.md`
+Controlling docs: `prompts/Claude_Coincidence_Pyramidal_Cell_Implementation_Prompt.md`
 (workflow) and `docs/COINCIDENCE_PYRAMIDAL_CELL_TECHNICAL_SPEC.md` (contract).
 
 ## Phase table

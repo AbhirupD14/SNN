@@ -33,6 +33,7 @@ export class ChargeChart {
     this.l1rest = [];      // Uint8Array: 1 if the gate floored the pixel to rest
     this.times = [];
     this.showL1 = true;
+    this.column = 'all';   // 'all' or a tiled column_id; filters rendered lanes only
     this.colW = 8;
     this.follow = true;
     this.built = false;
@@ -45,6 +46,13 @@ export class ChargeChart {
     document.getElementById('charge-zoom-out')?.addEventListener('click', () => this._zoom(1 / 1.5));
     const l1 = document.getElementById('charge-l1');
     l1?.addEventListener('change', () => { this.showL1 = l1.checked; this._schedule(); });
+    this.columnSel = document.getElementById('charge-column');
+    this.columnWrap = document.getElementById('charge-column-wrap');
+    this.columnSel?.addEventListener('change', () => {
+      this.column = this.columnSel.value;
+      this._syncL1Disabled();
+      this._schedule();
+    });
     this.scroll?.addEventListener('scroll', () => {
       const s = this.scroll;
       this.follow = s.scrollLeft + s.clientWidth >= s.scrollWidth - 6;
@@ -62,11 +70,64 @@ export class ChargeChart {
   }
 
   build(topo) {
-    this.order = (topo?.neurons ?? []).map(n => ({ id: n.id, type: n.type, group: n.layer + n.type }));
+    this.order = (topo?.neurons ?? []).map(n => ({
+      id: n.id, type: n.type, group: n.layer + n.type, layer: n.layer,
+      column_id: n.column_id ?? null, column_role: n.column_role ?? null,
+      column_index: n.column_index ?? null,
+    }));
     this.index = new Map(this.order.map((n, i) => [n.id, i]));
     this.charge = []; this.spike = []; this.inhibited = [];
     this.l1inh = []; this.l1rest = []; this.times = [];
     this.built = true;
+    this._buildColumnSelector(topo);
+  }
+
+  // Rebuild the tiled cortical-column selector from topology metadata. Legacy
+  // topologies (no tiling.columns) hide the selector and keep 'all' behaviour.
+  _buildColumnSelector(topo) {
+    const sel = this.columnSel, wrap = this.columnWrap;
+    if (!sel || !wrap) return;
+    const tiling = topo?.tiling, columns = tiling?.columns;
+    if (!columns || !columns.length) {
+      this.column = 'all';
+      sel.innerHTML = '';
+      wrap.hidden = true;
+      this._syncL1Disabled();
+      return;
+    }
+    // "All neurons" first, then every column in topology-provided order.
+    sel.innerHTML = '';
+    const all = document.createElement('option');
+    all.value = 'all'; all.textContent = 'All neurons';
+    sel.appendChild(all);
+    for (const c of columns) {
+      const o = document.createElement('option');
+      o.value = c.id; o.textContent = c.id;
+      sel.appendChild(o);
+    }
+    wrap.hidden = false;
+    // Default to the L1 column matching selected_patch [row, col]; else the first
+    // L1 column; else "All neurons".
+    const patch = tiling.selected_patch;
+    const l1cols = columns.filter(c => c.layer === 'L1');
+    let def = 'all';
+    if (l1cols.length) {
+      def = l1cols[0].id;
+      if (Array.isArray(patch)) {
+        const m = l1cols.find(c => c.row === patch[0] && c.col === patch[1]);
+        if (m) def = m.id;
+      }
+    }
+    this.column = def;
+    sel.value = def;
+    this._syncL1Disabled();
+  }
+
+  // The Layer 1 checkbox only applies in "All neurons" mode; a specific column is
+  // shown in full regardless, so disable the checkbox while one is selected.
+  _syncL1Disabled() {
+    const l1 = document.getElementById('charge-l1');
+    if (l1) l1.disabled = this.column !== 'all';
   }
 
   update(dyn) {
@@ -104,6 +165,14 @@ export class ChargeChart {
     this._schedule();
   }
 
+  // Discard accumulated charge/spike/inhibition history so a replay backward-seek
+  // rebuilds only the bounded window ending at the target frame (truthful).
+  reset() {
+    this.charge = []; this.spike = []; this.inhibited = [];
+    this.l1inh = []; this.l1rest = []; this.times = [];
+    this._schedule();
+  }
+
   open() { this.overlay.hidden = false; this.follow = true; this._cw = this._ch = 0; this._draw(); }
   close() { this.overlay.hidden = true; }
 
@@ -129,8 +198,13 @@ export class ChargeChart {
     this._draw();
   }
 
-  _lanes() { return this.showL1 ? this.order
-    : this.order.filter(n => !n.group.startsWith('L1') && !n.group.startsWith('ERR')); }
+  _lanes() {
+    // A specific column overrides the Layer 1 filter and shows that column in full.
+    if (this.column && this.column !== 'all')
+      return this.order.filter(n => n.column_id === this.column);
+    return this.showL1 ? this.order
+      : this.order.filter(n => !n.group.startsWith('L1') && !n.group.startsWith('ERR'));
+  }
 
   _draw() {
     if (!this._open() || !this.built) return;

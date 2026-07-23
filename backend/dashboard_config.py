@@ -1,13 +1,15 @@
 """The active dashboard preset and declarative controls exposed in the UI.
 
-The browser starts on the validated RG coincidence turnover configuration. The
-same control surface retains the older topology-specific ablations so those presets
-remain selectable and inspectable without a second dashboard.
+The browser starts on the validated RG coincidence turnover configuration and offers
+exactly the three current built-in topologies (rg_coincidence, tiled_cc, tiled_cc_l1_4).
+Only controls that affect at least one of those three presets are exposed; every other
+engine parameter is a construction-time / headless-only setting.
 """
 
 # The browser opens directly on the validated coincidence turnover experiment.
-# SimulationEngine's general-purpose default remains ``pi`` so legacy callers/tests
-# retain their historical behavior; this dictionary is the explicit dashboard preset.
+# SimulationEngine's general-purpose default is also ``rg_coincidence``; this dictionary is
+# the explicit dashboard startup preset. It sets only retained (editable) controls -- no
+# per-synapse weight cap (ordinary-E learning is cap-free; the FE budget saturates totals).
 DASHBOARD_OVERRIDES: dict = {
     "topology": "rg_coincidence",
     "eta": 0.01,
@@ -15,11 +17,31 @@ DASHBOARD_OVERRIDES: dict = {
     "l2_init_total_frac": 0.95,
     "leak_rate": 0.0,
     "refractory_steps": 0,
-    "e_weight_cap": 500.0,
 }
 
 
 CONFIG_SPEC = [
+    {"key": "topology", "label": "Topology", "kind": "select",
+     "options": [{"value": "rg_coincidence", "label": "Coincidence · 3×3"},
+                 {"value": "tiled_cc", "label": "Tiled CC · 9×9 · 8 E/column"},
+                 {"value": "tiled_cc_l1_4", "label": "Tiled CC · 9×9 · L1 4 E / L2 8 E"},
+                 {"value": "tiled_cc_feature_gated",
+                  "label": "9×9 Feature-Gated CC (L1=8)"}],
+     "desc": "rg_coincidence: the 3x3 coincidence circuit -- pretrained RG->L1E, "
+             "coincidence L1C cells (one learned basal + eight unweighted apical), "
+             "immediate hard-reset L1I/L2I relays, and an emergent first-spike-latency L2 "
+             "WTA. tiled_cc: the 9x9 tiled cortical-column hierarchy -- a 9x9 RGC surface "
+             "tiled into nine 3x3 patches, one L1 column per patch (eight ordinary E + Eor "
+             "+ coincidence C + relay I each) arranged 3x3, and one L2 column receiving all "
+             "nine L1 Eor outputs (191 nodes / 1052 edges). tiled_cc_l1_4: the same "
+             "hierarchy with a shallower L1 (four ordinary E per L1 column, eight in L2) -- "
+             "155 nodes / 620 edges. tiled_cc_feature_gated: the eight-competitor variant "
+             "that restores rg_coincidence's feature-specific inhibition -- nine fixed "
+             "feature relays per 3x3 RF, each with a paired coincidence C and feature "
+             "inhibitory If that suppresses only its own relay, plus a separate WTA-only I "
+             "per L1 module (424 nodes / 1932 edges). Selecting a tiled preset rebuilds the "
+             "input to 81 pixels. Applying rebuilds the network and wipes learned state. "
+             "(Use the Topology Editor for arbitrary graphs and saved presets.)"},
     {"key": "leak_rate", "label": "Leak rate", "kind": "range",
      "min": 0.0, "max": 0.5, "step": 0.005,
      "desc": "Per-step membrane decay for every excitatory neuron, mapped to a "
@@ -30,7 +52,10 @@ CONFIG_SPEC = [
      "desc": "Steps after firing during which an excitatory neuron cannot fire."},
     {"key": "eta", "label": "Excitatory learning rate", "kind": "range",
      "min": 0.001, "max": 0.05, "step": 0.001,
-     "desc": "Accumulating feedforward learning rate for ordinary E/L2E cells."},
+     "desc": "Accumulating feedforward learning rate for ordinary E/L2E/Eor cells. "
+             "Learning is cap-free: as an incoming row's total approaches the FE budget "
+             "B = maturity_budget_frac*theta the update vanishes, so weights saturate "
+             "without any per-synapse ceiling."},
     {"key": "c_eta", "label": "C basal learning rate", "kind": "range",
      "min": 0.0005, "max": 0.01, "step": 0.0005, "decimals": 4,
      "desc": "Coincidence-cell basal learning rate. Under the one-shot budget rule a "
@@ -38,124 +63,9 @@ CONFIG_SPEC = [
              "one-shot firing ~5x faster than the historical 0.001."},
     {"key": "l2_init_total_frac", "label": "L2 initial total / threshold", "kind": "range",
      "min": 0.5, "max": 0.99, "step": 0.01,
-     "desc": "For latency-WTA L2E cells, normalize each seeded afferent row to this "
+     "desc": "For latency-WTA L2E/Eor cells, normalize each seeded afferent row to this "
              "fraction of theta. 0.95 gives equal positive initial FE=0.05*theta "
              "while preserving within-row jitter that breaks symmetry."},
-    {"key": "e_weight_cap", "label": "Excitatory weight cap", "kind": "range",
-     "min": 200, "max": 2000, "step": 50,
-     "desc": "The shared per-synapse accumulating-weight cap (theta = 1000)."},
-    {"key": "topology", "label": "Topology", "kind": "select",
-     "options": [{"value": "pi", "label": "Predictive inhibition (PI)"},
-                 {"value": "old", "label": "Old dense global inhibition"},
-                 {"value": "rg", "label": "Retinal ganglion source layer (RG)"},
-                 {"value": "rg_residual", "label": "RG residual/error pathway"},
-                 {"value": "rg_coincidence", "label": "RG coincidence pyramidal (event-resolved)"},
-                 {"value": "tiled_cc", "label": "Tiled cortical columns (9x9 -> 9 L1 -> 1 L2)"}],
-     "desc": "pi: the 26-neuron predictive-inhibition experiment -- eight "
-             "pattern-specific PI cells paired 1:1 with L2E, each with 9 locally "
-             "plastic inhibitory outputs onto L1E_s. old: the 27-neuron original "
-             "topology -- nine paired L1I relays, densely fed by every L2E, so the "
-             "winner shunts every L1E_s (global inhibition). rg: the 36-neuron source-"
-             "layer experiment -- old's cortex with nine uninhibitable RG cells ahead "
-             "of L1 and plastic 1:1 RG->L1E synapses, so a held edge keeps supplying "
-             "retinal evidence while L1 is shunted and L1E must LEARN its afferent. "
-             "rg_residual: the 52-cell residual circuit -- L1E remains uninhibited, "
-             "PI predicts onto a separate ErrorE sheet, and local traced SwitchI "
-             "cells release only the incumbent before ordinary L2 WTA re-competes. "
-             "rg_coincidence: the 45-cell event-resolved coincidence circuit -- "
-             "pretrained RG->L1E, coincidence L1C cells (one learned basal + eight "
-             "unweighted apical), immediate hard-reset L1I/L2I relays, and an emergent "
-             "first-spike-latency L2 WTA (no deterministic winner phase). "
-             "tiled_cc: the 191-node tiled cortical-column hierarchy -- a 9x9 RGC "
-             "surface tiled into nine 3x3 patches, one L1 column per patch (cc_e_count "
-             "ordinary E + Eor + coincidence C + relay I each) arranged 3x3, and one L2 "
-             "column receiving all nine L1 Eor outputs. Selecting it rebuilds the input "
-             "to 81 pixels; the top L2 C is dormant. "
-             "Applying rebuilds the network. (Use the Topology Editor for arbitrary "
-             "graphs and presets.)"},
-    {"key": "cc_e_count", "label": "Tiled ordinary E per column", "kind": "range",
-     "min": 1, "max": 16, "step": 1, "decimals": 0,
-     "desc": "tiled_cc only: the number N of ordinary competing E neurons in every "
-             "cortical column (default 8 -> 191 nodes / 1052 edges; 10N+111 nodes, "
-             "129N+20 edges). Applying rebuilds and wipes learned state like any "
-             "structural change; ignored by the five legacy presets."},
-
-    # --- membrane conductance / trace ---
-    {"key": "alpha_inh", "label": "WTA conductance retention (L2E)", "kind": "range",
-     "min": 0.0, "max": 0.98, "step": 0.02,
-     "desc": "Per-step retention of inhibitory conductance on L2E (the L2I_WTA "
-             "target). Kept FAST so winner-take-all does not itself drive turnover."},
-    {"key": "alpha_inh_l1", "label": "Predictive conductance retention (L1)", "kind": "range",
-     "min": 0.0, "max": 0.98, "step": 0.02,
-     "desc": "Per-step retention of inhibitory conductance on L1E_s (the predictive "
-             "PI / legacy L1I target). The symmetry-breaking lever: the shared-feature "
-             "shunt must persist across a rival's accumulation window (~0.95)."},
-    {"key": "alpha_a", "label": "Activity-trace retention", "kind": "range",
-     "min": 0.0, "max": 0.98, "step": 0.02,
-     "desc": "Per-step retention of each L1 cell's local activity trace, which lets "
-             "a PI cell learn onto features that were active before it fired."},
-
-    # --- predictive inhibition (PI) ---
-    {"key": "pi_eta", "label": "PI association rate (slow)", "kind": "range",
-     "min": 0.0, "max": 0.2, "step": 0.005,
-     "desc": "Local inhibitory learning rate. Kept SLOW so one overlapping "
-             "presentation does not let an incumbent PI learn every novel feature."},
-    {"key": "pi_g_scale", "label": "PI conductance / weight (fast)", "kind": "range",
-     "min": 0.0, "max": 20.0, "step": 0.5,
-     "desc": "Inhibitory conductance expressed per unit PI synaptic weight. Expression "
-             "is immediate once a mature synapse activates (fast), unlike association."},
-    {"key": "l2i_g_scale", "label": "L2I_WTA conductance", "kind": "range",
-     "min": 0.0, "max": 30.0, "step": 1.0,
-     "desc": "Magnitude of the global winner-take-all inhibitory conductance pulse "
-             "onto all L2E (suppresses non-winners on the next boundary)."},
-    {"key": "pi_conductance_enabled", "label": "Express PI conductance", "kind": "toggle",
-     "desc": "Ablation control: when OFF, PI cells still learn but express no "
-             "inhibitory conductance onto L1E_s (predictive inhibition disabled)."},
-    {"key": "pi_plasticity_enabled", "label": "PI plasticity", "kind": "toggle",
-     "desc": "Ablation control: when OFF, PI output synapses do not learn (frozen at "
-             "their initial zero weights)."},
-
-    # --- plastic encoder feedforward (the RG -> L1E path; 'rg' topology only) ---
-    {"key": "enc_plasticity_enabled", "label": "RG->L1E plasticity", "kind": "toggle",
-     "desc": "Ablation control (rg topology): when OFF, the nine RG->L1E synapses are "
-             "frozen at their initial weight, isolating the RG layer's topology and "
-             "extra delay from the effect of L1 learning its sensory afferent."},
-    {"key": "enc_init_jitter", "label": "RG->L1E init jitter", "kind": "toggle",
-     "desc": "Control (rg topology): when OFF, all nine RG->L1E weights start at "
-             "exactly the same value instead of the shared seeded narrow jitter. Tests "
-             "whether L1 phase splitting is learned/dynamic or merely injected by "
-             "initialization asymmetry."},
-
-    # --- residual/error circuit ---
-    {"key": "residual_exc_scale", "label": "L1E->ErrorE copy / threshold", "kind": "range",
-     "min": 0.5, "max": 2.0, "step": 0.05,
-     "desc": "Fixed charge delivered to paired ErrorE per L1E spike, as a multiple "
-             "of the excitatory threshold. This path is structural, not plastic."},
-    {"key": "switch_trace_decay", "label": "Switch winner-trace retention", "kind": "range",
-     "min": 0.0, "max": 0.99, "step": 0.01,
-     "desc": "Per-boundary retention rho of each SwitchI cell's strictly local "
-             "eligibility trace x_j. Only a real paired L2E_j spike writes it."},
-    {"key": "switch_trace_threshold", "label": "Switch trace threshold", "kind": "range",
-     "min": 0.0, "max": 1.0, "step": 0.05,
-     "desc": "Minimum pre-existing local x_j required alongside a current residual "
-             "event for SwitchI_j to fire."},
-    {"key": "switch_residual_charge_frac", "label": "Switch residual charge / θI", "kind": "range",
-     "min": 0.05, "max": 0.9, "step": 0.05,
-     "desc": "Numeric charge added to every connected SwitchI by one ErrorE spike, "
-             "as a fraction of the inhibitory threshold. The branch is capped below "
-             "threshold, so residual activity alone cannot fire SwitchI."},
-    {"key": "switch_trace_charge_frac", "label": "Switch trace priming / θI", "kind": "range",
-     "min": 0.05, "max": 0.9, "step": 0.05,
-     "desc": "Maximum numeric priming charge opened by the paired local L2 trace. "
-             "This branch is also capped below threshold; only residual plus priming "
-             "can cross θI."},
-    {"key": "switch_g_scale", "label": "Switch incumbent conductance", "kind": "range",
-     "min": 0.0, "max": 30.0, "step": 1.0,
-     "desc": "Paired inhibitory conductance scheduled onto the incumbent L2E when "
-             "its SwitchI temporal AND fires."},
-    {"key": "switch_conductance_enabled", "label": "Express SwitchI conductance", "kind": "toggle",
-     "desc": "Ablation: SwitchI coincidence events and local traces remain visible, "
-             "but no incumbent-inhibitory pulse is emitted."},
 ]
 
 

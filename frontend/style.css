@@ -13,6 +13,8 @@
   --exc: #5eead4;           /* excitatory */
   --inh: #f0788c;           /* inhibitory */
   --rg: #fbbf24;            /* exogenous retinal-ganglion source layer */
+  --coin: #38bdf8;          /* coincidence-detector neuron body */
+  --eor: #a855f7;           /* ordinary-readout Eor neuron body */
   --win: #ffce5c;           /* winner */
   --ff: #4cc38a;            /* feedforward edge */
   --in: #f0788c;            /* inhibition edge */
@@ -189,6 +191,7 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .sw { width: 11px; height: 11px; border-radius: 50%; }
 .sw.exc { background: var(--exc); } .sw.inh { background: var(--inh); } .sw.win { background: var(--win); }
 .sw.rg { background: var(--rg); }
+.sw.coin { background: var(--coin); } .sw.eor { background: var(--eor); }
 .ln { width: 16px; height: 2px; border-radius: 2px; }
 .ln.ff { background: var(--ff); } .ln.in { background: var(--in); } .ln.ex { background: var(--ex); }
 .ln.pi { background: #e066c0; }
@@ -323,6 +326,9 @@ canvas.chart, #histogram { width: 100%; display: block; }
 .viz-bar { flex: none; height: 46px; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
 .viz-title { font-weight: 600; color: var(--txt-0); }
 .viz-bar .check { margin: 0; }
+.viz-column { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--txt-1); }
+.viz-column[hidden] { display: none; }
+.viz-column select { padding: 4px 7px; font-size: 12px; }
 .viz-zoom { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--txt-2); }
 .viz-legend { font-size: 11px; color: var(--txt-2); display: flex; align-items: center; gap: 6px; }
 .viz-legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 2px; vertical-align: middle; }
@@ -379,3 +385,64 @@ canvas.chart, #histogram { width: 100%; display: block; }
 .rf-overlay .rf-edit-hint.is-active { color: var(--ok, #5eead4); }
 .rf-cell.rf-blank { opacity: 0.3; border: 1px dashed var(--line); background: transparent !important; cursor: default; }
 .rf-overlay .viz-transport { margin-left: auto; }
+
+/* ───────────────────────── Read-only replay player ──────────────────────── */
+/* Fixed strip below the top bar; shown only while a recorded replay owns the
+   display. position:fixed keeps it out of the body grid so toggling it never
+   reflows the main layout. */
+.replay-bar {
+  position: fixed; top: 56px; left: 0; right: 0; z-index: 30;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 7px 14px;
+  background: linear-gradient(180deg, #241b0e, #1a140b);
+  border-bottom: 1px solid #5a4413;
+  font-size: 12px; color: var(--txt-0);
+}
+.replay-bar[hidden] { display: none; }
+body.replay-mode main.layout { padding-top: 46px; box-sizing: border-box; }
+
+.rp-badge {
+  font-weight: 700; letter-spacing: 1.2px; font-size: 11px;
+  color: #14100a; background: var(--rg); padding: 3px 8px; border-radius: 5px;
+}
+.rp-info { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.rp-info.dim { color: var(--txt-1); }
+.rp-transport { display: inline-flex; gap: 5px; }
+.rp-speed-wrap { display: inline-flex; align-items: center; gap: 5px; color: var(--txt-1); }
+.rp-speed, .rp-marker-select {
+  background: var(--bg-3); color: var(--txt-0); border: 1px solid var(--line);
+  border-radius: 6px; padding: 4px 6px; font-size: 12px;
+}
+
+/* Timeline: a slider with absolutely-positioned marker ticks above the track. */
+.rp-timeline { position: relative; flex: 1 1 220px; min-width: 180px; height: 22px; display: flex; align-items: center; }
+.rp-slider { width: 100%; margin: 0; accent-color: var(--rg); }
+.rp-ticks { position: absolute; left: 0; right: 0; top: 0; height: 8px; pointer-events: none; }
+.rp-tick {
+  position: absolute; top: 0; width: 2px; height: 8px; margin-left: -1px;
+  background: var(--accent-2); border-radius: 1px; pointer-events: auto; cursor: pointer;
+}
+.rp-tick:hover { background: #fff; }
+.rp-markers { display: inline-flex; align-items: center; gap: 5px; }
+.rp-error { color: #ffd7dc; font-size: 12px; }
+.rp-error[hidden] { display: none; }
+
+/* Load/parse errors surface here without entering replay. */
+.replay-toast {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 60;
+  max-width: 620px; padding: 10px 16px;
+  background: #2a1a20; border: 1px solid #5a2a33; border-radius: 8px;
+  color: #ffd7dc; font-size: 13px; box-shadow: 0 8px 28px rgba(0,0,0,.5);
+}
+.replay-toast[hidden] { display: none; }
+
+/* Guard live-mutation affordances while replay owns the display. The api guard in
+   app.js is the real safety net; these just make the controls read as inert. */
+.btn:disabled { opacity: .4; cursor: not-allowed; }
+.btn:disabled:hover { background: var(--bg-3); border-color: var(--line); }
+body.replay-mode #pixel-grid,
+body.replay-mode #patch-grid,
+body.replay-mode #patch-select,
+body.replay-mode #pattern-buttons,
+body.replay-mode #config-controls,
+body.replay-mode .rf-grid { pointer-events: none; opacity: .5; }

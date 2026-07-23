@@ -192,10 +192,18 @@ def test_winner_apical_output_opens_mature_c_at_same_tau():
     assert not hasattr(e, '_apical_next')
 
 
-# ------------------------------------------------------ legacy path untouched
-def test_legacy_graph_uses_synchronous_step():
-    e = SimulationEngine(seed=1, topology='pi')
+# ------------------------------------------------ synchronous (non-event) path untouched
+def test_non_event_graph_uses_synchronous_step():
+    # A custom non-coincidence graph runs the synchronous engine (no event resolution).
+    e = SimulationEngine(seed=1)
+    e.apply_topology({'name': 'sync', 'nodes': [
+        {'id': 'S0', 'archetype': 'e_sensory', 'pixel': 0},
+        {'id': 'C0', 'archetype': 'e_competitor'},
+        {'id': 'R', 'archetype': 'i_relay'}],
+        'edges': [{'id': 'ff', 'source': 'S0', 'target': 'C0', 'kind': 'feedforward'},
+                  {'id': 're', 'source': 'C0', 'target': 'R', 'kind': 'relay_excitation'},
+                  {'id': 'in', 'source': 'R', 'target': 'C0', 'kind': 'inhibition'}]})
     assert e.event_resolved is False
-    e.set_pattern('row 1')
+    e.set_input([1, 0, 0, 0, 0, 0, 0, 0, 0])
     dyn = e.step()
-    assert dyn['timestep'] == 1                      # legacy step still works
+    assert dyn['timestep'] == 1                      # synchronous step still works

@@ -164,16 +164,17 @@ def test_c_default_mode_is_production_quadratic():
 
 # ===================================================== integration / regression
 def test_default_modes_are_production():
-    # PROMOTED production defaults: linear-bounded E and linear-bounded C (multiplier
-    # dropped on both; the historical quadratic rules remain as headless modes).
+    # Production defaults: cap-free linear_fe E (FE budget supplies saturation, no per-synapse
+    # cap) and linear-bounded C (C keeps its own mechanism-specific cap). The historical
+    # bounded/quadratic E rules remain as headless-only modes.
     e = SimulationEngine(seed=1, topology='rg_coincidence')
-    assert e.latency_competitors[0].update_mode == 'linear_bounded'
+    assert e.latency_competitors[0].update_mode == 'linear_fe'
     assert e.coincidence[0].update_mode == 'c_linear_bounded'
 
 
-def test_engine_default_e_equals_explicit_linear_bounded():
-    # The engine default must be identical to an explicit linear_bounded request, and
-    # DIFFERENT from the historical quadratic mode (over a real learning trajectory).
+def test_engine_default_e_equals_explicit_linear_fe():
+    # The engine default must be identical to an explicit linear_fe request, and DIFFERENT
+    # from the historical quadratic mode (over a real learning trajectory).
     def sums(mode):
         kw = {} if mode is None else dict(e_weight_update_mode=mode)
         e = SimulationEngine(seed=1, topology='rg_coincidence', **kw)
@@ -181,7 +182,7 @@ def test_engine_default_e_equals_explicit_linear_bounded():
         for _ in range(80):
             e.step()
         return [round(float(c.acc_weights.sum()), 9) for c in e.latency_competitors]
-    assert sums(None) == sums('linear_bounded')          # default == explicit linear
+    assert sums(None) == sums('linear_fe')               # default == explicit cap-free
     assert sums(None) != sums('quadratic_bounded')       # and differs from historical
 
 

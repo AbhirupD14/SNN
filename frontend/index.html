@@ -42,8 +42,39 @@
       <button class="btn" id="g-editor" title="Edit the network topology: add neurons, wire edges, save/load presets">🧬 Topology</button>
       <button class="btn" id="g-reseed" title="New random initial weights (same config); wipes learned state">🎲 Reseed</button>
       <button class="btn danger" id="g-reset">⟲ Reset</button>
+      <button class="btn" id="g-load-test" title="Load a recorded replay.snn.jsonl and watch it as a read-only movie (pauses the live sim)">📼 Load Test</button>
+      <input type="file" id="replay-file" accept=".jsonl,.snn.jsonl,application/json" hidden />
     </div>
   </header>
+
+  <!-- ─────────────────── Read-only replay transport ──────────────────── -->
+  <!-- Shown only while a recorded replay owns the display; live mutation
+       controls are guarded and the status pill reads "Replay". -->
+  <div class="replay-bar" id="replay-bar" hidden>
+    <span class="rp-badge">REPLAY</span>
+    <span class="rp-info" id="rp-name">—</span>
+    <span class="rp-info dim" id="rp-condition">—</span>
+    <span class="rp-info" id="rp-frame">—</span>
+    <span class="rp-info dim" id="rp-phase">—</span>
+    <span class="rp-transport" role="group" aria-label="replay playback">
+      <button class="btn sm" id="rp-step-back" title="Step one frame back">⏮</button>
+      <button class="btn sm primary" id="rp-play" title="Play">▶</button>
+      <button class="btn sm" id="rp-step-fwd" title="Step one frame forward">⏭</button>
+    </span>
+    <label class="rp-speed-wrap">Speed <select id="rp-speed" class="rp-speed"></select></label>
+    <span class="rp-timeline" id="rp-timeline">
+      <div class="rp-ticks" id="rp-ticks"></div>
+      <input type="range" id="rp-slider" class="rp-slider" min="0" max="0" value="0" step="1" />
+    </span>
+    <span class="rp-markers">
+      <button class="btn sm" id="rp-marker-prev" title="Previous marker">◀ mark</button>
+      <select id="rp-marker-select" class="rp-marker-select" title="Jump to a recorded marker"></select>
+      <button class="btn sm" id="rp-marker-next" title="Next marker">mark ▶</button>
+    </span>
+    <span class="rp-error" id="rp-error" hidden></span>
+    <button class="btn sm danger" id="rp-exit" title="Exit replay and restore the live paused engine">✕ Exit Replay</button>
+  </div>
+  <div class="replay-toast" id="replay-toast" hidden></div>
 
   <!-- ───────────────────────── Main workspace ───────────────────────── -->
   <main class="layout">
@@ -137,8 +168,9 @@
       <div class="legend">
         <div><span class="sw rg"></span>RG source</div>
         <div><span class="sw exc"></span>excitatory</div>
+        <div><span class="sw coin"></span>coincidence</div>
+        <div><span class="sw eor"></span>ordinary readout</div>
         <div><span class="sw inh"></span>inhibitory</div>
-        <div><span class="sw win"></span>winner</div>
         <div><span class="ln ff"></span>feedforward</div>
         <div><span class="ln ex"></span>relay E→I</div>
         <div><span class="ln in"></span>inhibition I→E</div>
@@ -189,6 +221,9 @@
   <div class="viz-overlay" id="raster-overlay" hidden>
     <div class="viz-bar">
       <span class="viz-title">Spike Raster · discrete spikes only</span>
+      <label class="viz-column" id="raster-column-wrap" hidden>Column
+        <select id="raster-column"></select>
+      </label>
       <label class="check"><input type="checkbox" id="raster-l1" checked /> Layer 1</label>
       <span class="viz-zoom">Zoom
         <button class="btn sm" id="raster-zoom-out" title="zoom out">−</button>
@@ -213,6 +248,9 @@
   <div class="viz-overlay" id="charge-overlay" hidden>
     <div class="viz-bar">
       <span class="viz-title">Charge over time · V ÷ θ per neuron</span>
+      <label class="viz-column" id="charge-column-wrap" hidden>Column
+        <select id="charge-column"></select>
+      </label>
       <label class="check"><input type="checkbox" id="charge-l1" checked /> Layer 1</label>
       <span class="viz-zoom">Zoom
         <button class="btn sm" id="charge-zoom-out" title="zoom out">−</button>

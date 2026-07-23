@@ -15,9 +15,9 @@ from tests.golden_topology import run, digests, TOPOS, GOLDEN_DIR
 import json
 
 
-@pytest.mark.parametrize("name,topo", [("pi_baseline", "pi"), ("old_baseline", "old"),
-                                      ("rg_baseline", "rg"),
-                                      ("rg_residual_baseline", "rg_residual")])
+@pytest.mark.parametrize("name,topo", [("rg_coincidence_baseline", "rg_coincidence"),
+                                      ("tiled_cc_baseline", "tiled_cc"),
+                                      ("tiled_cc_l1_4_baseline", "tiled_cc_l1_4")])
 def test_topology_frames_bit_exact(name, topo):
     path = os.path.join(GOLDEN_DIR, f"{name}.json")
     with open(path) as f:

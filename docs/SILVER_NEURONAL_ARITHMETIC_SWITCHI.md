@@ -19,7 +19,7 @@ The immediate project order is:
    reliable.
 
 The investigation prompt for the first step is
-[`claude_switchi_investigation_prompt.md`](claude_switchi_investigation_prompt.md).
+[`claude_switchi_investigation_prompt.md`](../prompts/claude_switchi_investigation_prompt.md).
 
 ## Source
 

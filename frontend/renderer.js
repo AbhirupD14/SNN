@@ -17,7 +17,13 @@ const COLORS = {
   // Per neuron-class body/emissive colour. 'S' is the exogenous retinal-ganglion
   // source: amber, deliberately unlike the teal cortical excitatory cells, because it
   // is a sensory event source rather than an inhibitable integrator.
-  E: 0x5eead4, I: 0xf0788c, S: 0xfbbf24, winner: 0xffce5c,
+  E: 0x5eead4, I: 0xf0788c, S: 0xfbbf24,
+  // Body/ring accents for two special excitatory sub-populations, deliberately
+  // unlike the E/I/S bodies above: coincidence-detector cells (role
+  // 'coincidence' -- the L1/L2 'C' cells) and ordinary-readout Eor cells
+  // (column_role 'Eor'). See neuronColor().
+  coincidence_neuron: 0x38bdf8,   // sky blue
+  eor_neuron: 0xa855f7,           // purple
   feedforward: 0x4cc38a, inhibition: 0xf0788c, feedback: 0xc084fc,
   fixed_excitation: 0x22c55e,
   trace_excitation: 0xf59e0b,
@@ -39,7 +45,7 @@ const COLORS = {
   apical_excitation: 0xf472b6,
   hard_reset_inhibition: 0xff5b6e,
 };
-const WEAK = 0.25;            // fraction of the shared cap below which a learned edge is "weak"
+const WEAK = 0.25;            // fraction of the maturity-budget reference below which a learned edge is "weak"
 const STRUCTURAL_OPACITY = 0.22;   // fixed opacity for weightless structural relay edges
 // View-only spacing. Backend topology coordinates remain the functional geometry
 // used for distance/charge calculations. The renderer expands offsets inside each
@@ -56,13 +62,11 @@ const BETWEEN_LAYER_SPACING = 4.0;
 // orthographic view. This is purely visual: it never touches backend positions,
 // distances, or simulation behaviour. Tune this single constant to rescale every
 // neuron-derived visual together (spheres, charge rings, selection growth, spike
-// pulse, winner halo); the four BASE_RADII keep the populations intentionally
-// distinct relative to one another.
+// pulse); the four BASE_RADII keep the populations intentionally distinct relative
+// to one another.
 const VISUAL_SCALE = WITHIN_LAYER_SPACING;
 const BASE_RADII = { RGS: 0.40, L1E: 0.44, ERRE: 0.42, L1I: 0.34, L2E: 0.55, L2I: 0.62 };
 const RING_GAP = 0.18;          // base gap between sphere surface and charge ring
-const HALO_RADIUS = 1.05;       // base winner-halo torus radius (encloses winner)
-const HALO_TUBE = 0.06;         // base winner-halo tube radius
 // Per-frame growth factors baked into the animation loop, mirrored here so the
 // camera-fit padding tracks the largest an object can actually render.
 const SELECTION_GROWTH = 1.35;  // selected-neuron mesh scale (see _loop)
@@ -74,17 +78,25 @@ function neuronRadius(meta) {
   return (BASE_RADII[meta.layer + meta.type] ?? BASE_RADII.L1E) * VISUAL_SCALE;
 }
 
+// Body/ring colour for a neuron. Coincidence detectors and ordinary-readout Eor
+// cells get their own accent so they read distinctly from the plain E bodies;
+// everything else falls back to its E/I/S type colour.
+function neuronColor(meta) {
+  if (meta.role === 'coincidence') return COLORS.coincidence_neuron;
+  if (meta.column_role === 'Eor') return COLORS.eor_neuron;
+  return COLORS[meta.type];
+}
+
 // Largest distance any rendered object reaches from its neuron center, across
-// spheres (with selection + spike growth), charge rings (with charge + pulse
-// bloom), and the winner halo. Used as camera-fit padding so enlarged neurons
-// are never clipped at the viewport edges or after a resize.
+// spheres (with selection + spike growth) and charge rings (with charge + pulse
+// bloom). Used as camera-fit padding so enlarged neurons are never clipped at the
+// viewport edges or after a resize.
 function maxRenderedExtent() {
   const rMax = Math.max(...Object.values(BASE_RADII)) * VISUAL_SCALE;
   const tubeMax = 0.055 * VISUAL_SCALE;
   const neuron = rMax * SELECTION_GROWTH * SPIKE_PULSE_GROWTH;
   const ring = (rMax + RING_GAP * VISUAL_SCALE + tubeMax) * RING_MAX_SCALE;
-  const halo = (HALO_RADIUS + HALO_TUBE) * VISUAL_SCALE;
-  return Math.max(neuron, ring, halo);
+  return Math.max(neuron, ring);
 }
 
 export class NeuronRenderer {
@@ -127,13 +139,6 @@ export class NeuronRenderer {
     const p1 = new THREE.PointLight(0x9fc4ff, 0.8, 120); p1.position.set(14, 10, 24); scene.add(p1);
     const p2 = new THREE.PointLight(0x5eead4, 0.5, 120); p2.position.set(-16, -12, 6); scene.add(p2);
 
-    const halo = new THREE.Mesh(
-      new THREE.TorusGeometry(HALO_RADIUS * VISUAL_SCALE, HALO_TUBE * VISUAL_SCALE, 12, 40),
-      new THREE.MeshBasicMaterial({ color: COLORS.winner, transparent: true, opacity: 0.9 }));
-    halo.visible = false;
-    scene.add(halo);
-    this.halo = halo;
-
     this._raycaster = new THREE.Raycaster();
     this._pointer = new THREE.Vector2();
     this._down = null;
@@ -155,9 +160,12 @@ export class NeuronRenderer {
     this.neurons.clear(); this.edges.clear();
     this.pos = new Map();
     this.functionalPos = new Map();
-    // Shared accumulating-weight cap: learned weights arrive on the theta=1000 scale,
-    // so opacity/weak/assembly thresholds are computed as a fraction of this cap.
-    this.weightCap = topology.params?.e_weight_cap || 1;
+    // Ordinary-E weight display reference: learned weights arrive on the theta=1000 scale
+    // and are cap-free, so opacity/weak/assembly thresholds are a fraction of the neuron-wide
+    // maturity budget B = e_maturity_budget_frac*theta (NOT a hard per-synapse cap).
+    const params = topology.params || {};
+    this.weightCap = params.e_maturity_budget
+      || ((params.e_threshold || 1000) * (params.e_maturity_budget_frac || 1.1)) || 1;
 
     const layerSums = new Map(), layerCounts = new Map();
     const networkCenter = new THREE.Vector3();
@@ -191,7 +199,7 @@ export class NeuronRenderer {
       const r = neuronRadius(m);
       const geo = new THREE.SphereGeometry(r, 24, 18);
       const mat = new THREE.MeshStandardMaterial({
-        color: 0x2b3446, emissive: COLORS[m.type], emissiveIntensity: 0.08,
+        color: 0x2b3446, emissive: neuronColor(m), emissiveIntensity: 0.08,
         roughness: 0.45, metalness: 0.1 });
       const mesh = new THREE.Mesh(geo, mat);
       mesh.position.copy(this.pos.get(m.id));
@@ -204,7 +212,7 @@ export class NeuronRenderer {
       const tubeR = (m.layer === 'L2' ? 0.055 : 0.042) * VISUAL_SCALE;
       const ringGeo = new THREE.TorusGeometry(ringR, tubeR, 8, 40);
       const ringMat = new THREE.MeshBasicMaterial({
-        color: COLORS[m.type], transparent: true, opacity: 0,
+        color: neuronColor(m), transparent: true, opacity: 0,
         depthWrite: false });
       const ring = new THREE.Mesh(ringGeo, ringMat);
       ring.position.copy(this.pos.get(m.id));
@@ -231,10 +239,10 @@ export class NeuronRenderer {
     // Layout dimensions are backend-owned and can change with the seed/config.
     // Fit the camera to the actual topology instead of assuming the old compact
     // 3x3/ring coordinates. The padding includes neuron spheres, charge rings,
-    // selection growth, and the winner halo.
+    // and selection growth.
     const points = [...this.pos.values()];
     if (!points.length) return;
-    // Pad by the largest extent any enlarged neuron/ring/halo can reach from its
+    // Pad by the largest extent any enlarged neuron/ring can reach from its
     // center so nothing is clipped at the viewport edges on first fit or resize.
     const box = new THREE.Box3().setFromPoints(points).expandByScalar(maxRenderedExtent());
     const sphere = box.getBoundingSphere(new THREE.Sphere());
@@ -274,11 +282,9 @@ export class NeuronRenderer {
       if (e) { e.weight = c.weight; e.pulse = 1.0; }
     }
     if (dynamic.changed_synapses?.length) this._applyEdgeWeights();
+    // Kept for the "Isolate winning assembly" filter (see _applyFilters); the
+    // viewport no longer renders a winner-specific style.
     this._winner = dynamic.winner;
-    // Per-column winners (tiled): highlight EVERY column's local ordinary-E winner, not
-    // just one global halo. Empty for legacy graphs, which keep the single `winner`.
-    this._columnWinnerIds = new Set(
-      Object.values(dynamic.column_winners || {}).map(w => w.id));
     if (dynamic.speed) this._simSpeed = dynamic.speed;
     this._applyFilters();
 
@@ -289,7 +295,17 @@ export class NeuronRenderer {
     }
   }
 
-  _norm(w) { return Math.abs(w) / this.weightCap; }   // learned magnitude as a fraction of cap
+  // Bulk-set every edge's live weight from a reconstructed {synId -> weight} map
+  // (replay backward-seek). Edges absent from the map keep their topology weight
+  // (structural relays stay null). Used so a seek never retains weights from a
+  // previously viewed future frame; live playback still flows through update().
+  setWeights(weightMap) {
+    for (const [id, e] of this.edges)
+      e.weight = weightMap.has(id) ? weightMap.get(id) : (e.syn.weight ?? null);
+    this._applyEdgeWeights();
+  }
+
+  _norm(w) { return Math.abs(w) / this.weightCap; }   // learned magnitude as a fraction of the FE budget
 
   _applyEdgeWeights() {
     for (const e of this.edges.values()) {
@@ -376,8 +392,7 @@ export class NeuronRenderer {
       // Sphere glow
       e.pulse *= 0.86;
       const glow = Math.max(e.act * 0.5, e.freq * 0.9) + e.pulse * 1.6;
-      const isWin = id === this._winner || !!this._columnWinnerIds?.has(id);
-      e.mesh.material.emissive.setHex(isWin ? COLORS.winner : COLORS[e.meta.type]);
+      e.mesh.material.emissive.setHex(neuronColor(e.meta));
       e.mesh.material.emissiveIntensity = THREE.MathUtils.clamp(0.08 + glow, 0.06, 2.2);
       const sel = id === this._selected ? 1.35 : 1;
       e.mesh.scale.setScalar((1 + e.pulse * 0.5) * sel);
@@ -389,11 +404,11 @@ export class NeuronRenderer {
         e.ring.scale.setScalar(ringScale);
         // Opacity: invisible at zero charge, fully opaque at threshold.
         e.ring.material.opacity = charge < 0.02 ? 0 : THREE.MathUtils.clamp(0.3 + 0.6 * charge + e.pulse * 0.2, 0, 1);
-        // Colour: white flash on spike, winner gold, else type colour.
+        // Colour: white flash on spike, else the neuron's normal type colour.
         if (e.pulse > 0.6) {
           e.ring.material.color.setHex(0xffffff);
         } else {
-          e.ring.material.color.setHex(isWin ? COLORS.winner : COLORS[e.meta.type]);
+          e.ring.material.color.setHex(neuronColor(e.meta));
         }
         // Billboard to camera so the ring always reads as a flat halo.
         e.ring.quaternion.copy(this.camera.quaternion);
@@ -406,14 +421,6 @@ export class NeuronRenderer {
       if (e.pulse > 0.05) e.mat.color.setHex(0xffffff);
       else e.mat.color.setHex(COLORS[e.syn.kind]);
     }
-
-    if (this._winner && this.pos?.get(this._winner)) {
-      const w = this.neurons.get(this._winner);
-      this.halo.visible = !!w && w.mesh.visible;
-      this.halo.position.lerp(this.pos.get(this._winner), 0.16);
-      this.halo.quaternion.copy(this.camera.quaternion);
-      this.halo.rotation.z += 0.01;
-    } else this.halo.visible = false;
 
     this.controls.update();
     this.renderer.render(this.scene, this.camera);

@@ -76,20 +76,20 @@ def test_weight_rule_participate_potentiates_absent_depresses():
     assert n.acc_weights[1] < w0                              # absent depresses
 
 
-def test_default_update_is_linear_bounded_exact():
-    # The PROMOTED production default: dw = eta*(theta - sum(w))*s*influence, clip [0, cap].
-    # No quadratic multiplier.
+def test_default_update_is_linear_fe_exact():
+    # The production default is cap-free `linear_fe`: dw = eta*(B - sum(w))*s*influence,
+    # floor 0 only (NO upper cap). No quadratic multiplier. B = maturity_budget_frac*theta.
     w0 = 200.0
     n = make_neuron(acc_weights=np.array([w0, w0, w0]),
                     acc_distance_factor=np.array([1.0, 0.5, 1.0]), eta=0.01)
-    assert n.update_mode == 'linear_bounded'                  # engine-independent default
+    assert n.update_mode == 'linear_fe'                       # engine-independent default
     assert n.maturity_budget_frac == 1.10                     # budget-headroom default
     n.fire()
     w_before = n.acc_weights.copy()
     p = 1.10 * E_THRESHOLD - w_before.sum()                   # budget target, NOT firing theta
     n.update_acc_weights(np.array([True, False, True]))
-    expected = np.clip(w_before + 0.01 * p * np.array([1.0, -1.0, 1.0])
-                       * np.array([1.0, 0.5, 1.0]), 0, E_WEIGHT_CAP)   # NO (1-(w/wmax)^2)
+    expected = np.maximum(w_before + 0.01 * p * np.array([1.0, -1.0, 1.0])
+                          * np.array([1.0, 0.5, 1.0]), 0.0)   # floor only; NO cap, NO multiplier
     assert n.acc_weights == pytest.approx(expected)
 
 
@@ -143,9 +143,22 @@ def test_signed_p_boundary(total, sign):
         assert np.all(delta < 0)
 
 
-def test_weight_cap_clip():
+def test_production_default_is_cap_free_above_500():
+    # The production default (`linear_fe`) never clips to a per-synapse cap: a lone active
+    # afferent grows past the historical theta/2 ceiling toward the FE budget B=1.1*theta.
+    n = make_neuron(acc_weights=np.array([0.0]), acc_distance_factor=np.ones(1),
+                    eta=0.01, learn=True, leak_rate=0.0)
+    assert n.update_mode == 'linear_fe'
+    for _ in range(5000):
+        n.fire(); n.update_acc_weights(np.array([True]))
+    assert n.acc_weights[0] > 500.0                          # exceeds the old cap
+    assert n.acc_weights[0] == pytest.approx(1.10 * E_THRESHOLD, abs=1.0)   # converges to B
+
+
+def test_weight_cap_clip_bounded_mode():
+    # The HEADLESS `linear_bounded` mode still enforces the [0, w_max] clip (regression).
     n = make_neuron(acc_weights=np.array([E_WEIGHT_CAP - 1]), acc_distance_factor=np.ones(1),
-                    eta=10.0, learn=True)
+                    eta=10.0, learn=True, update_mode='linear_bounded', w_max=E_WEIGHT_CAP)
     n.acc_weights[0] = 10.0
     n.fire()
     n.update_acc_weights(np.array([True]))

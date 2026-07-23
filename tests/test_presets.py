@@ -24,12 +24,12 @@ def _mini():
 
 def test_builtins_always_listed_first():
     lst = ps.list_presets(N_PIX, N_OUT)
-    assert [p['name'] for p in lst[:4]] == ['pi', 'old', 'rg', 'rg_residual']
-    assert all(p['builtin'] for p in lst[:4])
+    assert [p['name'] for p in lst[:3]] == ['rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4']
+    assert all(p['builtin'] for p in lst[:3])
 
 
 def test_builtin_specs_loadable():
-    for name in ('pi', 'old', 'rg', 'rg_residual'):
+    for name in ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4'):
         spec = ps.load_spec(name, N_PIX, N_OUT)
         assert spec['name'] == name and spec['nodes']
 
@@ -47,9 +47,9 @@ def test_save_load_delete_round_trip():
 
 def test_reserved_and_invalid_names_rejected():
     with pytest.raises(ValueError):
-        ps.save_preset('pi', _mini(), N_PIX)          # reserved built-in
+        ps.save_preset('rg_coincidence', _mini(), N_PIX)   # reserved built-in
     with pytest.raises(ValueError):
-        ps.save_preset('!!!', _mini(), N_PIX)         # sanitizes to empty
+        ps.save_preset('!!!', _mini(), N_PIX)              # sanitizes to empty
 
 
 def test_invalid_spec_not_saved():
@@ -60,7 +60,7 @@ def test_invalid_spec_not_saved():
 
 
 def test_builtins_cannot_be_deleted():
-    for name in ('pi', 'old', 'rg', 'rg_residual'):
+    for name in ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4'):
         assert ps.delete_preset(name) is False
 
 

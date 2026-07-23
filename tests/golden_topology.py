@@ -100,14 +100,13 @@ def digests(blob):
 
 
 TOPOS = {
-    "pi": dict(topology="pi"),
-    "old": dict(topology="old"),
-    # 'rg' bootstraps through TWO plastic hops (RG->L1E, then L1E->L2E) and its L1E
-    # must accumulate ~23 RG events before its first spike, so the shared SCHEDULE's
-    # per-pattern dwell is long enough to reach L2 development but this golden is
-    # deliberately the same schedule as the others for comparability.
-    "rg": dict(topology="rg"),
-    "rg_residual": dict(topology="rg_residual"),
+    # The three current built-in presets. rg_coincidence is the 3x3 coincidence circuit;
+    # the two tiled presets are the 9x9 cortical-column hierarchies (8 E/column, and the
+    # shallow L1=4/L2=8 variant). The shared SCHEDULE embeds each pattern into the active
+    # patch for the tiled presets.
+    "rg_coincidence": dict(topology="rg_coincidence"),
+    "tiled_cc": dict(topology="tiled_cc"),
+    "tiled_cc_l1_4": dict(topology="tiled_cc_l1_4"),
 }
 
 

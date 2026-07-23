@@ -27,7 +27,7 @@ def test_input_grid_and_pixel_ownership_metadata():
 
 
 def test_legacy_input_grid_unchanged():
-    topo = SimulationEngine(seed=1, topology='pi').topology()
+    topo = SimulationEngine(seed=1, topology='rg_coincidence').topology()
     assert topo['grid'] == {'rows': 3, 'cols': 3}       # controls.js renders 9 cells
     assert 'tiling' not in topo
     owners = [n for n in topo['neurons'] if n.get('owns_input')]
@@ -77,14 +77,15 @@ def test_dynamic_payload_has_column_winners_and_legacy_keys():
     assert len(d['input']) == 81
 
 
-def test_config_surface_exposes_tiled_cc_and_cc_e_count():
-    keys = {c['key'] for c in CONFIG_SPEC}
-    assert 'cc_e_count' in keys
+def test_config_surface_exposes_tiled_presets_without_cc_e_count():
+    # Both tiled presets are selectable, but cc_e_count is no longer a dashboard control
+    # (the two tiled presets fix their own population sizes).
     topo_ctrl = next(c for c in CONFIG_SPEC if c['key'] == 'topology')
-    assert any(o['value'] == 'tiled_cc' for o in topo_ctrl['options'])
-    # config_values reports cc_e_count from params
-    vals = config_values(SimulationEngine(seed=1).params)
-    assert 'cc_e_count' in vals
+    opts = {o['value'] for o in topo_ctrl['options']}
+    assert {'tiled_cc', 'tiled_cc_l1_4'} <= opts
+    keys = {c['key'] for c in CONFIG_SPEC}
+    assert 'cc_e_count' not in keys
+    assert 'cc_e_count' not in config_values(SimulationEngine(seed=1).params)
 
 
 def test_preset_store_lists_and_loads_tiled_cc():

@@ -19,7 +19,9 @@ def test_normalized_init_has_equal_totals_positive_fe_and_preserves_direction():
     for old, cell in zip(before, e.latency_competitors):
         assert cell.acc_weights.sum() == pytest.approx(0.8 * e.params["e_threshold"])
         assert cell.acc_weights / cell.acc_weights[0] == pytest.approx(old / old[0])
-        assert np.all(cell.acc_weights <= e.params["e_weight_cap"])
+        # Ordinary-E init is cap-free: weights are finite and nonnegative, bounded by the
+        # FE budget total (not a per-synapse ceiling).
+        assert np.all(np.isfinite(cell.acc_weights)) and np.all(cell.acc_weights >= 0.0)
 
 
 @pytest.mark.parametrize("rho", [-0.1, 0.0, 1.0, 1.1])

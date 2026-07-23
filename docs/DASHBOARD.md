@@ -35,10 +35,15 @@ from the same origin. Three.js is loaded from a CDN; all project code is local.
 
 `api.py` creates the engine from `DASHBOARD_OVERRIDES`. The active browser preset is
 the validated `rg_coincidence` turnover configuration: zero leak/refractory,
-`eta=0.01`, `c_eta=0.001`, `l2_init_total_frac=0.95`, and weight cap 500.
-`CONFIG_SPEC` is the only list of controls shown in the browser. Applying configuration
-validates against a small allowlist (`EDITABLE_KEYS`), rejects any other key, and
-rebuilds the engine, so it also clears learned state.
+`eta=0.01`, `c_eta=0.005`, `l2_init_total_frac=0.95`. Ordinary-E learning is cap-free
+(no per-synapse weight cap; the FE budget saturates each row total). The four built-in
+topologies are `rg_coincidence`, `tiled_cc`, `tiled_cc_l1_4`, and `tiled_cc_feature_gated`
+(the feature-gated tiled variant, `9×9 Feature-Gated CC (L1=8)` in the selector).
+`CONFIG_SPEC` is the only list of controls shown in the browser — exactly the six that
+affect these presets
+(`topology`, `leak_rate`, `refractory_steps`, `eta`, `c_eta`, `l2_init_total_frac`).
+Applying configuration validates against a small allowlist (`EDITABLE_KEYS`), rejects any
+other key, and rebuilds the engine, so it also clears learned state.
 
 To watch the validated turnover, set the dashboard to 120 steps/s and present
 `row 1` for approximately 2500 steps, then `col 1` for 2500, then `row 1` again.
@@ -106,12 +111,13 @@ synapse values and applies sparse deltas from dynamic messages.
 
 | File | Responsibility |
 | --- | --- |
-| `app.js` | Shared store and component wiring. |
+| `app.js` | Shared store and component wiring; the `applyTopology`/`applyDynamic` seam shared by live frames and replay. |
 | `websocket.js` | Reconnecting client. |
 | `controls.js` | Inputs, execution, and generated config controls. |
 | `renderer.js` | Three.js neuron and synapse view. |
 | `inspector.js` | Selected-neuron details. |
 | `raster.js`, `charge.js`, `weights.js`, `receptive.js` | Focused analysis panels. |
+| `replay.js`, `replay_player.js` | Read-only **Load Test** replay of a recorded `replay.snn.jsonl` — see [REPLAY_PLAYER.md](REPLAY_PLAYER.md). |
 
 The renderer stores backend coordinates as `functionalPos`. It derives a
 separate `pos` by expanding within-layer and between-layer offsets. Synapse lines

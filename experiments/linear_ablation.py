@@ -1,4 +1,4 @@
-"""Linear weight-update ablation study (Claude_Linear_Weight_Update_Ablation_Plan.md).
+"""Linear weight-update ablation study (prompts/Claude_Linear_Weight_Update_Ablation_Plan.md).
 
 Tests removing the per-synapse ``1 - (w/w_max)^2`` multiplier from the accumulating
 E/L2E rule and the C basal rule. After this study the ordinary E/L2E production default

@@ -7,24 +7,26 @@ import pytest
 
 from backend.simulation import SimulationEngine, N_PIX
 from backend.network_spec import (
-    preset_spec, validate_spec, SpecError, ARCHETYPES, EDGE_KINDS,
+    preset_spec, validate_spec, SpecError, ARCHETYPES, EDGE_KINDS, tiled_input_size,
 )
 
 
 # --------------------------------------------------------------- preset specs
 def test_preset_specs_match_engine_counts():
-    for name, n in (('pi', 26), ('old', 27), ('rg', 36), ('rg_residual', 52)):
+    # The three current built-in presets are valid specs at their canonical sizes.
+    for name, n in (('rg_coincidence', 45), ('tiled_cc', 191), ('tiled_cc_l1_4', 155)):
         spec = preset_spec(name, N_PIX, 8)
         assert len(spec['nodes']) == n
-        norm = validate_spec(spec, N_PIX)          # presets are valid specs
+        # tiled presets declare their own 81-pixel input surface; validate each there.
+        norm = validate_spec(spec, tiled_input_size(spec) or N_PIX)
         assert len(norm['edges']) == len(spec['edges'])
 
 
 def test_current_spec_round_trips_shape():
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
     spec = e.current_spec()
-    assert spec['name'] == 'pi' and spec['is_custom'] is False
-    assert len(spec['nodes']) == 26
+    assert spec['name'] == 'rg_coincidence' and spec['is_custom'] is False
+    assert len(spec['nodes']) == 45
     # every node carries a resolved position and a valid archetype
     for node in spec['nodes']:
         assert node['archetype'] in ARCHETYPES
@@ -107,7 +109,7 @@ def test_custom_graph_builds_runs_and_learns():
             {'id': 'inh1', 'source': 'R', 'target': 'C1', 'kind': 'inhibition'},
         ],
     }
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
     e.apply_topology(spec)
     assert e.mode == 'mini' and len(e.topology()['neurons']) == 5
     assert len(e.competitors) == 2 and len(e.sensory) == 2 and len(e.relays) == 1
@@ -122,13 +124,13 @@ def test_custom_graph_builds_runs_and_learns():
 
 
 def test_preset_selection_clears_custom_graph():
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
     e.apply_topology({'name': 'mini', 'nodes': _mini_nodes(),
                       'edges': [{'source': 'S0', 'target': 'C0', 'kind': 'feedforward'}]})
     assert e._custom_spec is not None
-    e.apply_config({'topology': 'old'})            # selecting a preset drops the custom graph
+    e.apply_config({'topology': 'tiled_cc'})       # selecting a preset drops the custom graph
     assert e._custom_spec is None
-    assert len(e.topology()['neurons']) == 27
+    assert len(e.topology()['neurons']) == 191
 
 
 def test_bidirectional_edge_valid_only_when_reverse_is_valid():
@@ -148,7 +150,7 @@ def test_bidirectional_edge_valid_only_when_reverse_is_valid():
 
 
 def test_bidirectional_edge_delivers_both_directions():
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
     e.apply_topology({
         'name': 'bi',
         'nodes': [{'id': 'S', 'archetype': 'e_sensory', 'pixel': 0},
@@ -166,26 +168,25 @@ def test_bidirectional_edge_delivers_both_directions():
 
 
 def test_set_synapse_weight_by_edge_id():
-    e = SimulationEngine(seed=1, topology='pi')
-    # feedforward weight, clipped to e_weight_cap
-    w = e.set_synapse_weight('ff4->0', 321.0)
-    assert w == 321.0
-    assert e.l2e[0].acc_weights[4] == 321.0
-    assert e.set_synapse_weight('ff4->0', 1e9) == e.params['e_weight_cap']   # clipped
-    # predictive weight, clipped to pi_w_max
-    assert e.set_synapse_weight('pi0->4', 0.5) == 0.5
-    assert e.pi[0].w[4] == 0.5
-    assert e.set_synapse_weight('pi0->4', 99) == e.params['pi_w_max']        # clipped
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
+    # ordinary feedforward weight: cap-free, floor 0 only (accepts values above 500)
+    assert e.set_synapse_weight('ff0->0', 321.0) == 321.0
+    assert e.set_synapse_weight('ff0->0', 9000.0) == 9000.0                  # NOT clipped (cap-free)
+    assert e.set_synapse_weight('ff0->0', -5.0) == 0.0                       # floored at 0
+    # C basal weight retains its OWN C-specific cap (bounded, unlike ordinary FF)
+    assert e.set_synapse_weight('basal0', 10.0) == 10.0
+    huge = e.set_synapse_weight('basal0', 1e9)
+    assert 0.0 < huge < 1e9                                                  # clipped to the C cap
     # unknown / non-plastic edges raise
     import pytest as _pt
     with _pt.raises(KeyError):
-        e.set_synapse_weight('inh_l2_0', 1.0)        # structural (no learned magnitude)
+        e.set_synapse_weight('re_l1i_0', 1.0)        # structural relay (no learned magnitude)
     with _pt.raises(KeyError):
         e.set_synapse_weight('nope', 1.0)
 
 
 def test_sensory_pixel_in_meta():
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='rg_coincidence')
     topo = e.topology()
     px = {n['id']: n.get('pixel') for n in topo['neurons'] if n['id'].startswith('L1E')}
     assert px == {f'L1E{i}': i for i in range(9)}    # RF maps afferents by this
@@ -208,7 +209,7 @@ def test_edge_kind_vocabulary_is_fixed():
 
 def test_competitor_spike_dispatches_valid_downstream_feedforward_edge():
     """A competitor is an E-class feedforward source; its winning spike must emit."""
-    e = SimulationEngine(seed=1, topology='pi', leak_rate=0.0)
+    e = SimulationEngine(seed=1, topology='rg_coincidence', leak_rate=0.0)
     e.apply_topology({
         'name': 'deep',
         'nodes': [{'id': 'S', 'archetype': 'e_sensory', 'pixel': 0},

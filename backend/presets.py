@@ -16,7 +16,7 @@ import numpy as np
 
 from .network_spec import (
     preset_spec, validate_spec, PRESETS, tiled_input_size, tiled_cc_spec,
-    TILED_CC_DEFAULTS,
+    TILED_CC_DEFAULTS, TILED_PRESETS,
 )
 from .layout import generate_layout, generate_tiled_layout
 
@@ -24,7 +24,7 @@ from .layout import generate_layout, generate_tiled_layout
 def _resolved_dims(name: str, n_pix: int, n_out: int) -> tuple[int, int]:
     """Each preset's own construction dimensions -- so listing/loading a tiled preset
     never inherits the currently active engine's n_pix by accident."""
-    if name == "tiled_cc":
+    if name in TILED_PRESETS:
         return (TILED_CC_DEFAULTS["input_rows"] * TILED_CC_DEFAULTS["input_cols"], n_out)
     return (n_pix, n_out)
 

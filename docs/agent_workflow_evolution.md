@@ -9,8 +9,8 @@ each agent's strengths, while preserving a detailed, inspectable engineering pro
 
 Much of this document itself was written by Sol. I asked it to review the history of the repo
 and its memories of how I interact with it. I'm sure you'll be able to identify the sections that
-were written by Sol, so you will be able to notice just how much of the workflow sentiment 
-it was able to extract from our sessions. I have put some notes throughout here to add on some important 
+were written by Sol, so you will be able to notice just how much of the workflow sentiment
+it was able to extract from our sessions. I have put some notes throughout here to add on some important
 pieces as well.
 
 ## The original division: GPT-5.5 as architect, Claude as implementer
@@ -58,17 +58,18 @@ GPT review, scientific audit, and next design iteration
 **Author note**
 
 Most of my conversations with GPT start off with a larger description of
-what I am looking for. This is typed up in a text file and pasted into codex or pointed 
-to for codex to read. This is usually a descriptive "story" of what exactly I want to see 
+what I am looking for. This is typed up in a text file and pasted into codex or pointed
+to for codex to read. This is usually a descriptive "story" of what exactly I want to see
 happen in the network (the behavior of nodes, the excpected emergent behavior, the equations
-I want to see used, edge case handling, etc). I then conversed with GPT to see if it had an 
-understanding of what I requested. This usually involves some back and forth iterations and 
+I want to see used, edge case handling, etc). I then conversed with GPT to see if it had an
+understanding of what I requested. This usually involves some back and forth iterations and
 clarification. Because of the detail in the kick off prompt, it usually also identified pit falls
 in my assumptions and we worked through them to create a truly complete picture which finally ended up
 in a technical spec.
 
 Examples of kick off descriptions would be:
 
+### Coincidence Detectors And Learning Rule Work
 ```text
 Read through the repo you should find a document that describes some new neuroscience about coincidence detectors. Let me tell you the story of how things should work in this project now, and then we can have a technical discussion about how to implement this.
 
@@ -96,7 +97,7 @@ For C cells, the threshold is the same as E cells. Leave the leak and refractory
 
 Let's discuss about this information and then talk about implementation details (do we inherit the E class for C class? do we build a dendrite class that has an apical and basal end so that we can apply this connectivity rule anywhere?). Eventually we will make a technical spec and have claude implement it for us.
 ```
-
+### Continuous Timing Concerns & Topology Changes
 ```text
 Let's talk a little bit about some things. One is a huge change. The other is a smaller but still involved change. Starting with the smaller change.
 
@@ -127,6 +128,19 @@ So to recap, we have 9 sets of 3x3 grids each feeding 9 cortical columns. These 
 
 Chat with me about these to show me you understand the problems.
 ```
+### Testing Our Network
+```text
+So there are some tests I want to run. I want these to run headlessly in the background because the overhead from the frontend is high, let's make testing prompts for claude to create testing scripts that do this. First we need to test that consolidation still works. For every single RF (3x3) we need to present one of our 4 patterns. It is ok if each of these patterns is the same for each RF. We need to hold this pattern until each CC has one winner. This should be identified by looking at the competitors and seeing if the same neuron fires over many timesteps of presentation and the other neurons do not fire. Once this is confirmed, we switch to the next pattern and hold out. We expect that this should lead to a 1 to 1 consistent mapping. After training, we should again present all the patterns to make sure the mapping stays unchanged after training. We want to run this for the 8 competitor case. Then we want to run the same experiment but in the topology with 4 competitors.  This is what we are going to call the "Basic" tests and just test the robustness of basic learning without any hierarchical concerns.
+
+The next set of tests aim to test continuous learning. In the previous test we held the pattern out until we finished learning. Ideally in a system that can continuously learn, even interleaving the patterns shouldn't lead to too much problem. So we need to present one pattern for some amount of time t, then present the next pattern for another amount of time t`, and so on. The caveat to this is that we need to make sure that t is sufficiently large enough such that neurons actually fire (and that not just 1 cortical column fires) because we need to see that the interleaved learning still ends up at the same results as pattern hold out. We want 4 patterns to be owned by 4 neurons and end up in a place where this mapping is consistent and unique. This is an ablation of the basic tests but specifically aims to show continuous learning. We can ablate this test over the 4 and 8 presets.
+
+The next test should display that our network is resilient to noise variance in the input. Imagine that we put a diagonal line through one of the RFs. Humans are easily able to say that "this is some spec of unimportant info, this is overall a diagonal line". Our network should be able to do the same thing since the weights that do not correlate with this pattern are low. Thus, even a noisy input of a diagonal with one other fourth pixel active should not have effect on a trained network. So let's train a big diagonal (accross 3 RFs) and first put one extra active pixel in one RF, then incraes that to 1 active pixel in 2 RFs, and then finall one active pixel in 3 RFs. So eventually we would have a "spec" of insignificant information in each of the RFs but still be able to classify the diagonal line simply by construction. There is no free energy left in the neuron so that active pixel also should not result in a weight update. This test is the "noise invariance test". In this test, it does not matter if we use the 4 or 8 preset.
+
+The last test should be saved for last as it involves scaling this system up and our priority is to show that the smaller module works before moving on to scaling. What we want to try is to see if we can achieve some form of composition. Our 9x9 is still too small to have any meaningful image level input, but we can build very simple things if we scale up a bit more. So let's take the existing network and make a topological copy of it to the side (laterally, not above or below). So now we have 2 sets of our 9x9 input network. What we can do now is test inputs like "V, A, and 7" where in one 9x9 network we input half of the pattern and in the other we input the other half. In the "V" case we just do 2 diagonals. In the "A" case it is again 2 diagonals but we also put in the horizontal line split accross the 2 9x9 inputs. For "7" we just do a horizontal in the topmost row of 3x3's and a vertical column in the right most 3x3's. So it will not look like a 7 with a diagonal bottom leg, instead it will be a straight down leg. Not exact but good enough for us. The topology will need some addition here. We will have our 2 9x9 inputs as they are now. We expect that in L1 we get some edge detection and in L2 we get some compression of each half into one symbol. Then we need those 2 L2 CCs to connect to an L3 final CC where the final representation of our composed model should settle. L3 will be the point where these 2 networks will connect and follow the same rules as the current CC connectivity rules. Because this test relies on the dynamics of the previous tests, we will need to focus on getting those to work properly before attempting this.
+
+Review these requests and chat with me about what you think.
+
+```
 ## Planning became a concrete engineering artifact
 
 Over time, “planning” stopped meaning a short list of tasks. We began producing
@@ -141,8 +155,8 @@ artifacts that could survive context loss and move cleanly between agents:
 - Kickoff prompts that pointed an implementation agent at a complete specification.
 
 This repository contains several examples, including the
-[RG implementation prompt](../Claude_RG_Third_Preset_Implementation_Prompt.md), the
-[residual-pathway flowchart specification](../Claude_Residual_Error_Pathway_Flowchart_Prompt.md),
+[RG implementation prompt](../prompts/Claude_RG_Third_Preset_Implementation_Prompt.md), the
+[residual-pathway flowchart specification](../prompts/Claude_Residual_Error_Pathway_Flowchart_Prompt.md),
 the resulting [graphical circuit](residual_error_pathway_flowchart.svg), and the
 [current mathematical methodology](../Current_Implementation_Methodology_Equations.md).
 
@@ -156,11 +170,11 @@ easier to ask the right questions before implementation.
 One caveat to this is repository bloat. Over time, you can compound 50 to 100 md files involving
 planning, architecting, documenting, etc. Many times I had to lean out the repo to keep it maintanable
 (and myself sane). However, I still stored this in my git repo so my agent was able to use git commands
-to trace back through commits to track history. So not only was there history within the local repo, but 
+to trace back through commits to track history. So not only was there history within the local repo, but
 also long term history via the remote. This gave the agent a picture on what I had tried in the past, and what
 I wanted to do now. All via md files which saved tokens and context bloat since the agent read minimal code. The existing test
 case output also helped the agent complete the picture on a fresh start. With this all together, it seemed like I was
-able to pick up exactly where I left off despite starting new sessions each morning. 
+able to pick up exactly where I left off despite starting new sessions each morning.
 
 ## What we learned from dispatching work to Claude
 
@@ -272,7 +286,7 @@ the scientific idea, the implementation, the tests, and any future agent.
 
 Additional things I noticed is that OpenAI agents in general consume tokens at a larger rate
 than Anthropic models. Using gpt-5.5 for coding ate up my limit in one prompt, but claude could manage
-large refactors pretty much throughout my 5 hour window. With Sol, it's a little better because they temporarily removed the 5 hour 
+large refactors pretty much throughout my 5 hour window. With Sol, it's a little better because they temporarily removed the 5 hour
 windows and let us use Sol out of only the weekly limit. They also optimized Sol to use less tokens. But despite this, I keep Sol
 as a backup coding agent. I have found that its value as an architect outweighs its coding value. Say I use all my Sol tokens, now I'm
 almost stuck. I can have a mediocre conversation with Claude that will end up in the same spot as Sol, but with more turns. And now I've wasted

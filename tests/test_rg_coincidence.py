@@ -237,7 +237,7 @@ def test_basal_learning_only_on_active_pixel_c_cells():
 
 def test_preset_runs_through_public_reset_and_config():
     # Public entry points: constructor, apply_config topology switch, reset.
-    e = SimulationEngine(seed=1, topology='pi')
+    e = SimulationEngine(seed=1, topology='tiled_cc')
     e.apply_config({'topology': 'rg_coincidence'})
     assert e.mode == 'rg_coincidence' and e.event_resolved
     e.set_pattern('col 1')
