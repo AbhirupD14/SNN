@@ -77,7 +77,7 @@ def test_obsolete_names_rejected_everywhere(name):
 def test_dashboard_config_keys_are_exactly_the_retained_set():
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == {'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta',
-                    'l2_init_total_frac', 'dual_fe_fes'}
+                    'l2_init_total_frac', 'dual_fe_fes', 'c_feedback_reset'}
     assert keys == set(config_values(SimulationEngine().params))
     assert EDITABLE_KEYS == keys                         # browser apply surface matches
 

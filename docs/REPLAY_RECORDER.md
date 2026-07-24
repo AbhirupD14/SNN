@@ -161,6 +161,16 @@ nohup env PYTHONPATH=. .venv/bin/python experiments/<future_experiment>.py \
 
 No daemon manager or process supervisor is part of this contract.
 
+## Seeding a fresh live engine from a version-1 replay
+
+A version-1 replay's weights can now seed a **new, compatible** live simulation via the
+dashboard's *Continue with These Weights* branch (see [REPLAY_PLAYER.md](REPLAY_PLAYER.md)). This
+uses exactly the weight snapshot and reconstruction documented above — nothing more. The recorder
+still captures **only** an observation artifact: it does not record membrane voltage, conductance,
+refractory/event/RNG/timestep state, or experiment control flow, so a branch is a *new branch
+from learned weights, not a resumable full-engine checkpoint*. All transient state is reset in the
+branched engine.
+
 ## Deliberately deferred
 
 - Dashboard replay **player** UI — now implemented; see

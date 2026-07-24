@@ -142,6 +142,13 @@ FREQ_WINDOW = 40
 LOG_MAX = 400
 SYNAPTIC_DELAY = 1                                 # integer delay on every internal projection
 
+# Weight-update modes with NO upper cap (floor only). The replay-branch snapshot validator
+# bound-checks each restored weight against the ACTIVE rule using these sets: a cap-free mode
+# accepts any finite value >= its floor (never inventing a historical ceiling), while a
+# bounded mode also enforces its w_max. See ``_branch_weight_bounds``.
+_E_CAPFREE_MODES = frozenset({'linear_fe', 'linear_nonnegative', 'dual_fe_fes'})
+_C_CAPFREE_MODES = frozenset({'c_linear_nonnegative', 'c_dual_fe_fes'})
+
 LEAK_DEFAULT = 0.03
 # LEGACY / HEADLESS-ONLY: a per-synapse cap on ordinary-E weights. Production learning is
 # now cap-free (`linear_fe`): the neuron-wide FE budget supplies saturation, so ordinary-E
@@ -158,6 +165,14 @@ DEFAULTS = dict(
     e_threshold=E_THRESHOLD,
     e_weight_cap=E_WEIGHT_CAP_DEFAULT,             # LEGACY/headless w_max for bounded modes only (no production effect)
     e_weight_floor=0.0,                            # lower clip on learned weights (0 = legacy)
+    # Hard per-synapse ceiling on plastic PATTERN-DETECTOR feedforward weights, as a fraction
+    # of theta, applied in EVERY update mode (incl. cap-free linear_fe / dual_fe_fes). None =
+    # uncapped (default; byte-identical). 0.5 caps every afferent at theta/2, so a competitor's
+    # row needs >= 2 coincident afferents to reach theta -- no single source fires it alone
+    # (it becomes a true integrator). Applies to latency/legacy competitors + encoders; NOT to
+    # Eor (a 1:1 relay of the WTA winner, which must fire on one afferent) or the coincidence
+    # C basal (its own rule; it already gates on basal AND apical).
+    e_weight_cap_frac=None,
     # --- linear weight-update ablation (headless; defaults reproduce production) ---
     e_weight_update_mode='linear_fe',              # PRODUCTION default (cap-free FE, floor-only); also: linear_bounded | quadratic_bounded (historical headless, capped)
     c_weight_update_mode='c_linear_bounded',       # PRODUCTION default (multiplier dropped); also: c_quadratic_bounded (historical) | c_linear_nonnegative (cap-free diagnostic)
@@ -253,6 +268,16 @@ DEFAULTS = dict(
     c_basal_weight_init=None,                      # None -> 1.01 * w_2(T)
     c_basal_weight_max=None,                       # None -> 1.10 * w_2(T)
     c_basal_window_steps=1,                        # basal eligibility window (fixed at 1)
+    # --- top-down feedback hard reset (tiled cortical columns) ---
+    # When a column's coincidence cell C fires (its pattern is confirmed at the parent
+    # level), its C->I (column_c_to_i) trigger schedules a DELAY-1 hard reset of the
+    # column's ordinary-E bank, applied at the START of the next boundary (after
+    # freeze_drive, before the event loop). This suppresses the trained instant
+    # integrator's redundant re-fire and drops the confirmed column toward the
+    # frequency-halving cadence. The zero-latency WTA E->I reset is untouched. When
+    # False, C->I reverts to the guarded same-boundary no-op (byte-identical to legacy).
+    # Only build_column columns carry a column_c_to_i edge, so this touches nothing else.
+    c_feedback_reset=True,
     pretrained_exc_margin=1.05,                    # RG->L1E fixed packet / (theta/kappa)
     crossing_time_tolerance=1e-12,                 # fixed numeric tie tolerance (not a control)
 )
@@ -264,7 +289,7 @@ DEFAULTS = dict(
 # extra population-size variants (cc_e_count) -- the two tiled presets fix those sizes.
 EDITABLE_KEYS = {
     'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta', 'l2_init_total_frac',
-    'dual_fe_fes',
+    'dual_fe_fes', 'c_feedback_reset',
 }
 VALID_TOPOLOGIES = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated',
                     'rg_direct_cc4')
@@ -346,6 +371,11 @@ class SimulationEngine:
         # neuron constructors) so a bad e/wte/B fails at construction, not mid-run.
         _validate_dual_params(params['dual_fe_e'], params['dual_fe_wte'], params['dual_fe_B'])
         params['dual_fe_fes'] = bool(params['dual_fe_fes'])
+        params['c_feedback_reset'] = bool(params['c_feedback_reset'])
+        if params['e_weight_cap_frac'] is not None:
+            if float(params['e_weight_cap_frac']) <= 0.0:
+                raise ValueError('e_weight_cap_frac must be > 0 or None')
+            params['e_weight_cap_frac'] = float(params['e_weight_cap_frac'])
         params['n_pix'] = int(params['n_pix'])
         params['n_out'] = int(params['n_out'])
         params['cc_e_count'] = int(params['cc_e_count'])
@@ -373,7 +403,7 @@ class SimulationEngine:
         self._build()
 
     # ================================================================ build
-    def _mkE(self, nid, role, acc_weights, acc_distance_factor, *, learn, alpha_inh):
+    def _mkE(self, nid, role, acc_weights, acc_distance_factor, *, learn, alpha_inh, w_cap=None):
         p = self.params
         # The single dual FE/FES flag switches the ordinary/latency-E learning family; off =
         # the configured production/headless mode, byte-identical.
@@ -381,7 +411,7 @@ class SimulationEngine:
         return ExcitatoryNeuron(
             nid, role, acc_weights=acc_weights, acc_distance_factor=acc_distance_factor,
             threshold=float(p['e_threshold']), w_max=float(p['e_weight_cap']),
-            w_floor=float(p['e_weight_floor']),
+            w_floor=float(p['e_weight_floor']), w_cap=w_cap,
             update_mode=update_mode,
             maturity_budget_frac=float(p['e_maturity_budget_frac']),
             dual_e=float(p['dual_fe_e']), dual_wte=float(p['dual_fe_wte']),
@@ -580,6 +610,11 @@ class SimulationEngine:
         # Event-path delay-1 basal delivery buffer. Apical permission is delivered at
         # the firing L2E's current analytic tau and therefore has no next-boundary queue.
         self._basal_next = {}          # c_target_id -> [(source_id, signal) ...]
+        # Event-path delay-1 feedback hard-reset queue: entries scheduled by a firing C
+        # cell's column_c_to_i trigger at boundary t are applied at the START of boundary
+        # t+1 (see _drive_event_relays / _event_step). List of (target_id, relay_id,
+        # edge_id). Empty for every topology without a column_c_to_i edge.
+        self._hardreset_next = []
         # Event-path per-boundary diagnostics (exposed via dynamic state in Phase 6).
         self.hard_reset_events = []
         self.latency_ties = []
@@ -805,6 +840,11 @@ class SimulationEngine:
         self.sources, self.relays, self.switches, self.plastic = [], [], [], []
         self.coincidence, self.latency_competitors, self.pretrained = [], [], []
         self._input_sinks = []                         # [(cell, pixel) ...] external drive
+        # Optional hard per-synapse ceiling (theta*frac) on plastic PATTERN-DETECTOR afferents.
+        # None = uncapped. Applied to competitors + encoders, but NOT to Eor (role 'Eor'), which
+        # relays the single WTA winner and must fire on one afferent.
+        _capfrac = p.get('e_weight_cap_frac')
+        pattern_cap = None if _capfrac in (None, '') else float(_capfrac) * float(thr)
         for n in nodes:
             nid, arch = n['id'], n['archetype']
             if arch == 'rg_source':
@@ -833,7 +873,7 @@ class SimulationEngine:
                     # uses alpha_inh_l1, L2I -> L2E uses alpha_inh), not a second
                     # excitatory learning rule.
                     learn=True if is_comp else bool(p['enc_plasticity_enabled']),
-                    alpha_inh=alpha_l2 if is_comp else alpha_l1)
+                    alpha_inh=alpha_l2 if is_comp else alpha_l1, w_cap=pattern_cap)
                 cell.ff_src = list(srcs)
                 cell.ff_edge_ids = list(eids)
                 (self.competitors if is_comp else self.encoders).append(cell)
@@ -847,7 +887,11 @@ class SimulationEngine:
                 eids = ff_edge_ids.get(nid, [])
                 w = ff_w[nid]
                 dfac = np.array([ff_factor(eid) for eid in eids]) if eids else np.zeros(0)
-                cell = self._mkE(nid, 'competitor', w, dfac, learn=True, alpha_inh=alpha_l2)
+                # Eor relays the single WTA winner (1 active afferent) -> never capped;
+                # ordinary latency competitors are pattern detectors -> capped.
+                cap = None if n.get('column_role') == 'Eor' else pattern_cap
+                cell = self._mkE(nid, 'competitor', w, dfac, learn=True, alpha_inh=alpha_l2,
+                                 w_cap=cap)
                 cell.ff_src = list(srcs)
                 cell.ff_edge_ids = list(eids)
                 self.latency_competitors.append(cell)
@@ -972,8 +1016,17 @@ class SimulationEngine:
         self._basal_out = {}           # L1E source -> [(e_coincidence target, edge_id) ...]
         self._apical_out = {}          # L2E source -> [(e_coincidence target, edge_id) ...]
         self._hardreset_out = {}       # i_relay -> [(E target, edge_id) ...] immediate reset
+        # Edge ids of the column feedback trigger (C -> I via column_c_to_i). These
+        # relay_excitation edges do NOT drive the same-boundary WTA reset; when
+        # c_feedback_reset is on, they schedule a delay-1 boundary-start hard reset of the
+        # column's ordinary-E bank instead. Gated on the projection emitted by
+        # build_column, never on role/layer/id -- so rg_coincidence's intentionally
+        # immediate L1C->L1I (no such projection) is excluded.
+        self._feedback_trigger_edges = set()
         for e in dedges:
             if e['kind'] == 'relay_excitation':
+                if e.get('projection') == 'column_c_to_i':
+                    self._feedback_trigger_edges.add(e['id'])
                 if node_by_id[e['target']]['archetype'] == 'switch':
                     self._switch_residual_out.setdefault(e['source'], []).append(
                         (e['target'], e['id']))
@@ -1273,9 +1326,11 @@ class SimulationEngine:
         exc_now = self._exc_next
         inh_now = self._inh_next
         basal_now = self._basal_next
+        hardreset_now = self._hardreset_next     # feedback resets scheduled at t-1
         self._ff_deliv_now = self._ff_deliv_next
         self._exc_next, self._inh_next = {}, []
         self._basal_next = {}
+        self._hardreset_next = []
         self._ff_deliv_next = {}
 
         for pulse in inh_now:                      # legacy conductance arrivals, if any
@@ -1313,6 +1368,24 @@ class SimulationEngine:
         for n in self.exc.values():
             n.freeze_drive()
 
+        # ---- delay-1 feedback hard reset (top-down C->I suppression) ----------------
+        # Apply resets scheduled by a firing C at t-1, AFTER freeze_drive (so this
+        # boundary's just-assembled drive packet is discarded too) and BEFORE the event
+        # loop (so the trained ordinary E cannot cross this boundary). A same-boundary
+        # reset could not do this: a tau~=0 crosser has already fired and reset to rest.
+        for tgt, rid, edge_id in hardreset_now:
+            tgtcell = self.exc.get(tgt)
+            if tgtcell is None:
+                continue
+            v_before = float(tgtcell.V)
+            drive_before = float(tgtcell.remaining_excitation)
+            tgtcell.hard_reset(0.0)                 # V <- rest, discard frozen drive
+            self.hard_reset_events.append(dict(
+                source=rid, target=tgt, edge_id=edge_id, kind='feedback_hard_reset',
+                outer_boundary=int(self.timestep), tau=0.0,
+                v_before=round(v_before, 6), drive_before=round(drive_before, 6)))
+            self.emitted.append(edge_id)
+
         # Opt-in diagnostic (off = byte-identical): snapshot every latency competitor's
         # full frozen boundary-start state, BEFORE the event loop lets the first winner
         # reset the others. Records boundary-start V (carryover, pre-loop), the frozen
@@ -1344,6 +1417,11 @@ class SimulationEngine:
         self.latency_ties = sched.ties
 
         # ---- boundary finalization ------------------------------------------------
+        # Settle each C cell's one-boundary basal eligibility AFTER the event loop, so a
+        # carried basal event has had this whole boundary's apical deliveries to coincide
+        # with before it can expire (see CoincidencePyramidalNeuron.settle_eligibility).
+        for c in self.coincidence:
+            c.settle_eligibility()
         for n in self.exc.values():
             n.update_trace()
             n.decay_conductance()
@@ -1369,6 +1447,10 @@ class SimulationEngine:
         self.latency_ties = []
         self.column_winners = {}
         self.winner = None
+        # Relay ids that already scheduled a delay-1 feedback reset this boundary. A
+        # column has one C and one I, so this is single-shot in practice; the guard keeps
+        # a future multi-C column from double-scheduling the same relay's volley.
+        self._feedback_scheduled = set()
 
     def _fire_event_cell(self, cell, tau):
         """Fire the selected E/C cell at ``tau``, run its immediate learning, schedule
@@ -1434,9 +1516,21 @@ class SimulationEngine:
     def _drive_event_relays(self, source_id, tau):
         """Resolve every stateless inhibitory relay driven by ``source_id`` at the same
         ``tau``, then apply each relay's outgoing hard resets immediately. A relay emits
-        at most one spike per boundary; a second same-boundary input creates no burst and
-        no second reset event."""
+        at most one *WTA* spike per boundary; a second same-boundary input creates no
+        burst and no second reset event.
+
+        The column feedback trigger (C -> I via ``column_c_to_i``) is the one exception:
+        when ``c_feedback_reset`` is on, it is NOT swallowed by the once-per-boundary WTA
+        guard. Instead the same ``I`` schedules a DELAY-1 hard reset of its ordinary-E
+        targets into ``_hardreset_next`` (applied at the start of the next boundary),
+        because a same-boundary reset would land on the already-fired ``tau~=0`` winner
+        and be a no-op. When ``c_feedback_reset`` is off, the trigger falls through to the
+        guarded WTA path and is the legacy no-op (``I`` already spiked from its E bank)."""
+        feedback_on = bool(self.params['c_feedback_reset'])
         for rid, re_eid in self._relayexc_out.get(source_id, []):
+            if feedback_on and re_eid in self._feedback_trigger_edges:
+                self._schedule_feedback_reset(rid, re_eid)
+                continue
             relay = self.inh.get(rid)
             if relay is None or relay.spiked:        # already fired this boundary
                 continue
@@ -1458,6 +1552,20 @@ class SimulationEngine:
                     outer_boundary=int(self.timestep), tau=round(float(tau), 12),
                     v_before=round(v_before, 6), drive_before=round(drive_before, 6)))
                 self.emitted.append(hr_eid)
+
+    def _schedule_feedback_reset(self, rid, re_eid):
+        """Record a firing C's column feedback volley: queue the relay ``rid``'s
+        ordinary-E hard-reset targets for the NEXT boundary's start. Single-shot per
+        relay per boundary. ``I`` may already have fired its immediate WTA volley this
+        boundary; that is orthogonal -- this is a distinct top-down feedback volley whose
+        reset is deferred, not the same-boundary WTA reset."""
+        if rid in self._feedback_scheduled:
+            return
+        self._feedback_scheduled.add(rid)
+        self.spiked[rid] = True                      # observable: I emitted a feedback volley
+        self.emitted.append(re_eid)
+        for tgt, hr_eid in self._hardreset_out.get(rid, []):
+            self._hardreset_next.append((tgt, rid, hr_eid))
 
     # --------------------------------------------------------- emission helpers
     def _participation(self, cell):
@@ -1749,6 +1857,193 @@ class SimulationEngine:
             return w
         raise KeyError(edge_id)                             # apical/pretrained/reset: not editable
 
+    # ---------------------------------------------------- replay branch loader
+    # Reconstruct a fresh live simulation from a recorded weight snapshot: install every
+    # mutable weight into a cleanly reset compatible engine. This is a NEW BRANCH from
+    # learned weights, NOT an exact continuation -- membrane charge, conductance, refractory
+    # state, pending events, RNG position and the source timestep are deliberately reset,
+    # never restored. See docs/REPLAY_PLAYER.md and prompts/Claude_Replay_Branch_From_Weights.
+    #
+    # The loader is two-phase and atomic: ``_prepare_branch`` fully validates the snapshot
+    # against THIS engine's live graph WITHOUT mutating anything and raises ValueError on the
+    # first problem; only after preparation (and optional input validation) succeeds does
+    # ``branch_from_weights`` reset transient state and commit the resolved weights. Because
+    # the rebuild is deterministic from (seed, config) the commit re-resolves every edge id
+    # against the freshly rebuilt reference maps and cannot fail after reset.
+    def _branch_weight_bounds(self, edge_id, kind):
+        """(lower, upper) valid range for a mutable weight under the ACTIVE model rule.
+        ``upper`` is ``None`` for a cap-free rule (no invented historical ceiling)."""
+        if kind == 'feedforward':
+            cell = self._ff_weight_ref[edge_id][0]
+            if cell.update_mode in _E_CAPFREE_MODES:
+                lo = cell.dual_wte if cell.update_mode == 'dual_fe_fes' else cell.w_floor
+                return (float(lo), None)
+            return (float(cell.w_floor), float(cell.w_max))     # headless bounded modes
+        if kind == 'predictive_inhibition':
+            cell = self._pred_weight_ref[edge_id][0]
+            return (0.0, float(cell.w_max))                     # declared predictive range
+        if kind == 'basal_excitation':
+            cell = self._basal_weight_ref[edge_id][0]
+            if cell.update_mode in _C_CAPFREE_MODES:
+                lo = cell.dual_wte if cell.update_mode == 'c_dual_fe_fes' else 0.0
+                return (float(lo), None)
+            return (0.0, float(cell.w_max))                     # C-specific basal cap
+        raise KeyError(edge_id)
+
+    def _weighted_edges(self):
+        """{edge_id: ('mutable'|'fixed', kind)} for every synapse the engine reports with a
+        non-null live weight -- exactly the id set a complete replay snapshot must cover.
+        Mutable = the plastic ff/predictive/basal edges; fixed = pretrained delivered charge
+        (compatibility-checked but never mutated)."""
+        out = {}
+        for e in self.synapses:
+            if self._live_weight(e) is None:
+                continue
+            eid, kind = e['id'], e['kind']
+            if (eid in self._ff_weight_ref or eid in self._pred_weight_ref
+                    or eid in self._basal_weight_ref):
+                out[eid] = ('mutable', kind)
+            else:                                               # pretrained_excitation
+                out[eid] = ('fixed', kind)
+        return out
+
+    def _prepare_branch(self, weights):
+        """Validate a COMPLETE weight snapshot against the live graph without mutating it.
+
+        Returns a plan ``{'mutable': [(edge_id, kind, value)...], 'fixed': [...]}``. Raises
+        ``ValueError`` on the first of: not-a-mapping, missing, extra/unknown, non-numeric,
+        non-finite, out-of-range (rejected, never clipped), or a fixed edge whose delivered
+        magnitude disagrees with the live engine.
+        """
+        if not isinstance(weights, dict):
+            raise ValueError('weight snapshot must be a JSON object of {synapse_id: weight}')
+        expected = self._weighted_edges()
+        got = set(weights)
+        exp = set(expected)
+        missing = exp - got
+        if missing:
+            raise ValueError(
+                f'weight snapshot is incomplete: missing {len(missing)} synapse(s), '
+                f'e.g. {sorted(missing)[:5]}')
+        extra = got - exp
+        if extra:
+            raise ValueError(
+                f'weight snapshot has {len(extra)} unknown/extra synapse(s) not weighted in '
+                f'the live graph, e.g. {sorted(extra)[:5]}')
+        mutable, fixed = [], []
+        for eid, (klass, kind) in expected.items():
+            v = weights[eid]
+            if isinstance(v, bool) or not isinstance(v, (int, float)):
+                raise ValueError(f'weight for {eid!r} is not a number: {v!r}')
+            v = float(v)
+            if not math.isfinite(v):
+                raise ValueError(f'weight for {eid!r} is not finite: {v!r}')
+            if klass == 'fixed':
+                q = float(self._q_pretrained)
+                if abs(v - q) > 1e-6 * max(1.0, abs(q)):
+                    raise ValueError(
+                        f'fixed pretrained edge {eid!r} delivers {q:.6f} in the live graph but '
+                        f'the snapshot has {v:.6f}; a fixed magnitude is never converted into a '
+                        f'plastic weight')
+                fixed.append((eid, kind, v))
+                continue
+            lo, hi = self._branch_weight_bounds(eid, kind)
+            if v < lo - 1e-9:
+                raise ValueError(
+                    f'{eid!r} weight {v:.6f} is below the {lo:.6f} floor for the active '
+                    f'{kind} rule; rejected (a replay value is never silently clipped)')
+            if hi is not None and v > hi + 1e-9:
+                raise ValueError(
+                    f'{eid!r} weight {v:.6f} exceeds the {hi:.6f} cap for the active '
+                    f'{kind} rule; rejected (a replay value is never silently clipped)')
+            mutable.append((eid, kind, v))
+        return {'mutable': mutable, 'fixed': fixed}
+
+    def _validate_branch_input(self, vector):
+        """Validate a raw input vector for branch restoration (length ``n_pix``; every value
+        finite and binary 0/1). Returns a float list; does not mutate the engine."""
+        if not isinstance(vector, (list, tuple)):
+            raise ValueError('input vector must be a list of 0/1 pixels')
+        if len(vector) != self.n_pix:
+            raise ValueError(
+                f'input vector has {len(vector)} pixels but this engine has {self.n_pix}')
+        out = []
+        for i, x in enumerate(vector):
+            if isinstance(x, bool) or not isinstance(x, (int, float)):
+                raise ValueError(f'input pixel {i} is not a number: {x!r}')
+            xf = float(x)
+            if not math.isfinite(xf) or xf not in (0.0, 1.0):
+                raise ValueError(f'input pixel {i} must be 0 or 1, got {x!r}')
+            out.append(xf)
+        return out
+
+    def _install_branch_plan(self, plan):
+        """Commit a validated plan: re-resolve every mutable edge id against the (freshly
+        rebuilt) reference maps and write the raw value directly -- no clip, no learning.
+        Fixed edges were compatibility-checked in prepare and are not touched here."""
+        for eid, kind, v in plan['mutable']:
+            if kind == 'feedforward':
+                cell, widx = self._ff_weight_ref[eid]
+                cell.acc_weights[widx] = v
+            elif kind == 'predictive_inhibition':
+                cell, widx = self._pred_weight_ref[eid]
+                cell.w[widx] = v
+            elif kind == 'basal_excitation':
+                cell, _ = self._basal_weight_ref[eid]
+                cell.basal.weights[0] = v
+
+    def branch_from_weights(self, weights, *, input_vector=None, restore_input=True,
+                            provenance=None):
+        """Branch a fresh live simulation from a recorded weight snapshot.
+
+        Validates the complete snapshot (and the optional input vector) against the live
+        graph FIRST; only if every check passes does it reset transient engine state, rebuild
+        the network, install all mutable weights, and set the input (the restored vector, or a
+        blank input when restoration is off). Raises ``ValueError`` before any reset if the
+        snapshot or input is invalid, leaving the engine entirely unchanged.
+
+        The fresh engine starts at its normal reset timestep; the recorded source timestep is
+        provenance only. Returns a compact summary of what was restored/reset.
+        """
+        plan = self._prepare_branch(weights)                    # raises before any mutation
+        vec = None
+        if restore_input and input_vector is not None:
+            vec = self._validate_branch_input(input_vector)     # raises before any mutation
+
+        # ---- commit: all validation passed; reset transient state, then install weights ----
+        self._build()                                           # fresh neurons + clean transient
+        self._install_branch_plan(plan)                         # deterministic; cannot fail now
+        if vec is not None:
+            self.set_input(vec)
+        else:
+            self.clear_input()                                  # blank: Play cannot continue the
+                                                                # hidden replay stimulus
+
+        prov = dict(provenance or {})
+        src_run = prov.get('run_id')
+        src_frame = prov.get('frame_index')
+        src_ts = prov.get('timestep')
+        src_seed = prov.get('seed')
+        self._log('branch',
+                  f'branched from replay {src_run or "?"} frame {src_frame} '
+                  f'(recorded t={src_ts}, source seed {src_seed}, live seed '
+                  f'{self.params["seed"]}, precision {prov.get("precision", "?")}): '
+                  f'restored {len(plan["mutable"])} mutable weights, checked '
+                  f'{len(plan["fixed"])} fixed edges; transient state reset')
+        return {
+            'restored_mutable': len(plan['mutable']),
+            'checked_fixed': len(plan['fixed']),
+            'restore_input': bool(vec is not None),
+            'input_pixels_set': int(sum(1 for x in (vec or []) if x > 0.5)),
+            'source_run_id': src_run,
+            'source_frame_index': src_frame,
+            'source_timestep': src_ts,
+            'source_seed': src_seed,
+            'live_seed': int(self.params['seed']),
+            'live_timestep': int(self.timestep),
+            'precision': prov.get('precision'),
+        }
+
     def apply_config(self, overrides: dict):
         applied = []
         for k, v in (overrides or {}).items():
@@ -1760,7 +2055,7 @@ class SimulationEngine:
                 raise ValueError('l2_init_total_frac must satisfy 0 < rho < 1')
             if k == 'c_eta' and v is not None and float(v) < 0.0:
                 raise ValueError('c_eta must be non-negative or None')
-            if k == 'dual_fe_fes':
+            if k in ('dual_fe_fes', 'c_feedback_reset'):
                 v = bool(v)
             self.params[k] = v
             applied.append(k)
@@ -1921,6 +2216,9 @@ class SimulationEngine:
                    switch_conductance_enabled=bool(p['switch_conductance_enabled']),
                    c_eta=(float(p['eta']) if p['c_eta'] is None else float(p['c_eta'])),
                    l2_init_total_frac=float(p['l2_init_total_frac']),
+                   c_feedback_reset=bool(p['c_feedback_reset']),
+                   e_weight_cap_frac=(None if p['e_weight_cap_frac'] is None
+                                      else float(p['e_weight_cap_frac'])),
                    # Experimental dual FE/FES rule: the active flag plus its three validated
                    # parameters (so a replay/serialized state records whether it was on).
                    dual_fe_fes=bool(p['dual_fe_fes']),

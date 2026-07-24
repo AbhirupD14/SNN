@@ -13,6 +13,8 @@ export class Inspector {
     this.id = null;
     this.empty = document.getElementById('insp-empty');
     this.body = document.getElementById('insp-body');
+    this.scroller = document.getElementById('inspector');   // the overflow-y:auto aside
+    this._raf = 0;
   }
 
   select(id) {
@@ -27,7 +29,14 @@ export class Inspector {
     }
   }
 
-  refresh() { if (this.id) this.render(); }
+  // Coalesce per-frame refreshes to at most one render per animation frame. The live
+  // path calls this on every websocket message, which can arrive faster than the
+  // browser paints; rebuilding innerHTML on each one flickers the panel and thrashes
+  // its scroll position. One rAF-batched render per paint removes the flicker.
+  refresh() {
+    if (!this.id || this._raf) return;
+    this._raf = requestAnimationFrame(() => { this._raf = 0; this.render(); });
+  }
 
   // Clear the current selection and show the empty placeholder. Called when a new
   // topology is applied (live editor apply, or entering/leaving replay) so the
@@ -67,6 +76,9 @@ export class Inspector {
       : meta.type === 'S' ? 'retinal source' : 'inhibitory';
     const chargeBarPct = Math.max(0, Math.min(1, state.activation)) * 100;
 
+    // Preserve scroll position across the full innerHTML rebuild so a scrolled-down
+    // inspector doesn't snap to the top (and visibly flicker) on every frame.
+    const scrollTop = this.scroller ? this.scroller.scrollTop : 0;
     this.body.innerHTML = `
       <div class="insp-head">
         <div class="insp-orb" style="background:${col};color:${col}"></div>
@@ -157,6 +169,7 @@ export class Inspector {
         ${synCard(`Incoming (${incoming.length})`, incoming, this.id, wref)}
         ${synCard(`Outgoing (${outgoing.length})`, outgoing, this.id, wref)}
       </div>`;
+    if (this.scroller) this.scroller.scrollTop = scrollTop;
   }
 }
 

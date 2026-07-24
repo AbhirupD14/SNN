@@ -232,7 +232,16 @@ export class NeuronRenderer {
       this.edges.set(s.id, { line, mat, syn: s, weight: s.weight, pulse: 0 });
     }
     this._applyEdgeWeights();
-    this._fitCameraToTopology();
+    // Only re-fit (and reset zoom/orbit) when the actual 3D layout changed. A pattern
+    // assignment re-broadcasts an identically-shaped topology; refitting there would
+    // yank the user's zoom back to 1 on every pattern click. Signature = neuron ids +
+    // positions, so a real seed/config/preset change still refits as before.
+    const sig = topology.neurons
+      .map(m => `${m.id}:${m.pos[0]},${m.pos[1]},${m.pos[2]}`).join('|');
+    if (sig !== this._layoutSig) {
+      this._layoutSig = sig;
+      this._fitCameraToTopology();
+    }
   }
 
   _fitCameraToTopology() {

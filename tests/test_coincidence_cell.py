@@ -44,13 +44,16 @@ def make_c(**kw):
 
 
 def deliver(c, basal=False, apical=None, basal_signal=1.0):
-    """One boundary of delivery + gate resolution (no membrane advance)."""
+    """One boundary of delivery + gate resolution (no membrane advance). Ends with the
+    end-of-boundary eligibility settle the engine runs in its finalization step, so the
+    one-boundary basal carry is modeled exactly as the event loop applies it."""
     c.begin_event_boundary()
     if basal:
         c.gather_basal('L1E0', basal_signal)
     for src in (apical or []):
         c.gather_apical(src)
     c.resolve_dendrites()
+    c.settle_eligibility()
     return c.coincidence_charge
 
 
@@ -113,6 +116,27 @@ def test_basal_then_apical_next_boundary_deposits_once():
     assert deliver(c, basal=True) == 0.0            # t: basal, no apical -> carried
     q = deliver(c, apical=['L2E0'])                 # t+1: apical matches carried basal
     assert q == pytest.approx(250.0)
+
+
+def test_carried_basal_survives_boundary_start_resolve_then_in_loop_apical():
+    """Regression: the ENGINE resolves each C gate TWICE per boundary -- once at
+    boundary start (before any apical is delivered) and again in-loop when the parent E
+    fires the apical. A carried basal event must survive that boundary-start resolve so
+    the in-loop apical can consume it. Previously the boundary-start resolve expired the
+    carry, so basal@t could never coincide with apical@t+1 in the event path (the
+    coincidence slipped one boundary -- the observed 'phase shift')."""
+    c = make_c(basal_weight=250.0)
+    # t: basal only -> carried to the next boundary.
+    c.begin_event_boundary(); c.gather_basal('L1E0'); c.resolve_dendrites(); c.settle_eligibility()
+    assert c.basal_eligible and c.coincidence_charge == 0.0
+    # t+1: boundary-start resolve runs with NO apical yet, THEN the in-loop apical lands.
+    c.begin_event_boundary()
+    c.resolve_dendrites()                            # boundary start: apical not delivered
+    assert c.basal_eligible                          # carry must NOT be expired here
+    q = c.deliver_apical('L2E0', tau=0.5)            # in-loop apical consumes the carry
+    c.settle_eligibility()
+    assert q == pytest.approx(250.0)
+    assert not c.basal_eligible                       # consumed, not re-carried
 
 
 def test_basal_then_apical_two_boundaries_later_deposits_zero():

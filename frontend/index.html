@@ -72,9 +72,32 @@
       <button class="btn sm" id="rp-marker-next" title="Next marker">mark ▶</button>
     </span>
     <span class="rp-error" id="rp-error" hidden></span>
+    <button class="btn sm" id="rp-branch" title="Create a fresh live simulation using the learned weights at this frame (not an exact resume)">↪ Continue with These Weights</button>
     <button class="btn sm danger" id="rp-exit" title="Exit replay and restore the live paused engine">✕ Exit Replay</button>
   </div>
   <div class="replay-toast" id="replay-toast" hidden></div>
+
+  <!-- ───────── Branch-from-weights confirmation (replay → fresh live sim) ───────── -->
+  <div class="branch-modal" id="branch-modal" hidden>
+    <div class="branch-dialog" role="dialog" aria-modal="true" aria-labelledby="branch-title">
+      <h2 id="branch-title">Continue with These Weights</h2>
+      <p class="branch-desc" id="branch-desc">—</p>
+      <p class="branch-note" id="branch-precision">—</p>
+      <p class="branch-warn">The current live learned state will be replaced.</p>
+      <label class="branch-check">
+        <input type="checkbox" id="branch-restore-input" checked /> Restore the displayed input pixels
+      </label>
+      <label class="branch-check" id="branch-checkpoint-wrap" hidden>
+        <input type="checkbox" id="branch-use-checkpoint" />
+        <span id="branch-checkpoint-label">Use nearest preceding checkpoint</span>
+      </label>
+      <div class="branch-error" id="branch-error" hidden></div>
+      <div class="branch-actions">
+        <button class="btn" id="branch-cancel">Cancel</button>
+        <button class="btn primary" id="branch-confirm">Continue</button>
+      </div>
+    </div>
+  </div>
 
   <!-- ───────────────────────── Main workspace ───────────────────────── -->
   <main class="layout">

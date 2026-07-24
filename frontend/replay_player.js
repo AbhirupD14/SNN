@@ -9,7 +9,10 @@
 // else is pure playback of recorded frames. Untrusted labels (run name, phase,
 // pattern, marker kinds) are rendered via textContent, never innerHTML.
 
-import { parseReplay, ReplayError } from './replay.js';
+import {
+  parseReplay, ReplayError, buildBranchPayload,
+  isCheckpointFrame, nearestCheckpointFrameIndexAt,
+} from './replay.js';
 
 const SPEED_OPTIONS = [1, 2, 4, 8, 16, 30];   // recorded frames applied per second
 const DEFAULT_SPEED = 8;
@@ -30,7 +33,8 @@ const $ = id => document.getElementById(id);
 
 export class ReplayPlayer {
   constructor(hooks) {
-    this.hooks = hooks;            // {applyTopology, applyDynamic, bulkSeek, updateTopbar, setReplayActive, pauseLive, fetchLiveState}
+    this.hooks = hooks;            // {applyTopology, applyDynamic, bulkSeek, updateTopbar,
+                                   //  setReplayActive, pauseLive, fetchLiveState, branchFromReplay}
     this.active = false;
     this.replay = null;
     this.pos = -1;
@@ -39,6 +43,7 @@ export class ReplayPlayer {
     this._seekRaf = 0;             // coalesced scrubber rAF
     this._pendingSeek = null;
     this.speed = DEFAULT_SPEED;
+    this._branchInFlight = false;  // guards double submission of a branch request
 
     this._wire();
   }
@@ -58,6 +63,13 @@ export class ReplayPlayer {
     $('rp-exit')?.addEventListener('click', () => this.exit());
     $('rp-marker-prev')?.addEventListener('click', () => this._markerJump(-1));
     $('rp-marker-next')?.addEventListener('click', () => this._markerJump(1));
+
+    // Branch-from-weights: the ONE deliberately-allowed live mutation during replay. It
+    // pauses playback and opens a confirmation before anything is sent.
+    $('rp-branch')?.addEventListener('click', () => this._openBranchDialog());
+    $('branch-cancel')?.addEventListener('click', () => this._closeBranchDialog());
+    $('branch-confirm')?.addEventListener('click', () => this._submitBranch());
+    $('branch-use-checkpoint')?.addEventListener('change', () => this._renderBranchDialog());
 
     const sel = $('rp-speed');
     if (sel) {
@@ -91,8 +103,127 @@ export class ReplayPlayer {
 
     window.addEventListener('keydown', (e) => {
       if (!this.active) return;
-      if (e.key === 'Escape') this.exit();
+      if (e.key !== 'Escape') return;
+      // Escape closes the branch dialog first (if open), else exits replay.
+      if (this._branchOpen) this._closeBranchDialog();
+      else this.exit();
     });
+  }
+
+  // ---------------------------------------------------- branch from weights
+  // Open the confirmation for "Continue with These Weights". Pauses playback first so the
+  // dialog describes a stable frame. The button lives in the replay bar, so it is inherently
+  // available only while replay is active.
+  _openBranchDialog() {
+    if (!this.active || !this.replay || this._branchInFlight) return;
+    this._pause();
+    const cpCheck = $('branch-use-checkpoint');
+    if (cpCheck) cpCheck.checked = false;             // default to the selected frame
+    const restore = $('branch-restore-input');
+    if (restore) restore.checked = true;              // default input restoration on
+    this._branchError('');
+    this._branchOpen = true;
+    this._renderBranchDialog();
+    const modal = $('branch-modal');
+    if (modal) modal.hidden = false;
+    $('branch-confirm')?.focus();
+  }
+
+  _closeBranchDialog() {
+    this._branchOpen = false;
+    const modal = $('branch-modal');
+    if (modal) modal.hidden = true;
+    this._branchError('');
+  }
+
+  // Effective frame the branch will use, honoring the nearest-checkpoint choice.
+  _branchTarget(useCheckpoint) {
+    const replay = this.replay;
+    const selFi = replay.frames[this.pos].frameIndex;
+    const selIsCp = isCheckpointFrame(replay, selFi);
+    const cpFi = nearestCheckpointFrameIndexAt(replay, selFi);
+    let fi = selFi;
+    if (useCheckpoint && cpFi != null) fi = cpFi;
+    const pos = replay.frameIndexToPos.get(fi);
+    return {
+      fi, pos, timestep: replay.frames[pos].timestep,
+      isCheckpoint: isCheckpointFrame(replay, fi),
+      showCheckpointOption: !selIsCp && cpFi != null,
+      checkpointPos: cpFi != null ? replay.frameIndexToPos.get(cpFi) : null,
+    };
+  }
+
+  // Sync the dialog copy to the current checkbox state (text-safe; all textContent).
+  _renderBranchDialog() {
+    if (!this.active || !this.replay) return;
+    const useCp = !!$('branch-use-checkpoint')?.checked;
+    const t = this._branchTarget(useCp);
+
+    $('branch-desc').textContent =
+      `This creates a fresh live simulation using the learned weights at replay frame `
+      + `${t.pos + 1} (recorded timestep ${t.timestep}). Membrane charge, inhibition, `
+      + `refractory state, pending events, RNG position, and experiment control flow will `
+      + `not be restored.`;
+    $('branch-precision').textContent = t.isCheckpoint
+      ? "Weights use the recorder's six-decimal checkpoint precision."
+      : 'Weights after the checkpoint include four-decimal recorded deltas.';
+
+    const wrap = $('branch-checkpoint-wrap');
+    if (wrap) {
+      wrap.hidden = !t.showCheckpointOption;
+      if (t.showCheckpointOption) {
+        $('branch-checkpoint-label').textContent =
+          `Use nearest preceding checkpoint (frame ${t.checkpointPos + 1})`;
+      }
+    }
+  }
+
+  async _submitBranch() {
+    if (!this.active || !this.replay || this._branchInFlight) return;
+    const useCheckpoint = !!$('branch-use-checkpoint')?.checked;
+    const restoreInput = !!$('branch-restore-input')?.checked;
+
+    let payload;
+    try {
+      payload = buildBranchPayload(this.replay, this.pos, { useCheckpoint, restoreInput });
+    } catch (e) {
+      this._branchError(e instanceof ReplayError ? e.message : `could not build branch: ${e.message}`);
+      return;
+    }
+
+    this._branchInFlight = true;
+    this._setBranchBusy(true);
+    this._branchError('');
+    try {
+      const res = await this.hooks.branchFromReplay(payload);
+      if (res && res.error) throw new Error(res.error);
+      // Success: leave replay through the normal live-state resync path (engine stays paused).
+      this._branchInFlight = false;
+      this._setBranchBusy(false);
+      this._closeBranchDialog();
+      await this.exit();
+    } catch (e) {
+      // Failure: keep the replay, frame, and transport usable; show the error in the dialog.
+      this._branchInFlight = false;
+      this._setBranchBusy(false);
+      this._branchError(e.message || 'branch failed');
+    }
+  }
+
+  _setBranchBusy(busy) {
+    for (const id of ['branch-confirm', 'branch-cancel', 'branch-restore-input',
+                      'branch-use-checkpoint', 'rp-branch']) {
+      const e = $(id); if (e) e.disabled = busy;
+    }
+    const b = $('branch-confirm');
+    if (b) b.textContent = busy ? 'Branching…' : 'Continue';
+  }
+
+  _branchError(msg) {
+    const e = $('branch-error');
+    if (!e) return;
+    e.textContent = msg || '';        // textContent: backend message is rendered safely
+    e.hidden = !msg;
   }
 
   // -------------------------------------------------------------- file loading
@@ -149,6 +280,8 @@ export class ReplayPlayer {
     if (!this.active) return;
     this._pause();
     this._stopTimer();
+    this._closeBranchDialog();
+    this._setBranchBusy(false);
     this.active = false;
     this.replay = null;
     this.pos = -1;

@@ -192,4 +192,23 @@ const player = new ReplayPlayer({
   // the hidden live sim once on entry; fetch authoritative live state on exit.
   pauseLive: () => fetch('/api/pause', { method: 'POST' }).catch(() => {}),
   fetchLiveState: async () => (await fetch('/api/state')).json(),
+  // The single tightly-scoped mutation the replay player is allowed to make: branch a fresh
+  // live simulation from the recorded weights at the selected frame. Resolves to the backend
+  // JSON on success, or {error} on a validation/HTTP failure so the player keeps replay open.
+  branchFromReplay: async (payload) => {
+    let resp;
+    try {
+      resp = await fetch('/api/replay/branch-weights', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch (e) {
+      return { error: `request failed: ${e.message}` };
+    }
+    let data = null;
+    try { data = await resp.json(); } catch { /* non-JSON error body */ }
+    if (!resp.ok) return { error: (data && data.error) || `branch failed (HTTP ${resp.status})` };
+    return data;
+  },
 });

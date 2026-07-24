@@ -474,7 +474,7 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
     """
 
     def __init__(self, nid, role, *, acc_weights, acc_distance_factor,
-                 threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP, w_floor=0.0,
+                 threshold=E_THRESHOLD, w_max=E_WEIGHT_CAP, w_floor=0.0, w_cap=None,
                  leak_rate=DEFAULT_LEAK, refractory_steps=DEFAULT_REFRACTORY,
                  eta=DEFAULT_ETA, learn=True, update_mode='linear_fe',
                  maturity_budget_frac=1.10,
@@ -488,6 +488,11 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
                          beta_s=beta_s, a_max=a_max)
         self.w_max = float(w_max)
         self.w_floor = float(w_floor)            # lower clip on learned weights (default 0)
+        # Hard PER-SYNAPSE ceiling applied in EVERY update mode (incl. cap-free linear_fe /
+        # dual_fe_fes), independent of w_max. ``None`` = uncapped (default; byte-identical).
+        # Set to theta/2 to force a pattern detector to integrate >= 2 coincident afferents
+        # before its row can reach theta -- no single afferent can drive it to fire alone.
+        self.w_cap = None if w_cap is None else float(w_cap)
         if update_mode not in E_UPDATE_MODES:
             raise ValueError(f'update_mode must be one of {E_UPDATE_MODES}, got {update_mode!r}')
         self.update_mode = update_mode
@@ -503,6 +508,8 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
                 f'maturity_budget_frac must be >= 1.0, got {maturity_budget_frac}')
         self.maturity_budget_frac = float(maturity_budget_frac)
         self.acc_weights = np.asarray(acc_weights, dtype=float)
+        if self.w_cap is not None and self.acc_weights.size:
+            np.minimum(self.acc_weights, self.w_cap, out=self.acc_weights)   # init respects the cap
         self.acc_distance_factor = np.asarray(acc_distance_factor, dtype=float)
         if self.acc_weights.shape != self.acc_distance_factor.shape:
             raise ValueError('acc_weights and acc_distance_factor must align')
@@ -560,6 +567,8 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
             np.maximum(w + delta, self.w_floor, out=w)     # floor only; FE supplies saturation
         else:
             np.clip(w + delta, self.w_floor, self.w_max, out=w)  # headless bounded modes
+        if self.w_cap is not None:
+            np.minimum(w, self.w_cap, out=w)               # hard per-synapse ceiling (>=2 evidence)
         if self.record_updates:
             self._log_acc_update(w_before, delta, p)
 
@@ -583,7 +592,9 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
         fes = dual_fes(w, theta, self.dual_wte, self.dual_B)      # per-synapse (pre-update w)
         raw_delta = self.eta * fe * fes * signal * self.acc_distance_factor
         w_before = w.copy() if self.record_updates else None
-        np.maximum(w + raw_delta, self.dual_wte, out=w)          # floor at the raw wte, no cap
+        np.maximum(w + raw_delta, self.dual_wte, out=w)          # floor at the raw wte
+        if self.w_cap is not None:
+            np.minimum(w, self.w_cap, out=w)                     # hard per-synapse ceiling (>=2 evidence)
         if self.record_updates:
             self._log_dual_update(w_before, raw_delta, iaccq, fe, fes, signal)
 
@@ -850,20 +861,32 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
             # consume ALL basal availability; a participating current event is not carried.
             self.basal_eligible = False
             self.basal_eligible_signal = 0.0
-        elif not self.deposit_committed_this_boundary:
-            # carry a current, unconsumed basal event for EXACTLY the next boundary;
-            # otherwise eligibility expires (no two-boundary survival).
-            if basal_received:
-                self.basal_eligible = True
-                self.basal_eligible_signal = basal_signal
-            else:
-                self.basal_eligible = False
-                self.basal_eligible_signal = 0.0
+
+        # NOTE: the one-boundary eligibility carry is NOT set or expired here. resolve
+        # runs whenever an input arrives -- including at the START of a boundary, before
+        # any in-loop apical is delivered -- so managing the carry here would let a
+        # boundary-start resolve expire a carry before that boundary's apical had a
+        # chance to consume it (a genuine one-boundary phase error in the event path).
+        # The carry lifecycle is settled ONCE per boundary, after the event loop, in
+        # ``settle_eligibility``.
 
         # Once opened, the causal gate stays observable for the rest of this boundary;
         # later apical receipts cannot erase the committed deposit or its diagnostics.
         self.coincidence_active = self.coincidence_active or coincidence
         return committed_charge
+
+    def settle_eligibility(self):
+        """End-of-boundary basal eligibility lifecycle. Called once per boundary AFTER
+        the event loop, so a boundary-start resolve can never expire a carry before the
+        in-loop apical arrives. A current, unconsumed basal event is carried for EXACTLY
+        the next boundary; anything else (a committed deposit, or a boundary with no new
+        basal) leaves no carry -- so eligibility never survives two boundaries."""
+        if self.deposit_committed_this_boundary or not self.basal_received:
+            self.basal_eligible = False
+            self.basal_eligible_signal = 0.0
+        else:
+            self.basal_eligible = True
+            self.basal_eligible_signal = self.basal_signal
 
     # ----------------------------------------------------------- firing gate
     def can_fire(self):

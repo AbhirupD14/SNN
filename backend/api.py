@@ -23,6 +23,7 @@ from .dashboard_config import (
 )
 from .simulation import SimulationEngine
 from .serializer import topology_message, full_state
+from .branch import apply_branch_request, BranchError
 from .websocket import ConnectionManager, SimulationRunner
 from .network_spec import ARCHETYPES, EDGE_KINDS, SpecError
 from . import presets as preset_store
@@ -414,6 +415,40 @@ async def delete_preset(name: str):
     if not removed:
         return JSONResponse({"error": f"cannot delete '{name}'"}, status_code=400)
     return {"deleted": name, "presets": preset_store.list_presets(engine.n_pix, engine.n_out)}
+
+
+# --------------------------------------------------------- replay branch weights
+class BranchWeightsBody(BaseModel):
+    branch_schema: str
+    branch_schema_version: int
+    replay_schema: str
+    replay_schema_version: int
+    source: dict = {}
+    frame_index: int
+    timestep: int
+    precision: str
+    use_checkpoint: bool = False
+    recorded_topology: dict
+    weights: dict
+    restore_input: bool = True
+    input: list | None = None
+
+
+@app.post("/api/replay/branch-weights")
+async def branch_weights(body: BranchWeightsBody):
+    """Branch a fresh live simulation from a recorded replay weight snapshot: install the
+    recorded weights (and optionally the raw input) into a cleanly reset compatible engine.
+    NOT an exact resume -- transient neuron/event/RNG/timestep state is reset. The runner is
+    forced paused; on success the authoritative topology + dynamic state are broadcast once."""
+    runner.running = False                      # a branch requires/forces a paused runner
+    try:
+        result = apply_branch_request(engine, body.model_dump())
+    except BranchError as e:
+        # Engine is left entirely unchanged; do NOT broadcast a fabricated success state.
+        return JSONResponse({"error": str(e)}, status_code=e.status_code)
+    await manager.broadcast(topology_message(engine))
+    await runner.broadcast_dynamic()
+    return result
 
 
 # ----------------------------------------------------------------- websocket

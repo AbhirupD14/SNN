@@ -8,24 +8,35 @@ rg_direct_cc4). Only controls that affect at least one preset are exposed; every
 parameter is a construction-time / headless-only setting.
 """
 
-# The browser opens directly on the tiled_cc hierarchy with the dual FE/FES rule at its
-# confirmation parameters (B=5, LR multiplier m=100 -> eta=1.0, c_eta=0.5): each 3x3 patch's
-# L1 column self-organizes an owner for whatever pattern is driven into that patch, patches are
-# independent, and the top L2 column composes the nine L1 outputs. (The coincidence C cells are
-# present but largely inert under this rule -- the per-column WTA runs through the ordinary
-# E -> I -> E hard-reset loop.) ``backend.api`` pre-loads a small two-patch composition at
-# startup so the effect is visible on Play. This is only the dashboard STARTUP preset;
-# SimulationEngine's general-purpose default stays rg_coincidence with the production learning
-# rule (dual_fe_fes off), so the engine default, flag-off bit-exactness, and every golden are
-# unchanged. B=5 is the default dual_fe_B (a construction parameter, not a dashboard control).
-# For the minimal single-column demo, select "3x3 Direct CC - 4 E + WTA I".
+# The browser opens directly on the tiled_cc hierarchy with the dual FE/FES rule at FAST
+# maturation rates (B=5, eta=4.0, c_eta=2.0): each 3x3 patch's L1 column self-organizes an
+# owner for whatever pattern is driven into that patch, patches are independent, and the top
+# L2 column composes the nine L1 outputs. These rates (vs the historical eta=1.0, c_eta=0.5)
+# mature BOTH the L2 feedforward AND the coincidence C fast enough that the top-down feedback
+# reset (c_feedback_reset, on by default) drives the confirmed column to a CLEAN period-2
+# halving within a few thousand live steps -- at eta=1.0 the same attractor takes ~40k+ steps
+# (the L2->one-shot weight only creeps past theta slowly), which shows up as the irregular
+# 1-3-1-3 run pattern. ``backend.api`` pre-loads a small two-patch composition at startup so
+# the effect is visible on Play. This is only the dashboard STARTUP preset; SimulationEngine's
+# general-purpose default stays rg_coincidence with the production learning rule (dual_fe_fes
+# off), so the engine default, flag-off bit-exactness, and every golden are unchanged. B=5 is
+# the default dual_fe_B (a construction parameter, not a dashboard control). Note the dual rule
+# has no upper weight cap, so higher eta lets participating weights drift further past theta
+# (cosmetic; theta is the firing threshold on charge, not a weight ceiling). For the minimal
+# single-column demo, select "3x3 Direct CC - 4 E + WTA I".
 DASHBOARD_OVERRIDES: dict = {
     "topology": "tiled_cc",
     "dual_fe_fes": True,
-    "eta": 1.0,
-    "c_eta": 0.5,
+    "eta": 4.0,
+    "c_eta": 2.0,
     "leak_rate": 0.0,
     "refractory_steps": 0,
+    # Per-synapse ceiling at theta/2 on pattern-detector feedforward weights: no single
+    # afferent can drive a competitor to threshold, so each becomes a true integrator that
+    # needs >= 2 evidence volleys to fire (Eor and the C basal are exempt -- Eor relays the
+    # single WTA winner, the C already gates on basal AND apical). NB with leak_rate=0 the two
+    # volleys may come from one source over two boundaries; raise leak to demand coincidence.
+    "e_weight_cap_frac": 0.5,
 }
 
 # Patches (row, col) -> pattern pre-loaded at server startup so the dashboard opens on a live
@@ -70,6 +81,16 @@ CONFIG_SPEC = [
              "influence, floor wte and NO upper cap. Plastic weights reinitialize at the FES "
              "middle theta/4. Reference e=wte=0.001, B=5. Applying rebuilds the network and "
              "WIPES all learned state."},
+    {"key": "c_feedback_reset", "label": "Top-down feedback reset (halving)", "kind": "toggle",
+     "desc": "Tiled cortical columns only. When ON, a column's coincidence C cell -- once its "
+             "pattern is confirmed at the parent level -- drives the column's own I to schedule "
+             "a DELAY-1 hard reset of the ordinary-E bank, applied at the start of the next "
+             "boundary (after drive is frozen, before the event loop). This suppresses the "
+             "trained instant integrator's redundant re-fire, dropping the confirmed column "
+             "toward the frequency-halving cadence. The zero-latency WTA E->I reset is "
+             "untouched and no persistent inhibitory conductance is used (hard-reset only). "
+             "OFF reverts C->I to the guarded same-boundary no-op. Applying rebuilds the "
+             "network and wipes learned state."},
     {"key": "leak_rate", "label": "Leak rate", "kind": "range",
      "min": 0.0, "max": 0.5, "step": 0.005,
      "desc": "Per-step membrane decay for every excitatory neuron, mapped to a "
@@ -79,7 +100,7 @@ CONFIG_SPEC = [
      "min": 0, "max": 5, "step": 1,
      "desc": "Steps after firing during which an excitatory neuron cannot fire."},
     {"key": "eta", "label": "Excitatory learning rate", "kind": "range",
-     "min": 0.001, "max": 1.0, "step": 0.001,
+     "min": 0.001, "max": 5.0, "step": 0.001,
      "desc": "Accumulating feedforward learning rate for ordinary E/L2E/Eor cells. "
              "Production (linear_fe) learning is cap-free: as an incoming row's total "
              "approaches the FE budget B = maturity_budget_frac*theta the update vanishes, "

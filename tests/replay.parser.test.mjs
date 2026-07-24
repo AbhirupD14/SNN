@@ -15,7 +15,9 @@ import { dirname, join } from 'node:path';
 
 import {
   parseReplay, reconstructWeightsAt, weightsBeforePos, advanceWeights,
+  buildBranchPayload, isCheckpointFrame, nearestCheckpointFrameIndexAt,
   ReplayError, REPLAY_SCHEMA_NAME, SUPPORTED_SCHEMA_VERSION,
+  BRANCH_SCHEMA_NAME, BRANCH_SCHEMA_VERSION,
 } from '../frontend/replay.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -111,6 +113,111 @@ test('advanceWeights across a checkpoint snaps to the authoritative snapshot', (
   const w = weightsBeforePos(r, pos);
   advanceWeights(r, w, pos);
   assertWeightsEqual(w, EXPECTED[String(cpFi)], `checkpoint frame ${cpFi}`);
+});
+
+// ------------------------------------------------- branch-from-weights payload
+test('branch weights come from reconstructWeightsAt, not renderer state', () => {
+  const r = parseReplay(FIXTURE);
+  const pos = Math.floor(r.frames.length / 2);
+  const p = buildBranchPayload(r, pos, { restoreInput: true });
+  assert.equal(p.branch_schema, BRANCH_SCHEMA_NAME);
+  assert.equal(p.branch_schema_version, BRANCH_SCHEMA_VERSION);
+  assert.equal(p.replay_schema, REPLAY_SCHEMA_NAME);
+  const fi = r.frames[pos].frameIndex;
+  assertWeightsEqual(p.weights, EXPECTED[String(fi)], `branch pos ${pos}`);
+});
+
+test('forward, backward and random seeks build the SAME branch snapshot for a pos', () => {
+  const r = parseReplay(FIXTURE);
+  const n = r.frames.length;
+  // Pre-seek to various positions (via reconstruct) then build -- must be identical since
+  // the builder is pure and never reads a mutable current-weights map.
+  for (const pos of [0, n - 1, Math.floor(n / 2)]) {
+    const base = buildBranchPayload(r, pos, { restoreInput: true });
+    for (const pre of [0, n - 1, 1, pos]) {
+      reconstructWeightsAt(r, r.frames[pre].frameIndex);           // simulate a prior seek
+      const again = buildBranchPayload(r, pos, { restoreInput: true });
+      assert.deepEqual(again.weights, base.weights, `pos ${pos} after pre-seek ${pre}`);
+      assert.equal(again.frame_index, base.frame_index);
+      assert.equal(again.timestep, base.timestep);
+    }
+  }
+});
+
+test('a checkpoint frame is classified checkpoint precision, others delta', () => {
+  const r = parseReplay(FIXTURE);
+  assert.ok(r.checkpoints.length >= 1);
+  const cpFi = r.checkpoints[0].frameIndex;
+  const cpPos = r.frameIndexToPos.get(cpFi);
+  assert.equal(buildBranchPayload(r, cpPos).precision, 'checkpoint');
+  // find a non-checkpoint frame
+  const other = r.frames.findIndex(f => !isCheckpointFrame(r, f.frameIndex));
+  assert.ok(other >= 0);
+  assert.equal(buildBranchPayload(r, other).precision, 'delta');
+});
+
+test('nearest-preceding-checkpoint reconstructs the checkpoint frame, not the selected one', () => {
+  const r = parseReplay(FIXTURE);
+  // a non-checkpoint frame that has a preceding checkpoint
+  let pos = -1;
+  for (let i = 0; i < r.frames.length; i++) {
+    const fi = r.frames[i].frameIndex;
+    if (!isCheckpointFrame(r, fi) && nearestCheckpointFrameIndexAt(r, fi) != null) { pos = i; break; }
+  }
+  assert.ok(pos >= 0, 'fixture has a non-checkpoint frame after a checkpoint');
+  const selFi = r.frames[pos].frameIndex;
+  const cpFi = nearestCheckpointFrameIndexAt(r, selFi);
+  const p = buildBranchPayload(r, pos, { useCheckpoint: true });
+  assert.equal(p.use_checkpoint, true);
+  assert.equal(p.precision, 'checkpoint');
+  assert.equal(p.frame_index, cpFi, 'branches from the checkpoint frame index');
+  assert.notEqual(p.frame_index, selFi, 'not the originally selected frame');
+  assertWeightsEqual(p.weights, EXPECTED[String(cpFi)], 'checkpoint weights');
+  assert.equal(p.timestep, r.frames[r.frameIndexToPos.get(cpFi)].timestep);
+});
+
+test('source frame/timestep/provenance match the chosen snapshot', () => {
+  const r = parseReplay(FIXTURE);
+  const pos = r.frames.length - 1;
+  const p = buildBranchPayload(r, pos);
+  assert.equal(p.frame_index, r.frames[pos].frameIndex);
+  assert.equal(p.timestep, r.frames[pos].timestep);
+  assert.equal(p.source.seed, r.meta.seed);
+  assert.equal(p.source.run_id, r.meta.runId);
+  assert.equal(p.source.experiment, r.meta.experiment);
+  assert.equal(p.recorded_topology, r.topology);
+});
+
+test('the raw input vector comes from the chosen frame; off means no input', () => {
+  const r = parseReplay(FIXTURE);
+  const pos = Math.floor(r.frames.length / 2);
+  const on = buildBranchPayload(r, pos, { restoreInput: true });
+  assert.deepEqual(on.input, r.frames[pos].dynamic.input.map(x => (x ? 1 : 0)));
+  assert.equal(on.restore_input, true);
+  const off = buildBranchPayload(r, pos, { restoreInput: false });
+  assert.equal(off.input, null);
+  assert.equal(off.restore_input, false);
+});
+
+test('malformed frame position cannot form a branch payload', () => {
+  const r = parseReplay(FIXTURE);
+  for (const bad of [-1, r.frames.length, 1.5, NaN]) {
+    assert.throws(() => buildBranchPayload(r, bad), ReplayError, `pos ${bad}`);
+  }
+});
+
+test('payload construction does not mutate the replay or its reconstructed maps', () => {
+  const r = parseReplay(FIXTURE);
+  const pos = Math.floor(r.frames.length / 2);
+  const fi = r.frames[pos].frameIndex;
+  const inputBefore = JSON.stringify(r.frames[pos].dynamic.input);
+  const reconBefore = mapToObj(reconstructWeightsAt(r, fi));
+  const p = buildBranchPayload(r, pos, { restoreInput: true });
+  // mutating the payload must not touch the replay-owned data
+  p.weights[Object.keys(p.weights)[0]] = 123456;
+  p.input[0] = p.input[0] ? 0 : 1;
+  assert.equal(JSON.stringify(r.frames[pos].dynamic.input), inputBefore, 'frame input intact');
+  assertWeightsEqual(reconstructWeightsAt(r, fi), reconBefore, 'reconstruction intact');
 });
 
 // ------------------------------------------------------------------ rejects

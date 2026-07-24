@@ -14,6 +14,11 @@
 export const REPLAY_SCHEMA_NAME = 'snn.replay';
 export const SUPPORTED_SCHEMA_VERSION = 1;
 
+// The branch-weights payload schema (POST /api/replay/branch-weights). Independent of the
+// replay schema a branch is derived from; kept in sync with backend/branch.py.
+export const BRANCH_SCHEMA_NAME = 'snn.branch';
+export const BRANCH_SCHEMA_VERSION = 1;
+
 const REC_HEADER = 'header';
 const REC_MARKER = 'marker';
 const REC_FRAME = 'frame';
@@ -239,6 +244,79 @@ export function reconstructWeightsAt(replay, frameIndex) {
       for (const c of f.changed) out.set(c.id, Number(c.weight));
   }
   return out;
+}
+
+// True iff a full weight_checkpoint was recorded AT this frame index (so a branch from it
+// uses the recorder's six-decimal checkpoint precision, not four-decimal intervening deltas).
+export function isCheckpointFrame(replay, frameIndex) {
+  return replay.checkpointByFrameIndex.has(frameIndex);
+}
+
+// The frame index of the nearest weight_checkpoint AT or BEFORE `frameIndex` (or null if
+// none precede -- the header's initial weights are the only base).
+export function nearestCheckpointFrameIndexAt(replay, frameIndex) {
+  let best = null;
+  for (const cp of replay.checkpoints) {
+    if (cp.frameIndex <= frameIndex && (best === null || cp.frameIndex > best)) best = cp.frameIndex;
+  }
+  return best;
+}
+
+// Build the POST /api/replay/branch-weights payload for the frame at position `pos`.
+//
+// Weights come from the canonical `reconstructWeightsAt` (nearest preceding checkpoint +
+// intervening changed_synapses) -- NEVER the renderer's mutable current weights, so a backward
+// seek can never leak a future frame's weights into a branch. Pure: mutates neither the replay
+// nor any reconstructed map, and throws ReplayError before any partial payload if data is bad.
+//
+//   useCheckpoint  -- branch from the nearest preceding checkpoint frame instead of the
+//                     selected one (exact six-decimal weights; changes the source frame shown).
+//   restoreInput   -- include the chosen frame's raw input vector (else branch with a blank).
+export function buildBranchPayload(replay, pos, { useCheckpoint = false, restoreInput = true } = {}) {
+  const frames = replay.frames;
+  if (!Array.isArray(frames) || !Number.isInteger(pos) || pos < 0 || pos >= frames.length)
+    throw new ReplayError(`invalid replay frame position ${pos}`);
+
+  let frameIndex = frames[pos].frameIndex;
+  if (useCheckpoint) {
+    const cpFi = nearestCheckpointFrameIndexAt(replay, frameIndex);
+    if (cpFi == null) throw new ReplayError('no preceding weight_checkpoint to branch from');
+    frameIndex = cpFi;
+  }
+  const effPos = replay.frameIndexToPos.get(frameIndex);
+  if (effPos == null) throw new ReplayError(`no frame at index ${frameIndex}`);
+  const frame = frames[effPos];
+  const precision = isCheckpointFrame(replay, frameIndex) ? 'checkpoint' : 'delta';
+
+  const weightsMap = reconstructWeightsAt(replay, frameIndex);
+  const weights = {};
+  for (const [id, w] of weightsMap) {
+    if (!Number.isFinite(w)) throw new ReplayError(`reconstructed a non-finite weight for ${id}`);
+    weights[id] = w;
+  }
+
+  const raw = frame.dynamic && Array.isArray(frame.dynamic.input) ? frame.dynamic.input : null;
+  const input = (restoreInput && raw) ? raw.map(x => (x ? 1 : 0)) : null;   // fresh copy
+
+  const m = replay.meta || {};
+  return {
+    branch_schema: BRANCH_SCHEMA_NAME,
+    branch_schema_version: BRANCH_SCHEMA_VERSION,
+    replay_schema: REPLAY_SCHEMA_NAME,
+    replay_schema_version: replay.schemaVersion,
+    source: {
+      run_id: m.runId ?? null, experiment: m.experiment ?? null, seed: m.seed ?? null,
+      topology_name: m.topologyName ?? null, preset: m.preset ?? null,
+    },
+    frame_index: frameIndex,
+    timestep: frame.timestep,
+    precision,
+    use_checkpoint: !!useCheckpoint,
+    recorded_topology: replay.topology,
+    weights,
+    restore_input: !!restoreInput,
+    input,
+  };
 }
 
 // Live weights immediately BEFORE the frame at position `pos` (i.e. the canonical
