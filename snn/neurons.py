@@ -639,13 +639,33 @@ class ExcitatoryNeuron(ConductanceLIFNeuron):
                                or (post_sum <= self.threshold < pre_sum))))
 
 
+def _as_seq(x):
+    """Accept a scalar id or a sequence of ids and return a list. A bare string is one
+    id, never an iterable of characters."""
+    if isinstance(x, str) or not isinstance(x, (list, tuple, np.ndarray)):
+        return [x]
+    return list(x)
+
+
+def _broadcast(x, n, what):
+    """A scalar spreads across all ``n`` afferents; a sequence must already match."""
+    if isinstance(x, (list, tuple, np.ndarray)):
+        v = np.asarray(x, dtype=float)
+        if v.shape != (n,):
+            raise ValueError(f'{what} must have {n} values, got {v.shape}')
+        return v.copy()
+    return np.full(n, float(x))
+
+
 class DendriticCompartment:
     """A minimal named input compartment for a coincidence cell -- NOT a general
     dendritic tree. It owns its ordered source/edge ids and this boundary's transient
     delivery; only a PLASTIC compartment carries an aligned weight + distance vector.
     The cross-compartment coincidence gate belongs to the C cell, not here.
 
-    * ``basal`` -- exactly one source, one weight, one distance factor (plastic);
+    * ``basal`` -- one or more SOURCE-DISTINCT afferents, each with its own weight and
+      distance factor (plastic). Source/edge/weight/distance stay index-aligned, which is
+      what lets the C cell learn only the causal source;
     * ``apical`` -- one or more sources, no weight vector (structural Boolean gate).
     """
 
@@ -688,15 +708,29 @@ class DendriticCompartment:
 
 
 class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
-    """Excitatory coincidence pyramidal cell: one learned basal afferent and one or
-    more unweighted Boolean apical afferents, over the shared conductance-LIF membrane.
+    """Excitatory coincidence pyramidal cell: one or more learned basal afferents and one
+    or more unweighted Boolean apical afferents, over the shared conductance-LIF membrane.
 
     Somatic charge is deposited only when a basal signal (current OR carried one
     boundary) coincides with a current apical event -- basal-only and apical-only
     trains add exactly zero charge, regardless of leak or presentation length.
     Intrinsic dynamics (threshold, leak, reset, refractory, conductance, activity
-    trace) are ordinary E dynamics; only the single basal weight learns, and only when
+    trace) are ordinary E dynamics; only the CAUSAL basal weight learns, and only when
     the cell actually fires.
+
+    **Multi-basal contract.** ``basal_source``/``basal_edge_id`` accept either a scalar
+    (the historical one-basal cell, byte-identical) or a sequence of source-distinct
+    afferents, each with its own weight, distance factor and one-boundary eligibility::
+
+        B = a current or one-boundary-carried basal event on ANY source
+        A = any current apical event
+        deposit at most once iff B AND A, using the CAUSAL source's own weight
+
+    A current event is preferred over a carried one; among several the earliest DELIVERED
+    is causal and the rest are recorded (``basal_extra_sources``) rather than discarded
+    silently. Learning touches only the causal weight -- never a +1/-1 participation
+    update across the basal vector, which would depress the associations other local
+    winners have already matured (exactly the failure that made Eor undeliverable).
 
     ``type = 'E'`` with role ``coincidence``. There is no accumulating flat-feedforward
     afferent vector, no ``update_acc_weights`` fallback, and no apical weight storage.
@@ -704,7 +738,7 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
 
     def __init__(self, nid, basal_source, basal_edge_id, *, apical_sources=(),
                  apical_edge_ids=(), basal_weight=0.0, basal_distance_factor=1.0,
-                 w_max=E_WEIGHT_CAP, eta_c=DEFAULT_ETA, learn=True, use_fe=True,
+                 w_max=E_WEIGHT_CAP, w_cap=None, eta_c=DEFAULT_ETA, learn=True, use_fe=True,
                  update_mode='c_linear_bounded', maturity_budget_frac=1.10,
                  dual_e=DUAL_E_DEFAULT, dual_wte=DUAL_WTE_DEFAULT, dual_B=DUAL_B_DEFAULT,
                  role='coincidence',
@@ -718,6 +752,13 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
                          alpha_inh=alpha_inh, alpha_a=alpha_a, beta_v=beta_v,
                          beta_s=beta_s, a_max=a_max)
         self.w_max = float(w_max)                     # C-specific basal cap (NOT e_weight_cap)
+        # Hard ceiling on the single basal weight, applied in EVERY update mode (including
+        # the cap-free ``c_dual_fe_fes``), independent of ``w_max`` and of the FE budget.
+        # ``None`` = uncapped. Set to theta to bound a ONE-AFFERENT cell: its lone basal
+        # deposit is w*s, so w <= theta means one deposit reaches -- and never exceeds --
+        # the firing threshold. This is the one-afferent analogue of the pattern detector's
+        # theta/2 rule, which caps cells that must integrate >= 2 afferents.
+        self.w_cap = None if w_cap is None else float(w_cap)
         self.eta_c = float(eta_c)
         self.learn = bool(learn)
         self.use_fe = bool(use_fe)                    # include the w1-budget fullness-error factor
@@ -736,23 +777,44 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         self.maturity_budget_frac = float(maturity_budget_frac)
         self.record_updates = False                   # opt-in instrumentation (off = byte-identical)
         self.update_log = []
+        # A scalar source/edge is the historical one-basal cell; a sequence declares the
+        # multi-basal capability. Weights and distance factors broadcast a scalar across
+        # every basal source, so only the topology decides how many afferents exist.
+        b_src = _as_seq(basal_source)
+        b_eid = _as_seq(basal_edge_id)
+        n_b = len(b_src)
+        if n_b < 1:
+            raise ValueError('a coincidence cell needs at least one basal source')
+        if len(set(b_src)) != n_b:
+            raise ValueError(f'basal sources must be source-distinct, got {b_src!r}')
+        w0 = _broadcast(basal_weight, n_b, 'basal_weight')
+        if self.w_cap is not None:
+            w0 = np.minimum(w0, self.w_cap)           # an explicit init override cannot start above the cap
         self.basal = DendriticCompartment(
-            'basal', [basal_source], [basal_edge_id],
-            weights=[float(basal_weight)], distance_factors=[float(basal_distance_factor)])
+            'basal', b_src, b_eid, weights=w0,
+            distance_factors=_broadcast(basal_distance_factor, n_b, 'basal_distance_factor'))
         self.apical = DendriticCompartment(
             'apical', list(apical_sources), list(apical_edge_ids))
+        self._basal_index = {s: i for i, s in enumerate(b_src)}
 
-        # --- one-boundary basal eligibility (dendritic state, not membrane charge) ---
-        self.basal_received = False
-        self.basal_signal = 0.0
-        self.basal_eligible = False                   # unconsumed basal event from t-1
-        self.basal_eligible_signal = 0.0
+        # --- per-source one-boundary basal eligibility (dendritic state, not charge) ---
+        # ``*_order`` keep DELIVERY order so causal selection stays deterministic and
+        # independent of source declaration order.
+        self.basal_current_mask = np.zeros(n_b, dtype=bool)
+        self.basal_current_signals = np.zeros(n_b, dtype=float)
+        self.basal_current_order = []                 # basal indices, in arrival order
+        self.basal_eligible_mask = np.zeros(n_b, dtype=bool)   # unconsumed events from t-1
+        self.basal_eligible_signals = np.zeros(n_b, dtype=float)
+        self.basal_eligible_order = []
+        self.basal_delivery_count = 0                 # raw receipts (duplicates included)
+        self.basal_duplicate_count = 0                # repeat receipts on an already-delivered source
         self.apical_sources = set()                   # current-boundary L2E ids
         self.apical_active = False
         self.coincidence_active = False
         self.coincidence_charge = 0.0
-        # signal that produced the current deposit (causal state for learning)
+        # signal + basal index that produced the current deposit (causal state for learning)
         self._deposit_signal = 0.0
+        self._deposit_index = 0
         # A deposit is an atomic per-boundary transaction, separate from Boolean gate
         # truth.  Delivery counters keep duplicate routing observable without allowing
         # it to alter membrane state.
@@ -763,9 +825,69 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         self.apical_duplicate_count = 0
 
     # ------------------------------------------------------------------ views
+    # The scalar views below are the ONE-BASAL projection of the per-source vectors, so
+    # every existing one-basal caller (engine serialization, dashboard, tests) is
+    # unchanged. Multi-basal callers read the vectors / ``*_by_source`` maps instead.
     @property
     def basal_weight(self):
+        """The causal-or-first basal weight (the only weight on a one-basal cell)."""
         return float(self.basal.weights[0])
+
+    @property
+    def basal_weights(self):
+        """All learned basal weights, aligned with ``basal.source_ids``/``edge_ids``."""
+        return self.basal.weights
+
+    @property
+    def n_basal(self):
+        return len(self.basal.source_ids)
+
+    def basal_weight_of(self, source):
+        return float(self.basal.weights[self._basal_index[source]])
+
+    def basal_weights_by_source(self):
+        return {s: float(self.basal.weights[i]) for s, i in self._basal_index.items()}
+
+    @property
+    def basal_received(self):
+        """Whether ANY basal source delivered an event this boundary."""
+        return bool(self.basal_current_mask.any())
+
+    @property
+    def basal_signal(self):
+        """Signal of the earliest-delivered current basal event (0.0 when none)."""
+        if not self.basal_current_order:
+            return 0.0
+        return float(self.basal_current_signals[self.basal_current_order[0]])
+
+    @property
+    def basal_eligible(self):
+        """Whether ANY basal source carries an unconsumed event from the last boundary."""
+        return bool(self.basal_eligible_mask.any())
+
+    @property
+    def basal_eligible_signal(self):
+        if not self.basal_eligible_order:
+            return 0.0
+        return float(self.basal_eligible_signals[self.basal_eligible_order[0]])
+
+    @property
+    def basal_sources(self):
+        """Current-boundary delivered basal source ids, in arrival order."""
+        return [self.basal.source_ids[i] for i in self.basal_current_order]
+
+    @property
+    def basal_extra_sources(self):
+        """Non-causal basal sources that also delivered this boundary. Local WTA should
+        normally leave this empty; it is recorded, never silently dropped."""
+        return [self.basal.source_ids[i] for i in self.basal_current_order[1:]]
+
+    @property
+    def deposit_source(self):
+        """Source id whose weight produced the committed deposit, else None."""
+        if not self.deposit_committed_this_boundary:
+            return None
+        return self.basal.source_ids[self._deposit_index]
 
     # ----------------------------------------------------- boundary lifecycle
     def begin_event_boundary(self):
@@ -775,25 +897,45 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         super().begin_event_boundary()
         self.basal.clear()
         self.apical.clear()
-        self.basal_received = False
-        self.basal_signal = 0.0
+        self.basal_current_mask[:] = False
+        self.basal_current_signals[:] = 0.0
+        self.basal_current_order = []
+        self.basal_delivery_count = 0
+        self.basal_duplicate_count = 0
         self.apical_sources = set()
         self.apical_active = False
         self.coincidence_active = False
         self.coincidence_charge = 0.0
         self._deposit_signal = 0.0
+        self._deposit_index = 0
         self.deposit_committed_this_boundary = False
         self.coincidence_deposit_count = 0
         self.coincidence_deposit_tau = None
         self.apical_delivery_count = 0
         self.apical_duplicate_count = 0
-        # basal_eligible / basal_eligible_signal are intentionally NOT cleared here.
+        # The eligibility vectors are intentionally NOT cleared here: they carry the
+        # previous boundary's unconsumed basal events into this one.
 
     # -------------------------------------------------------- input delivery
     def gather_basal(self, source, signal=1.0):
         """Deliver a basal event this boundary. Does not depolarize the soma; it only
-        makes basal signal available to the coincidence gate."""
+        makes basal signal available to the coincidence gate.
+
+        A repeat receipt on an ALREADY-delivered source keeps the first signal and is
+        counted as a duplicate: routing stays observable without a second source of
+        somatic charge. A second DISTINCT source is kept (arrival-ordered) so the gate
+        can pick the causal one deterministically."""
+        i = self._basal_index.get(source)
+        if i is None:
+            raise ValueError(f'{self.id!r} has no basal afferent from {source!r}')
         self.basal.gather(source, signal)
+        self.basal_delivery_count += 1
+        if self.basal_current_mask[i]:
+            self.basal_duplicate_count += 1
+            return
+        self.basal_current_mask[i] = True
+        self.basal_current_signals[i] = float(signal)
+        self.basal_current_order.append(i)
 
     def gather_apical(self, source):
         """Deliver an unweighted apical (Boolean permission) event this boundary."""
@@ -822,45 +964,52 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         the same ``tau`` are order invariant; when arrival times differ, the second
         required receipt commits at its own (later) ``tau``.
 
-        Deposits ``w_basal * s`` at most once iff (current OR carried basal) AND a
-        current apical event. The impulse changes ``V`` immediately, including during
-        refractory; firing is gated separately and the same basal event is never reused.
+        Deposits ``w[k] * s`` at most once iff (current OR carried basal) AND a current
+        apical event, where ``k`` is the CAUSAL basal source: the earliest-delivered
+        current event, else the earliest-carried eligible one. The impulse changes ``V``
+        immediately, including during refractory; firing is gated separately and the same
+        basal event is never reused.
         """
         tau = float(tau)
         if not math.isfinite(tau) or not 0.0 <= tau <= 1.0:
             raise ValueError(f'coincidence deposit tau must be finite and in [0, 1], got {tau!r}')
-        basal_received = len(self.basal.delivered_sources) > 0
-        basal_signal = self.basal.delivered_signals[0] if basal_received else 0.0
         # ``gather_apical`` maintains raw/unique delivery diagnostics. Deriving the set
         # here as well keeps direct compartment-based diagnostic use deterministic.
         apical_sources = set(self.apical.delivered_sources)
         if apical_sources != self.apical_sources:
             self.apical_sources = apical_sources
         apical_active = bool(self.apical_sources)
-
-        self.basal_received = basal_received
-        self.basal_signal = basal_signal
         self.apical_active = apical_active
 
-        # B = current OR carried basal availability; its signal prefers the current event.
-        B = basal_received or self.basal_eligible
-        b_signal = basal_signal if basal_received else self.basal_eligible_signal
+        # B = current OR carried basal availability. A current event is preferred over a
+        # carried one, and within each the EARLIEST DELIVERED source is causal -- so the
+        # deposit uses the weight that actually belongs to the evidence that opened it.
+        if self.basal_current_order:
+            k = self.basal_current_order[0]
+            b_signal = float(self.basal_current_signals[k])
+            B = True
+        elif self.basal_eligible_order:
+            k = self.basal_eligible_order[0]
+            b_signal = float(self.basal_eligible_signals[k])
+            B = True
+        else:
+            k, b_signal, B = 0, 0.0, False
         A = apical_active
 
         committed_charge = 0.0
         coincidence = bool(B and A)
         if coincidence and not self.deposit_committed_this_boundary:
-            w = float(self.basal.weights[0])
+            w = float(self.basal.weights[k])
             committed_charge = w * b_signal
             self._deposit_signal = b_signal
+            self._deposit_index = k
             self.apply_charge_impulse(committed_charge)
             self.deposit_committed_this_boundary = True
             self.coincidence_deposit_count = 1
             self.coincidence_deposit_tau = tau
             self.coincidence_charge = committed_charge
             # consume ALL basal availability; a participating current event is not carried.
-            self.basal_eligible = False
-            self.basal_eligible_signal = 0.0
+            self._clear_eligibility()
 
         # NOTE: the one-boundary eligibility carry is NOT set or expired here. resolve
         # runs whenever an input arrives -- including at the START of a boundary, before
@@ -875,18 +1024,26 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         self.coincidence_active = self.coincidence_active or coincidence
         return committed_charge
 
+    def _clear_eligibility(self):
+        self.basal_eligible_mask[:] = False
+        self.basal_eligible_signals[:] = 0.0
+        self.basal_eligible_order = []
+
     def settle_eligibility(self):
         """End-of-boundary basal eligibility lifecycle. Called once per boundary AFTER
         the event loop, so a boundary-start resolve can never expire a carry before the
-        in-loop apical arrives. A current, unconsumed basal event is carried for EXACTLY
+        in-loop apical arrives. Current, unconsumed basal events are carried for EXACTLY
         the next boundary; anything else (a committed deposit, or a boundary with no new
-        basal) leaves no carry -- so eligibility never survives two boundaries."""
-        if self.deposit_committed_this_boundary or not self.basal_received:
-            self.basal_eligible = False
-            self.basal_eligible_signal = 0.0
+        basal) leaves no carry -- so eligibility never survives two boundaries.
+
+        Per source and order-preserving: each source carries its own unconsumed event, and
+        any older carry expires rather than accumulating."""
+        if self.deposit_committed_this_boundary or not self.basal_current_order:
+            self._clear_eligibility()
         else:
-            self.basal_eligible = True
-            self.basal_eligible_signal = self.basal_signal
+            self.basal_eligible_mask = self.basal_current_mask.copy()
+            self.basal_eligible_signals = self.basal_current_signals.copy()
+            self.basal_eligible_order = list(self.basal_current_order)
 
     # ----------------------------------------------------------- firing gate
     def can_fire(self):
@@ -926,18 +1083,28 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         ``update_mode`` selects the bounding variant (production default ``c_linear_bounded``):
           * ``c_linear_bounded``     -- dw = base (no multiplier); clip [0, w_max]. **DEFAULT**;
           * ``c_quadratic_bounded``  -- dw = base * (1 - (w/w_max)^2); clip [0, w_max]. Historical;
-          * ``c_linear_nonnegative`` -- dw = base; floor 0 only, NO cap (diagnostic probe).
+          * ``c_linear_nonnegative`` -- dw = base; floor 0 only, no mode cap (diagnostic probe).
 
         ``use_fe=False`` drops the budget factor, leaving the soft bound to
-        (1 - (w/w_max)^2) alone. FE is deliberately preserved by the ablation modes."""
+        (1 - (w/w_max)^2) alone. FE is deliberately preserved by the ablation modes.
+
+        Independently of the mode, the structural ``w_cap`` ceiling (when configured) is
+        applied last, so no mode -- including the cap-free diagnostic and the dual rule --
+        can drive this one-afferent weight past it.
+
+        On a MULTI-BASAL cell only the CAUSAL source's weight is touched. Every other basal
+        weight is left byte-identical: there is no +1/-1 participation term, so an owner
+        that matured its own association is never depressed by a different owner's
+        coincidence (pattern-specific column certainty, not winner-take-all erasure)."""
         if not self.learn:
             return self.basal_weight
-        w = float(self.basal.weights[0])
+        k = self._deposit_index
+        w = float(self.basal.weights[k])
         A = 1.0 if self.apical_active else 0.0
         s = self._deposit_signal
-        phi = float(self.basal.distance_factors[0])
+        phi = float(self.basal.distance_factors[k])
         if self.update_mode == 'c_dual_fe_fes':
-            return self._update_basal_dual_fe_fes(w, A, s, phi)
+            return self._update_basal_dual_fe_fes(w, A, s, phi, k)
         kappa = 1.0 if self.g_L == 0.0 else (1.0 - math.exp(-self.g_L)) / self.g_L
         w1 = self.threshold / kappa
         budget_fe = self.maturity_budget_frac * w1 - w
@@ -951,22 +1118,26 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
             w_new = max(0.0, w + dw)                  # floor only; cap-free diagnostic
         else:
             w_new = min(self.w_max, max(0.0, w + dw))
-        self.basal.weights[0] = w_new
+        if self.w_cap is not None:
+            w_new = min(w_new, self.w_cap)            # hard one-afferent ceiling (see __init__)
+        self.basal.weights[k] = w_new
         if self.record_updates:
             self.update_log.append(dict(
                 cell=self.id, mode=self.update_mode, w_pre=w, w_post=w_new,
+                basal_index=int(k), source=self.basal.source_ids[k],
+                edge=self.basal.edge_ids[k],
                 fe_pre=float(budget_fe), raw_dw=float(dw),
                 applied_dw=float(w_new - w), at_cap=bool(
                     self.update_mode != 'c_linear_nonnegative' and w_new >= self.w_max - 1e-9)))
         return w_new
 
-    def _update_basal_dual_fe_fes(self, w, A, s, phi):
+    def _update_basal_dual_fe_fes(self, w, A, s, phi, k=0):
         """Experimental dual FE/FES basal update, same node/synapse factors as ordinary E:
 
             FE   = e   + (1 - e)   / (1 + B * ((Iaccq/theta)   - 0.5)^2)
             FES  = wte + (1 - wte) / (1 + B * ((2*w/theta)     - 0.5)^2)
             dw   = eta_C * FE * FES * A * s * phi
-            w   <- max(wte, w + dw)                                   # floor wte, NO cap
+            w   <- max(wte, w + dw)                        # floor wte; then the w_cap ceiling
 
         ``Iaccq`` is the pre-reset instantaneous accumulated BASAL charge (``self.v_pre``, the
         somatic membrane just before this firing boundary's reset -- all C charge is basal
@@ -982,11 +1153,15 @@ class CoincidencePyramidalNeuron(ConductanceLIFNeuron):
         fe = dual_fe_c(iaccq, theta, self.dual_e, self.dual_B)
         fes = dual_fes_c(w, theta, self.dual_wte, self.dual_B)
         dw = self.eta_c * fe * fes * A * s * phi
-        w_new = max(self.dual_wte, w + dw)                           # floor wte, no cap
-        self.basal.weights[0] = w_new
+        w_new = max(self.dual_wte, w + dw)                           # floor wte; rule itself is cap-free
+        if self.w_cap is not None:
+            w_new = min(w_new, self.w_cap)            # hard one-afferent ceiling (see __init__)
+        self.basal.weights[k] = w_new
         if self.record_updates:
             self.update_log.append(dict(
                 cell=self.id, mode=self.update_mode, w_pre=float(w), w_post=float(w_new),
+                basal_index=int(k), source=self.basal.source_ids[k],
+                edge=self.basal.edge_ids[k],
                 iaccq=float(iaccq), theta=float(theta), fe=float(fe), fes=float(fes),
                 B=float(self.dual_B), e=float(self.dual_e), wte=float(self.dual_wte),
                 lr=float(self.eta_c), A=float(A), signal=float(s), influence=float(phi),

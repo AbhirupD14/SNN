@@ -1,11 +1,12 @@
-"""Contract for the built-in preset registry: the project exposes exactly five current
-built-in topologies (rg_coincidence, tiled_cc, tiled_cc_l1_4, tiled_cc_feature_gated,
-rg_direct_cc4). The feature-gated variant restored rg_coincidence's feature-specific
-inhibition inside the tiled L1 layer; the direct rg_direct_cc4 column is the experimental
-dual FE/FES acceptance topology (four ordinary E + one central WTA I). The earlier presets
-are unchanged historical controls. The four obsolete presets (pi, old, rg, rg_residual) are
-rejected as built-ins, the dashboard surface is the retained controls plus the one new dual
-FE/FES toggle, and custom/saved graphs still load.
+"""Contract for the built-in preset registry: the project exposes exactly six current
+built-in topologies (rg_coincidence, tiled_cc, tiled_cc_l1_4, tiled_cc_direct_identity,
+tiled_cc_double_eor, rg_direct_cc4). tiled_cc_direct_identity removes Eor and transmits each
+local winner's identity directly to the parent; tiled_cc_double_eor is the DIAGNOSTIC latency
+probe (classic column + one extra output relay); rg_direct_cc4 is the experimental dual FE/FES
+acceptance column; the earlier presets are unchanged historical controls. The obsolete presets
+(pi, old, rg, rg_residual) and the removed feature-gated tiled variant are rejected as
+built-ins, the dashboard surface is the retained controls plus the one new dual FE/FES
+toggle, and custom/saved graphs still load.
 """
 
 import pytest
@@ -15,9 +16,9 @@ from backend.network_spec import PRESETS, preset_spec
 from backend.dashboard_config import CONFIG_SPEC, config_values
 from backend import presets as ps
 
-RETAINED = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated',
-            'rg_direct_cc4')
-OBSOLETE = ('pi', 'old', 'rg', 'rg_residual')
+RETAINED = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_direct_identity',
+            'tiled_cc_double_eor', 'rg_direct_cc4')
+OBSOLETE = ('pi', 'old', 'rg', 'rg_residual', 'tiled_cc_feature_gated')
 
 
 def test_builtin_preset_names_are_exactly_the_retained_set():
@@ -30,13 +31,25 @@ def test_dashboard_selector_has_exactly_the_retained_set():
     assert [o['value'] for o in topo['options']] == list(RETAINED)
 
 
-def test_feature_gated_preset_is_the_only_change_to_the_prior_three():
-    # The three historical controls keep their exact node/edge structure; the feature-gated
-    # variant is additive (424 nodes / 1932 edges, feature_gated variant metadata).
+def test_historical_controls_keep_their_exact_structure():
+    # The three historical controls keep their exact node/edge structure, and none of them
+    # declares a tiled variant (the classic whole-bank column is the absent-field default).
     assert PRESETS[:3] == ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4')
-    fg = SimulationEngine(topology='tiled_cc_feature_gated').topology()
-    assert len(fg['neurons']) == 424 and len(fg['synapses']) == 1932
-    assert fg['tiling']['variant'] == 'feature_gated'
+    assert len(preset_spec('rg_coincidence', 9, 8)['edges']) == 196
+    for name in ('tiled_cc', 'tiled_cc_l1_4'):
+        assert 'variant' not in preset_spec(name, 81, 8)['topology']
+    assert len(preset_spec('tiled_cc', 81, 8)['edges']) == 1052
+    assert len(preset_spec('tiled_cc_l1_4', 81, 8)['edges']) == 620
+
+
+def test_removed_feature_gated_variant_metadata_is_rejected():
+    # An old saved spec that explicitly declares the removed variant no longer validates
+    # (it is refused outright, never silently reinterpreted as a classic tiled graph).
+    from backend.network_spec import tiled_cc_spec, validate_spec, SpecError
+    spec = tiled_cc_spec(cc_e_count=8)
+    spec['topology']['variant'] = 'feature_gated'
+    with pytest.raises(SpecError):
+        validate_spec(spec, 81)
 
 
 def test_preset_store_lists_exactly_the_builtins(tmp_path, monkeypatch):
@@ -77,7 +90,8 @@ def test_obsolete_names_rejected_everywhere(name):
 def test_dashboard_config_keys_are_exactly_the_retained_set():
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == {'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta',
-                    'l2_init_total_frac', 'dual_fe_fes', 'c_feedback_reset'}
+                    'l2_init_total_frac', 'dual_fe_fes', 'c_feedback_reset',
+                    'input_period'}
     assert keys == set(config_values(SimulationEngine().params))
     assert EDITABLE_KEYS == keys                         # browser apply surface matches
 

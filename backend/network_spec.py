@@ -64,12 +64,12 @@ _TILED_NODE_INT_FIELDS = (
     'column_index', 'column_row', 'column_col',
     'input_row', 'input_col', 'patch_id', 'patch_row', 'patch_col',
     'patch_local_row', 'patch_local_col', 'patch',
-    # feature-gated variant: the 0..(patch_size-1) index of a feature relay/C/I inside its
-    # recognition module (never parsed from an id -- validation/layout/dashboard read this).
-    'feature_index',
 )
 _TILED_NODE_STR_FIELDS = ('column_id', 'column_role')
-_TILED_NODE_BOOL_FIELDS = ('has_parent',)
+# ``has_parent`` declares a dormant top C; ``multi_basal`` is the explicit per-node opt-in
+# to a coincidence cell owning MORE than one learned basal afferent. Without it the
+# historical exactly-one-basal invariant still applies, so no existing graph is relaxed.
+_TILED_NODE_BOOL_FIELDS = ('has_parent', 'multi_basal')
 # Edge projection-family field: metadata for validation / layout / dashboard filtering.
 # It is NEVER a second delivery mechanism; the edge ``kind`` stays authoritative.
 _EDGE_META_STR_FIELDS = ('projection',)
@@ -202,22 +202,31 @@ DIRECTED_ONLY_KINDS = ('pretrained_excitation', 'basal_excitation', 'apical_exci
 # The public built-in presets. The obsolete pi/old/rg/rg_residual graphs are no longer
 # offered as built-ins (their spec builders remain in this module only as reusable
 # low-level mechanics for custom/saved graphs and unit tests, NOT as public presets).
-PRESETS = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated',
-           'rg_direct_cc4')
+PRESETS = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_direct_identity',
+           'tiled_cc_double_eor', 'rg_direct_cc4')
 
 # Built-in presets that build a tiled cortical-column hierarchy on the fixed 81-pixel
 # surface (as opposed to the legacy n_pix/n_out presets). Used for size resolution and
 # the fixed-input guard so new tiled presets are handled without name-by-name branching.
-TILED_PRESETS = ('tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated')
+TILED_PRESETS = ('tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_direct_identity',
+                 'tiled_cc_double_eor')
 
 # Tiled-family topology variants. The top-level ``topology.variant`` field is the single
 # source of truth construction/validation/layout branch on -- NEVER the preset name or a
-# node-id prefix. ``classic`` (the historical whole-bank C/I column, and the DEFAULT when
-# the field is absent so old saved specs stay byte-identical) vs ``feature_gated`` (the
-# nine paired feature C/I gates + a separate WTA I per recognition module).
+# node-id prefix. ``classic`` (the whole-bank Eor/C/I column) is the DEFAULT when the field
+# is absent, so saved specs that omit it stay byte-identical. ``direct_identity`` removes
+# Eor: each ordinary E projects to every parent ordinary E (source-addressed identity) and
+# the column C owns one learned basal afferent per local ordinary E.
 TILED_VARIANT_CLASSIC = 'classic'
-TILED_VARIANT_FEATURE_GATED = 'feature_gated'
-TILED_VARIANTS = (TILED_VARIANT_CLASSIC, TILED_VARIANT_FEATURE_GATED)
+TILED_VARIANT_DIRECT_IDENTITY = 'direct_identity'
+# DIAGNOSTIC variant. Identical to ``classic`` except a SECOND output relay is inserted in
+# series (E -> Eor -> Eor2 -> parent E), which lengthens the top-down confirmation loop by
+# exactly one boundary and nothing else. It exists to test the prediction that the observed
+# feedback cadence is set by loop latency (period = 2 x latency), not by learning rates or
+# seed. Not a research topology -- see docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md section 8.1b.
+TILED_VARIANT_DOUBLE_EOR = 'double_eor'
+TILED_VARIANTS = (TILED_VARIANT_CLASSIC, TILED_VARIANT_DIRECT_IDENTITY,
+                  TILED_VARIANT_DOUBLE_EOR)
 
 # Canonical construction dimensions for the tiled cortical-column preset. The input
 # surface is fixed; only ``cc_e_count`` (ordinary E per column) is configurable.
@@ -234,11 +243,11 @@ def preset_spec(name: str, n_pix: int, n_out: int, cc_e_count: int = 8) -> dict:
     """Return a built-in NetworkSpec. Positions are omitted so the engine fills them from
     the seeded functional layout (bit-exact presets).
 
-    The public built-ins are exactly ``PRESETS`` = (rg_coincidence, tiled_cc,
-    tiled_cc_l1_4); any other name is rejected. ``cc_e_count`` sizes the ordinary-E bank
-    of every column in the ``tiled_cc`` preset and is ignored otherwise. The obsolete
-    pi/old/rg/rg_residual builders below are unreachable through this public entry point
-    (guarded by ``PRESETS``) and remain only as reusable low-level graph mechanics."""
+    The public built-ins are exactly the six names in ``PRESETS``; any other name is
+    rejected. ``cc_e_count`` sizes the ordinary-E bank of every column in the configurable
+    ``tiled_cc`` preset and is ignored by the fixed-shape variants. The obsolete
+    pi/old/rg/rg_residual builders below are unreachable through this entry point (guarded
+    by ``PRESETS``) and remain only as reusable low-level graph mechanics."""
     if name not in PRESETS:
         raise ValueError(f'unknown preset {name!r}')
     if name == 'tiled_cc':
@@ -247,10 +256,13 @@ def preset_spec(name: str, n_pix: int, n_out: int, cc_e_count: int = 8) -> dict:
         # Identical to tiled_cc but with a shallower L1 bank: four ordinary E per L1
         # column, eight in L2. Fixed-shape (does not read cc_e_count).
         return tiled_cc_spec(l1_e_count=4, l2_e_count=8, name='tiled_cc_l1_4')
-    if name == 'tiled_cc_feature_gated':
-        # Fixed-shape eight-competitor feature-gated tiled variant (L1=8, L2=8): nine paired
-        # feature C/I gates per 3x3 RF + a separate WTA I per module. Does not read cc_e_count.
-        return tiled_cc_feature_gated_spec()
+    if name == 'tiled_cc_double_eor':
+        # Diagnostic latency probe: classic column + one extra output relay in series.
+        return tiled_cc_double_eor_spec()
+    if name == 'tiled_cc_direct_identity':
+        # Eor-less direct-identity variant: 8 E + multi-basal C + WTA I per column, every
+        # child E addressed individually at L2. Fixed-shape (does not read cc_e_count).
+        return tiled_cc_direct_identity_spec()
     if name == 'rg_direct_cc4':
         # Direct 3x3 RGC -> four ordinary E + one central WTA I (dual FE/FES experiment).
         # Fixed 3x3/4-E shape (does not read n_out); n_pix sizes the RGC surface.
@@ -774,166 +786,89 @@ def tiled_cc_spec(*, cc_e_count: int = 8, l1_e_count: int | None = None,
 
 
 # =====================================================================================
-# Feature-gated tiled cortical-column construction
+# Double-Eor tiled cortical-column construction (DIAGNOSTIC latency probe)
 # =====================================================================================
-# The eight-competitor variant that restores the feature-specific inhibitory microcircuit
-# of ``rg_coincidence``. Between each 3x3 RGC patch and its L1 competitor bank sit nine
-# fixed feature relays, each with its own paired coincidence C and feature inhibitory If.
-# The bank keeps a completely separate WTA-only I. This is exactly the small circuit
-# (S == pretrained L1E relay, E == latency competitor, C == L1C, If == L1I) replicated
-# once per feature inside every recognition module, so a mature local owner suppresses only
-# the explained feature relays while novel relays stay active to recruit a rival.
+# Exactly the classic column with ONE extra output relay spliced into the ascending path:
+#
+#     classic:     E -> Eor  ------------> parent E        (loop latency 3)
+#     double_eor:  E -> Eor -> Eor2 -----> parent E        (loop latency 4, predicted)
+#
+# Everything else -- WTA, C gate, apical feedback, C -> I delay-1 reset, caps, rates -- is
+# byte-for-byte the classic rule. It changes ONE thing (loop length) so the prediction
+# "period = 2 x latency" can be falsified. See docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md 8.1b.
 
-@dataclass(frozen=True)
-class WtaBankHandles:
-    """Handles to one WTA competitor bank (used for both the L1 recognition module's
-    competitor pool and the top L2 module): the ordinary E ids, the shared Eor output, and
-    the WTA-only I. It carries NO C -- the feature gates own coincidence in this variant."""
-    module_id: str
-    layer: str
-    row: int
-    col: int
-    e_ids: tuple[str, ...]
-    eor_id: str
-    wta_i_id: str
+def build_double_eor_column(column_id: str, layer: str, row: int, col: int, *,
+                            n_e: int, has_parent: bool) -> tuple[ColumnHandles, list, list]:
+    """Emit ONE classic column plus a second output relay ``Eor2`` in series.
 
+    Nodes: ``n_e`` ordinary E, Eor, **Eor2**, C, I. Internal edges::
 
-@dataclass(frozen=True)
-class FeatureGateHandles:
-    """Handles to one feature relay S[k] and its paired coincidence C[k] / feature
-    inhibitory If[k] inside a recognition module -- the composition surface the RGC and the
-    competitor bank bind against."""
-    module_id: str
-    feature_index: int
-    rgc_id: str
-    s_id: str
-    c_id: str
-    if_id: str
+        E[i] -> Eor    feedforward           (column_e_to_eor)
+        E[i] -> I      relay_excitation      (column_e_to_i)
+        I -> E[i]      hard_reset_inhibition (column_i_to_e)
+        Eor -> Eor2    feedforward           (column_eor_to_eor2)   <-- the extra hop
+        Eor2 -> C      basal_excitation      (column_eor_to_c_basal)
+        C -> I         relay_excitation      (column_c_to_i)
 
-
-def build_wta_bank(module_id: str, layer: str, row: int, col: int, *,
-                   n_e: int) -> tuple[WtaBankHandles, list, list]:
-    """Emit ONE WTA competitor bank's nodes + internal edges (no external wiring).
-
-    Nodes: ``n_e`` ordinary E (``e_latency_competitor``), one Eor (same archetype,
-    ``column_role='Eor'``), one WTA-only I (``i_relay``, ``column_role='I'``). Internal
-    edges (the fixed WTA rule)::
-
-        E[i] -> Eor    feedforward            (bank_e_to_eor)
-        E[i] -> Iwta   relay_excitation       (bank_e_to_wta_i)
-        Iwta -> E[i]   hard_reset_inhibition  (bank_wta_i_to_e)
-
-    There is no C and no basal here: the WTA I performs ONLY same-event winner-take-all.
-    Returns fresh lists every call."""
+    ``Eor2`` -- not ``Eor`` -- is the column's output and its C's basal source, so the
+    inserted relay lengthens BOTH the ascending path and the confirmation path by one
+    boundary. The returned handles report ``eor_id = Eor2`` so the shared column-link
+    connector wires the parent from the true output.
+    """
     n_e = int(n_e)
     if n_e < 1:
         raise ValueError(f'n_e must be >= 1, got {n_e}')
-    e_ids = tuple(f'{module_id}E{i}' for i in range(n_e))
-    eor_id, wta_i_id = f'{module_id}Eor', f'{module_id}Iwta'
+    e_ids = tuple(f'{column_id}E{i}' for i in range(n_e))
+    eor_id, eor2_id = f'{column_id}Eor', f'{column_id}Eor2'
+    c_id, i_id = f'{column_id}C', f'{column_id}I'
 
     def _common(role):
-        return dict(column_id=module_id, column_role=role,
+        return dict(column_id=column_id, column_role=role,
                     column_row=int(row), column_col=int(col))
 
     nodes: list = []
     for i, eid in enumerate(e_ids):
         nodes.append(dict(id=eid, archetype='e_latency_competitor', layer=layer,
-                          label=f'{module_id}·E{i}', column_index=i, **_common('E')))
+                          label=f'{column_id}·E{i}', column_index=i, **_common('E')))
     nodes.append(dict(id=eor_id, archetype='e_latency_competitor', layer=layer,
-                      label=f'{module_id}·Eor', **_common('Eor')))
-    nodes.append(dict(id=wta_i_id, archetype='i_relay', layer=layer,
-                      label=f'{module_id}·Iwta', **_common('I')))
+                      label=f'{column_id}·Eor', **_common('Eor')))
+    nodes.append(dict(id=eor2_id, archetype='e_latency_competitor', layer=layer,
+                      label=f'{column_id}·Eor2', **_common('Eor2')))
+    nodes.append(dict(id=c_id, archetype='e_coincidence', layer=layer,
+                      label=f'{column_id}·C', has_parent=bool(has_parent), **_common('C')))
+    nodes.append(dict(id=i_id, archetype='i_relay', layer=layer,
+                      label=f'{column_id}·I', **_common('I')))
 
     edges: list = []
     for i, eid in enumerate(e_ids):
-        edges.append(dict(id=f'{module_id}_E{i}_eor', source=eid, target=eor_id,
-                          kind='feedforward', projection='bank_e_to_eor'))
-        edges.append(dict(id=f'{module_id}_E{i}_wtai', source=eid, target=wta_i_id,
-                          kind='relay_excitation', projection='bank_e_to_wta_i'))
-        edges.append(dict(id=f'{module_id}_wtai_E{i}', source=wta_i_id, target=eid,
-                          kind='hard_reset_inhibition', sign=-1,
-                          projection='bank_wta_i_to_e'))
-    handles = WtaBankHandles(module_id, layer, int(row), int(col), e_ids, eor_id, wta_i_id)
+        edges.append(dict(id=f'{column_id}_E{i}_eor', source=eid, target=eor_id,
+                          kind='feedforward', projection='column_e_to_eor'))
+        edges.append(dict(id=f'{column_id}_E{i}_i', source=eid, target=i_id,
+                          kind='relay_excitation', projection='column_e_to_i'))
+        edges.append(dict(id=f'{column_id}_i_E{i}', source=i_id, target=eid,
+                          kind='hard_reset_inhibition', sign=-1, projection='column_i_to_e'))
+    edges.append(dict(id=f'{column_id}_eor_eor2', source=eor_id, target=eor2_id,
+                      kind='feedforward', projection='column_eor_to_eor2'))
+    edges.append(dict(id=f'{column_id}_eor2_c', source=eor2_id, target=c_id,
+                      kind='basal_excitation', projection='column_eor_to_c_basal'))
+    edges.append(dict(id=f'{column_id}_c_i', source=c_id, target=i_id,
+                      kind='relay_excitation', projection='column_c_to_i'))
+
+    handles = ColumnHandles(column_id, layer, int(row), int(col), e_ids, eor2_id, c_id,
+                            i_id, bool(has_parent))
     return handles, nodes, edges
 
 
-def build_feature_gate(bank: WtaBankHandles, feature_index: int, rgc_id: str, *,
-                       pixel: int, input_row: int, input_col: int, patch_id: int,
-                       ) -> tuple[FeatureGateHandles, list, list]:
-    """Emit ONE feature relay and its paired C/I gate for feature ``feature_index`` of a
-    recognition module, wired against that module's competitor bank::
-
-        RGC   -> S     pretrained_excitation  (rgc_to_feature_relay)
-        S     -> E[j]  feedforward            (feature_relay_to_e)   [every bank E]
-        S     -> C     basal_excitation       (feature_relay_to_c_basal)
-        E[j]  -> C     apical_excitation       (e_to_feature_c_apical) [every bank E]
-        C     -> If    relay_excitation       (feature_c_to_i)
-        If    -> S     hard_reset_inhibition   (feature_i_to_relay)
-
-    The relay S is a fixed pretrained cell (the suppressible object); C is an ordinary
-    coincidence cell whose single basal source is its paired S and whose apical permission
-    comes from all eight local competitors; If resets ONLY S. Returns fresh lists."""
-    mid = bank.module_id
-    k = int(feature_index)
-    s_id, c_id, if_id = f'{mid}S{k}', f'{mid}C{k}', f'{mid}If{k}'
-
-    def _common(role):
-        return dict(column_id=mid, column_role=role, feature_index=k,
-                    column_row=bank.row, column_col=bank.col)
-
-    nodes: list = [
-        dict(id=s_id, archetype='e_pretrained', layer=bank.layer,
-             label=f'{mid}·S{k}', grid=int(pixel), input_row=int(input_row),
-             input_col=int(input_col), patch_id=int(patch_id), **_common('S')),
-        dict(id=c_id, archetype='e_coincidence', layer=bank.layer,
-             label=f'{mid}·C{k}', has_parent=True, **_common('C')),
-        dict(id=if_id, archetype='i_relay', layer=bank.layer,
-             label=f'{mid}·If{k}', **_common('If')),
-    ]
-
-    edges: list = [dict(id=f'{rgc_id}_{s_id}', source=rgc_id, target=s_id,
-                        kind='pretrained_excitation', projection='rgc_to_feature_relay')]
-    for j, eid in enumerate(bank.e_ids):
-        edges.append(dict(id=f'{s_id}_{eid}', source=s_id, target=eid,
-                          kind='feedforward', projection='feature_relay_to_e'))
-        edges.append(dict(id=f'{eid}_{c_id}', source=eid, target=c_id,
-                          kind='apical_excitation', projection='e_to_feature_c_apical'))
-    edges.append(dict(id=f'{s_id}_{c_id}_basal', source=s_id, target=c_id,
-                      kind='basal_excitation', projection='feature_relay_to_c_basal'))
-    edges.append(dict(id=f'{c_id}_{if_id}', source=c_id, target=if_id,
-                      kind='relay_excitation', projection='feature_c_to_i'))
-    edges.append(dict(id=f'{if_id}_{s_id}', source=if_id, target=s_id,
-                      kind='hard_reset_inhibition', sign=-1, projection='feature_i_to_relay'))
-
-    handles = FeatureGateHandles(mid, k, rgc_id, s_id, c_id, if_id)
-    return handles, nodes, edges
-
-
-def connect_bank_feedforward(child: WtaBankHandles, parent: WtaBankHandles) -> list:
-    """Emit the child.Eor -> every parent ordinary E feedforward link (``bank_to_bank_ff``).
-    Feature-gated L1 modules feed L2 with NO apical feedback: the local owner drives its own
-    feature gates, so nothing descends from L2 into an L1 bank."""
-    return [dict(id=f'{child.eor_id}_{pe}', source=child.eor_id, target=pe,
-                 kind='feedforward', projection='bank_to_bank_ff')
-            for pe in parent.e_ids]
-
-
-def tiled_cc_feature_gated_spec(*, l1_e_count: int = 8, l2_e_count: int = 8,
-                                name: str = 'tiled_cc_feature_gated',
-                                input_rows: int = 9, input_cols: int = 9,
-                                patch_rows: int = 3, patch_cols: int = 3) -> dict:
-    """Compose the eight-competitor feature-gated tiled hierarchy: a 9x9 RGC surface tiled
-    into nine 3x3 patches; nine L1 recognition modules (one per patch, each = eight ordinary
-    competitors + Eor + a WTA-only I, wrapped by nine paired feature relay/C/I gates); and
-    one top L2 WTA bank receiving all nine L1 Eor outputs.
-
-    At the default 8/8 sizing this is exactly 424 nodes and 1932 directed edges. The
-    returned spec carries ``topology.variant='feature_gated'`` -- the single source of truth
-    construction/layout/validation branch on."""
-    l1_n = int(l1_e_count)
-    l2_n = int(l2_e_count)
-    if l1_n < 1 or l2_n < 1:
-        raise ValueError(f'ordinary-E counts must be >= 1, got L1={l1_n}, L2={l2_n}')
+def tiled_cc_double_eor_spec(*, cc_e_count: int = 8, name: str = 'tiled_cc_double_eor',
+                             input_rows: int = 9, input_cols: int = 9,
+                             patch_rows: int = 3, patch_cols: int = 3) -> dict:
+    """Compose the diagnostic double-relay tiled hierarchy: the canonical 9x9 tiled
+    cortical-column graph with one extra output relay per column. At ``cc_e_count=8`` this
+    is exactly 201 nodes and 1062 directed edges (the classic 191/1052 plus 10 Eor2 nodes
+    and 10 Eor->Eor2 edges). Carries ``topology.variant='double_eor'``."""
+    n_e = int(cc_e_count)
+    if n_e < 1:
+        raise ValueError(f'ordinary-E count must be >= 1, got {n_e}')
     if input_rows % patch_rows != 0 or input_cols % patch_cols != 0:
         raise ValueError(
             f'patch shape ({patch_rows}x{patch_cols}) must tile the input '
@@ -942,11 +877,10 @@ def tiled_cc_feature_gated_spec(*, l1_e_count: int = 8, l2_e_count: int = 8,
 
     nodes: list = []
     internal_edges: list = []
+    rg_edges: list = []
     link_edges: list = []
 
-    # RGC surface (row-major pixels); per patch the RGCs are kept in patch-local row-major
-    # order so feature index k maps 1:1 to patch-local pixel k.
-    rg_by_patch: dict[tuple[int, int], list[dict]] = {}
+    rg_by_patch: dict[tuple[int, int], list[str]] = {}
     for gr in range(input_rows):
         for gc in range(input_cols):
             pixel = gr * input_cols + gc
@@ -958,55 +892,230 @@ def tiled_cc_feature_gated_spec(*, l1_e_count: int = 8, l2_e_count: int = 8,
                               label=f'RGC[{gr},{gc}]', input_row=gr, input_col=gc,
                               patch_id=patch_id, patch_row=pr, patch_col=pc,
                               patch_local_row=plr, patch_local_col=plc))
-            rg_by_patch.setdefault((pr, pc), []).append(
-                dict(id=rid, pixel=pixel, input_row=gr, input_col=gc, patch_id=patch_id))
+            rg_by_patch.setdefault((pr, pc), []).append(rid)
 
-    # L1 recognition modules: one per patch, each a WTA bank wrapped by nine feature gates.
-    l1: dict[tuple[int, int], WtaBankHandles] = {}
+    l1: dict[tuple[int, int], ColumnHandles] = {}
     for pr in range(grid_rows):
         for pc in range(grid_cols):
-            mid = f'L1m{pr}{pc}'
+            cid = f'L1c{pr}{pc}'
+            h, cn, ce = build_double_eor_column(cid, 'L1', pr, pc, n_e=n_e, has_parent=True)
+            nodes += cn
+            internal_edges += ce
+            l1[(pr, pc)] = h
             patch_id = pr * grid_cols + pc
-            bank, bn, be = build_wta_bank(mid, 'L1', pr, pc, n_e=l1_n)
-            for node in bn:
+            for node in cn:
                 if node.get('column_role') == 'E':
-                    node['patch'] = patch_id          # display-only patch tag (as classic)
-            nodes += bn
-            internal_edges += be
-            l1[(pr, pc)] = bank
-            for k, rg in enumerate(rg_by_patch[(pr, pc)]):
-                _, gn, ge = build_feature_gate(
-                    bank, k, rg['id'], pixel=rg['pixel'], input_row=rg['input_row'],
-                    input_col=rg['input_col'], patch_id=rg['patch_id'])
-                nodes += gn
-                internal_edges += ge
+                    node['patch'] = patch_id
+            rg_edges += connect_rgc_patch(rg_by_patch[(pr, pc)], h)
 
-    # One top L2 WTA bank (no feature gates, no C: this variant does not test composition).
-    l2, l2n, l2e = build_wta_bank('L2m00', 'L2', 0, 0, n_e=l2_n)
+    l2, l2n, l2e = build_double_eor_column('L2c00', 'L2', 0, 0, n_e=n_e, has_parent=False)
     nodes += l2n
     internal_edges += l2e
 
-    # Feedforward: every L1 Eor -> every L2 ordinary E (no L2 -> L1 apical feedback).
     for pr in range(grid_rows):
         for pc in range(grid_cols):
-            link_edges += connect_bank_feedforward(l1[(pr, pc)], l2)
+            link_edges += connect_columns(l1[(pr, pc)], l2)
 
-    edges = internal_edges + link_edges
+    edges = internal_edges + rg_edges + link_edges
 
-    columns_meta = [dict(id=l1[(pr, pc)].module_id, layer='L1', row=pr, col=pc,
-                         e_count=l1_n, parent_ids=['L2m00'])
+    columns_meta = [dict(id=l1[(pr, pc)].column_id, layer='L1', row=pr, col=pc,
+                         e_count=n_e, parent_ids=['L2c00'])
                     for pr in range(grid_rows) for pc in range(grid_cols)]
-    columns_meta.append(dict(id='L2m00', layer='L2', row=0, col=0,
-                             e_count=l2_n, parent_ids=[]))
+    columns_meta.append(dict(id='L2c00', layer='L2', row=0, col=0,
+                             e_count=n_e, parent_ids=[]))
     topology_meta = dict(
         family=TILED_FAMILY,
-        variant=TILED_VARIANT_FEATURE_GATED,
+        variant=TILED_VARIANT_DOUBLE_EOR,
         input_shape=dict(rows=input_rows, cols=input_cols),
         patch_shape=dict(rows=patch_rows, cols=patch_cols),
         grid_shape=dict(rows=grid_rows, cols=grid_cols),
         column_layers=[dict(layer='L1', rows=grid_rows, cols=grid_cols),
                        dict(layer='L2', rows=1, cols=1)],
-        cc_e_count=l1_n,
+        cc_e_count=n_e,
+        columns=columns_meta)
+    return dict(name=name, topology=topology_meta, nodes=nodes, edges=edges)
+
+
+# =====================================================================================
+# Direct-identity tiled cortical-column construction (no Eor)
+# =====================================================================================
+# The Eor relay is removed and each ordinary-E WINNER IDENTITY is transmitted directly:
+# every child ordinary E projects to every parent ordinary E, so the parent owns a distinct
+# plastic weight per (child column, child winner) source instead of a single pooled
+# "this column was active" event. The column's C consequently owns one learned basal
+# afferent PER local ordinary E (multi-basal), while apical permission stays the unweighted
+# Boolean parent-E gate. See docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md.
+
+@dataclass(frozen=True)
+class DirectColumnHandles:
+    """Handles to one Eor-less column: the ordinary E bank, its multi-basal C, and the
+    local WTA/feedback I. There is NO output relay -- the E ids ARE the output alphabet."""
+    column_id: str
+    layer: str
+    row: int
+    col: int
+    e_ids: tuple[str, ...]
+    c_id: str
+    i_id: str
+    has_parent: bool
+
+
+def build_direct_column(column_id: str, layer: str, row: int, col: int, *,
+                        n_e: int, has_parent: bool) -> tuple[DirectColumnHandles, list, list]:
+    """Emit exactly ONE Eor-less column's nodes and internal edges (no external wiring).
+
+    Nodes: ``n_e`` ordinary E (``e_latency_competitor``), one multi-basal C
+    (``e_coincidence``), one WTA/feedback I (``i_relay``). Internal edges::
+
+        E[i] -> I     relay_excitation      (column_e_to_i)
+        I -> E[i]     hard_reset_inhibition (column_i_to_e)
+        E[i] -> C     basal_excitation      (column_e_to_c_basal)   [one per E, distinct]
+        C -> I        relay_excitation      (column_c_to_i)
+
+    The ``n_e`` basal edges are source-distinct and never collapsed: each carries its own
+    learned weight, so one local owner maturing its association cannot depress another's.
+    Returns fresh lists every call (no shared mutable state)."""
+    n_e = int(n_e)
+    if n_e < 1:
+        raise ValueError(f'n_e must be >= 1, got {n_e}')
+    e_ids = tuple(f'{column_id}E{i}' for i in range(n_e))
+    c_id, i_id = f'{column_id}C', f'{column_id}I'
+
+    def _common(role):
+        return dict(column_id=column_id, column_role=role,
+                    column_row=int(row), column_col=int(col))
+
+    nodes: list = []
+    for i, eid in enumerate(e_ids):
+        nodes.append(dict(id=eid, archetype='e_latency_competitor', layer=layer,
+                          label=f'{column_id}·E{i}', column_index=i, **_common('E')))
+    nodes.append(dict(id=c_id, archetype='e_coincidence', layer=layer,
+                      label=f'{column_id}·C', has_parent=bool(has_parent),
+                      # Explicit opt-in to the multi-basal capability. Without it a C is
+                      # still held to the historical exactly-one-basal invariant, so no old
+                      # custom graph is silently relaxed.
+                      multi_basal=True, **_common('C')))
+    nodes.append(dict(id=i_id, archetype='i_relay', layer=layer,
+                      label=f'{column_id}·I', **_common('I')))
+
+    edges: list = []
+    for i, eid in enumerate(e_ids):
+        edges.append(dict(id=f'{column_id}_E{i}_i', source=eid, target=i_id,
+                          kind='relay_excitation', projection='column_e_to_i'))
+        edges.append(dict(id=f'{column_id}_i_E{i}', source=i_id, target=eid,
+                          kind='hard_reset_inhibition', sign=-1, projection='column_i_to_e'))
+        edges.append(dict(id=f'{column_id}_E{i}_c', source=eid, target=c_id,
+                          kind='basal_excitation', projection='column_e_to_c_basal'))
+    edges.append(dict(id=f'{column_id}_c_i', source=c_id, target=i_id,
+                      kind='relay_excitation', projection='column_c_to_i'))
+
+    handles = DirectColumnHandles(column_id, layer, int(row), int(col), e_ids, c_id, i_id,
+                                  bool(has_parent))
+    return handles, nodes, edges
+
+
+def connect_direct_identity(child: DirectColumnHandles,
+                            parent: DirectColumnHandles) -> list:
+    """Emit one child->parent link that PRESERVES the child winner's identity::
+
+        child.E[i] -> parent.E[k]   feedforward       (identity_child_e_to_parent_e)
+        parent.E[k] -> child.C      apical_excitation (column_to_column_apical)
+
+    Contributes ``child.N * parent.N`` feedforward edges (one per source address) plus
+    ``parent.N`` apical edges. Nothing pools by column: the receiving parent E owns a
+    distinct plastic weight for every ``(child column, child winner)`` pair."""
+    edges: list = []
+    for ce in child.e_ids:
+        for pe in parent.e_ids:
+            edges.append(dict(id=f'{ce}_{pe}', source=ce, target=pe,
+                              kind='feedforward', projection='identity_child_e_to_parent_e'))
+    for pe in parent.e_ids:
+        edges.append(dict(id=f'{pe}_{child.c_id}', source=pe, target=child.c_id,
+                          kind='apical_excitation', projection='column_to_column_apical'))
+    return edges
+
+
+def tiled_cc_direct_identity_spec(*, cc_e_count: int = 8, name: str = 'tiled_cc_direct_identity',
+                                  input_rows: int = 9, input_cols: int = 9,
+                                  patch_rows: int = 3, patch_cols: int = 3) -> dict:
+    """Compose the Eor-less direct-identity tiled hierarchy: a 9x9 RGC surface tiled into
+    nine 3x3 patches, nine L1 columns (8 ordinary E + multi-basal C + WTA I each), and one
+    L2 column of the same motif whose ordinary E receive every child E identity directly.
+
+    At the default ``cc_e_count=8`` this is exactly 181 nodes and 1546 directed edges. The
+    top L2 C has no parent and is therefore dormant (zero apical), which keeps the motif
+    recursively reusable if a later L3 gives L2 a parent. The returned spec carries
+    ``topology.variant='direct_identity'`` -- the single source of truth that construction,
+    layout and validation branch on (never the preset name or a node-id prefix)."""
+    n_e = int(cc_e_count)
+    if n_e < 1:
+        raise ValueError(f'ordinary-E count must be >= 1, got {n_e}')
+    if input_rows % patch_rows != 0 or input_cols % patch_cols != 0:
+        raise ValueError(
+            f'patch shape ({patch_rows}x{patch_cols}) must tile the input '
+            f'({input_rows}x{input_cols}) exactly')
+    grid_rows, grid_cols = input_rows // patch_rows, input_cols // patch_cols
+
+    nodes: list = []
+    internal_edges: list = []
+    rg_edges: list = []
+    link_edges: list = []
+
+    rg_by_patch: dict[tuple[int, int], list[str]] = {}
+    for gr in range(input_rows):
+        for gc in range(input_cols):
+            pixel = gr * input_cols + gc
+            pr, pc = gr // patch_rows, gc // patch_cols
+            plr, plc = gr % patch_rows, gc % patch_cols
+            patch_id = pr * grid_cols + pc
+            rid = f'RGC{pixel}'
+            nodes.append(dict(id=rid, archetype='rg_source', layer='RGC', pixel=pixel,
+                              label=f'RGC[{gr},{gc}]', input_row=gr, input_col=gc,
+                              patch_id=patch_id, patch_row=pr, patch_col=pc,
+                              patch_local_row=plr, patch_local_col=plc))
+            rg_by_patch.setdefault((pr, pc), []).append(rid)
+
+    l1: dict[tuple[int, int], DirectColumnHandles] = {}
+    for pr in range(grid_rows):
+        for pc in range(grid_cols):
+            cid = f'L1c{pr}{pc}'
+            h, cn, ce = build_direct_column(cid, 'L1', pr, pc, n_e=n_e, has_parent=True)
+            nodes += cn
+            internal_edges += ce
+            l1[(pr, pc)] = h
+            patch_id = pr * grid_cols + pc
+            for node in cn:
+                if node.get('column_role') == 'E':
+                    node['patch'] = patch_id          # display-only patch tag (as classic)
+            for rg in rg_by_patch[(pr, pc)]:
+                for e in h.e_ids:
+                    rg_edges.append(dict(id=f'{rg}_{e}', source=rg, target=e,
+                                         kind='feedforward', projection='rg_to_column'))
+
+    l2, l2n, l2e = build_direct_column('L2c00', 'L2', 0, 0, n_e=n_e, has_parent=False)
+    nodes += l2n
+    internal_edges += l2e
+
+    for pr in range(grid_rows):
+        for pc in range(grid_cols):
+            link_edges += connect_direct_identity(l1[(pr, pc)], l2)
+
+    edges = internal_edges + rg_edges + link_edges
+
+    columns_meta = [dict(id=l1[(pr, pc)].column_id, layer='L1', row=pr, col=pc,
+                         e_count=n_e, parent_ids=['L2c00'])
+                    for pr in range(grid_rows) for pc in range(grid_cols)]
+    columns_meta.append(dict(id='L2c00', layer='L2', row=0, col=0,
+                             e_count=n_e, parent_ids=[]))
+    topology_meta = dict(
+        family=TILED_FAMILY,
+        variant=TILED_VARIANT_DIRECT_IDENTITY,
+        input_shape=dict(rows=input_rows, cols=input_cols),
+        patch_shape=dict(rows=patch_rows, cols=patch_cols),
+        grid_shape=dict(rows=grid_rows, cols=grid_cols),
+        column_layers=[dict(layer='L1', rows=grid_rows, cols=grid_cols),
+                       dict(layer='L2', rows=1, cols=1)],
+        cc_e_count=n_e,
         columns=columns_meta)
     return dict(name=name, topology=topology_meta, nodes=nodes, edges=edges)
 
@@ -1117,11 +1226,11 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
                     raise SpecError(f'node {nid!r} field {f!r} must be a string')
                 node[f] = v
         role = node.get('column_role')
-        # E/Eor/C/I are the classic column roles; S/If are the feature-gated variant's
-        # feature relay and paired feature inhibitory roles (validated further per variant).
-        if role is not None and role not in ('E', 'Eor', 'C', 'I', 'S', 'If'):
+        # E/Eor/C/I are the cortical-column roles; Eor2 is the diagnostic double-relay
+        # variant's second output relay (validated further by the tiled family).
+        if role is not None and role not in ('E', 'Eor', 'Eor2', 'C', 'I'):
             raise SpecError(
-                f'node {nid!r} column_role must be one of E/Eor/C/I/S/If, got {role!r}')
+                f'node {nid!r} column_role must be one of E/Eor/Eor2/C/I, got {role!r}')
         for f in _TILED_NODE_INT_FIELDS:
             v = n.get(f)
             if v is not None:
@@ -1247,7 +1356,15 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
         if n['archetype'] != 'e_coincidence':
             continue
         nb = basal_in.get(n['id'], 0)
-        if nb != 1:
+        # A cell that has NOT opted in to the multi-basal capability keeps the historical
+        # exactly-one invariant. An opted-in cell needs >= 1; the duplicate check above
+        # already guarantees every basal afferent is source-distinct.
+        if n.get('multi_basal'):
+            if nb < 1:
+                raise SpecError(
+                    f'multi-basal coincidence cell {n["id"]!r} must have at least one '
+                    f'incoming basal_excitation edge, found 0')
+        elif nb != 1:
             raise SpecError(
                 f'coincidence cell {n["id"]!r} must have exactly one incoming '
                 f'basal_excitation edge, found {nb}')
@@ -1292,10 +1409,14 @@ def validate_spec(spec: dict, n_pix: int) -> dict:
     # --- tiled-family structural validation (only when the graph declares it) --------
     # Branch on the validated ``variant`` metadata, NEVER a preset name or id prefix.
     if topo_meta is not None:
-        if topo_meta.get('variant') == TILED_VARIANT_FEATURE_GATED:
-            _validate_tiled_feature_gated(topo_meta, norm_nodes, norm_edges)
+        variant = topo_meta.get('variant')
+        if variant == TILED_VARIANT_DIRECT_IDENTITY:
+            _validate_tiled_direct_identity(topo_meta, norm_nodes, norm_edges)
         else:
-            _validate_tiled(topo_meta, norm_nodes, norm_edges)
+            # ``classic`` and ``double_eor`` share every rule; the latter simply routes the
+            # column output through one extra relay, which _validate_tiled checks inline.
+            _validate_tiled(topo_meta, norm_nodes, norm_edges,
+                            double_eor=(variant == TILED_VARIANT_DOUBLE_EOR))
 
     out = dict(name=spec.get('name') or 'custom', nodes=norm_nodes, edges=norm_edges)
     if topo_meta is not None:
@@ -1317,8 +1438,8 @@ def _validate_topology_metadata(meta):
         raise SpecError(
             f'unknown spec.topology family {family!r}; expected {TILED_FAMILY!r}')
 
-    # Tiled variant: absent means the classic whole-bank column (so old saved specs stay
-    # byte-identical). An explicit value must be a recognized variant.
+    # Tiled variant: absent means the classic whole-bank column (so saved specs that omit
+    # it stay byte-identical). An explicit value must be a recognized variant.
     variant = meta.get('variant')
     if variant is not None and variant not in TILED_VARIANTS:
         raise SpecError(
@@ -1374,9 +1495,14 @@ def _validate_topology_metadata(meta):
     return out
 
 
-def _validate_tiled(meta, nodes, edges):
+def _validate_tiled(meta, nodes, edges, *, double_eor=False):
     """Structural validation for the tiled cortical-column family. Runs only when the
-    spec declares the family, so generic graphs keep their existing rules."""
+    spec declares the family, so generic graphs keep their existing rules.
+
+    ``double_eor`` switches on the diagnostic variant: each column additionally owns an
+    ``Eor2`` relay fed by its ``Eor``, and ``Eor2`` -- not ``Eor`` -- is the column output
+    and the C basal source. Every other rule is shared verbatim with ``classic``."""
+    out_role = 'Eor2' if double_eor else 'Eor'
     ishape, pshape = meta['input_shape'], meta['patch_shape']
     n_in = ishape['rows'] * ishape['cols']
     node_by_id = {n['id']: n for n in nodes}
@@ -1400,11 +1526,15 @@ def _validate_tiled(meta, nodes, edges):
         rg_patch[n['id']] = (pr, pc)
 
     # --- column membership: each E/Eor/C/I belongs to exactly one declared column ------
-    col_roles = {cid: dict(E=[], Eor=None, C=None, I=None) for cid in columns}
+    _slots = ('Eor', 'Eor2', 'C', 'I') if double_eor else ('Eor', 'C', 'I')
+    col_roles = {cid: dict(E=[], **{r: None for r in _slots}) for cid in columns}
     for n in nodes:
         role = n.get('column_role')
         if role is None:
             continue
+        if role != 'E' and role not in _slots:
+            raise SpecError(f'node {n["id"]!r} declares column_role {role!r}, which this '
+                            f'tiled variant does not define')
         cid = n.get('column_id')
         if cid not in columns:
             raise SpecError(f'node {n["id"]!r} names undeclared column {cid!r}')
@@ -1421,18 +1551,18 @@ def _validate_tiled(meta, nodes, edges):
         if len(s['E']) != c['e_count']:
             raise SpecError(f'column {cid!r} must contain exactly {c["e_count"]} ordinary '
                             f'E, found {len(s["E"])}')
-        for role in ('Eor', 'C', 'I'):
+        for role in _slots:
             if s[role] is None:
                 raise SpecError(f'column {cid!r} is missing its {role}')
         for eid in s['E']:
             role_of[eid] = (cid, 'E')
-        role_of[s['Eor']] = (cid, 'Eor')
-        role_of[s['C']] = (cid, 'C')
-        role_of[s['I']] = (cid, 'I')
+        for role in _slots:
+            role_of[s[role]] = (cid, role)
 
     # --- classify every edge; anything touching a tiled node must match one rule -------
     rg_into_E, e_to_eor, e_to_i, i_to_e = {}, {}, {}, {}
     eor_c_basal, c_to_i, link_ff, link_apical = set(), set(), {}, {}
+    eor_to_eor2 = set()                       # double_eor only
     for e in edges:
         s, t, kind = e['source'], e['target'], e['kind']
         sr, tr = role_of.get(s), role_of.get(t)
@@ -1449,7 +1579,11 @@ def _validate_tiled(meta, nodes, edges):
                 if sr[0] != tr[0]:
                     raise SpecError(f'cross-column E->Eor feedforward {s!r}->{t!r}')
                 e_to_eor.setdefault(sr[0], set()).add(s)
-            elif sr and sr[1] == 'Eor' and tr and tr[1] == 'E':
+            elif double_eor and sr and sr[1] == 'Eor' and tr and tr[1] == 'Eor2':
+                if sr[0] != tr[0]:
+                    raise SpecError(f'cross-column Eor->Eor2 feedforward {s!r}->{t!r}')
+                eor_to_eor2.add(sr[0])
+            elif sr and sr[1] == out_role and tr and tr[1] == 'E':
                 child, parent = sr[0], tr[0]
                 if parent not in columns[child]['parent_ids']:
                     raise SpecError(f'column link {s!r}->{t!r}: {parent!r} is not a parent '
@@ -1478,8 +1612,8 @@ def _validate_tiled(meta, nodes, edges):
                 raise SpecError(f'column I {s!r} resets {t!r} outside its own column')
             i_to_e.setdefault(sr[0], set()).add(t)
         elif kind == 'basal_excitation':
-            if not (sr and sr[1] == 'Eor' and tr and tr[1] == 'C' and sr[0] == tr[0]):
-                raise SpecError(f'basal {s!r}->{t!r} must be a column-local Eor->C')
+            if not (sr and sr[1] == out_role and tr and tr[1] == 'C' and sr[0] == tr[0]):
+                raise SpecError(f'basal {s!r}->{t!r} must be a column-local {out_role}->C')
             eor_c_basal.add(sr[0])
         elif kind == 'apical_excitation':
             if not (sr and sr[1] == 'E' and tr and tr[1] == 'C'):
@@ -1503,7 +1637,9 @@ def _validate_tiled(meta, nodes, edges):
         if i_to_e.get(cid, set()) != ebank:
             raise SpecError(f'column {cid!r}: I must hard-reset exactly its own ordinary-E bank')
         if cid not in eor_c_basal:
-            raise SpecError(f'column {cid!r}: Eor must supply its C basal')
+            raise SpecError(f'column {cid!r}: {out_role} must supply its C basal')
+        if double_eor and cid not in eor_to_eor2:
+            raise SpecError(f'column {cid!r}: Eor must feed its Eor2 output relay')
         if cid not in c_to_i:
             raise SpecError(f'column {cid!r}: C must drive its I')
 
@@ -1525,224 +1661,182 @@ def _validate_tiled(meta, nodes, edges):
         for pid in c['parent_ids']:
             parent_E = set(col_roles[pid]['E'])
             if not parent_E <= link_ff.get(cid, set()):
-                raise SpecError(f'column {cid!r} Eor must feed every ordinary E of parent {pid!r}')
+                raise SpecError(f'column {cid!r} {out_role} must feed every ordinary E of '
+                                f'parent {pid!r}')
             if not parent_E <= link_apical.get(cid, set()):
                 raise SpecError(f'column {cid!r} C must receive an apical from every ordinary '
                                 f'E of parent {pid!r}')
 
 
-def _validate_tiled_feature_gated(meta, nodes, edges):
-    """Structural validation for the feature-gated tiled variant. Enforces the exact local
-    invariants of the nine paired feature C/I gates + separate WTA I per recognition module,
-    and the L1 Eor -> L2 feedforward with NO L2 -> L1 apical feedback. Runs only when the
-    spec declares ``variant='feature_gated'``; the classic validator is untouched."""
+def _validate_tiled_direct_identity(meta, nodes, edges):
+    """Structural validation for the Eor-less direct-identity tiled variant. Enforces the
+    exact column motif (E bank + multi-basal C + WTA/feedback I, NO Eor), the local
+    source-distinct E->C basal fan-in, and the source-addressed child-E -> parent-E
+    projection. Runs only when the spec declares ``variant='direct_identity'``; the classic
+    validator is untouched."""
     ishape, pshape = meta['input_shape'], meta['patch_shape']
     n_in = ishape['rows'] * ishape['cols']
-    n_feat = pshape['rows'] * pshape['cols']
     node_by_id = {n['id']: n for n in nodes}
     columns = {c['id']: c for c in meta['columns']}
     input_layer = (meta['column_layers'][0]['layer']
                    if meta.get('column_layers') else None)
 
-    # --- RGC surface: exactly one unique RGC per input pixel, each in exactly one patch ---
+    # --- RGC surface: exactly one unique RGC per input pixel, in exactly one patch -----
     rgc = [n for n in nodes if n['archetype'] == 'rg_source']
     pixels = sorted(int(n['pixel']) for n in rgc if n.get('pixel') is not None)
     if pixels != list(range(n_in)):
         raise SpecError(
-            f'feature-gated input_shape {ishape["rows"]}x{ishape["cols"]} requires RGC cells '
-            f'owning pixels 0..{n_in - 1}; got {len(rgc)} RGC(s)')
-    rg_patch, rg_feature = {}, {}
+            f'direct-identity input_shape {ishape["rows"]}x{ishape["cols"]} requires RGC '
+            f'cells owning pixels 0..{n_in - 1}; got {len(rgc)} RGC(s)')
+    rg_patch = {}
     for n in rgc:
         gr, gc = n['pixel'] // ishape['cols'], n['pixel'] % ishape['cols']
         pr, pc = gr // pshape['rows'], gc // pshape['cols']
-        plr, plc = gr % pshape['rows'], gc % pshape['cols']
+        if n.get('patch_row') not in (None, pr) or n.get('patch_col') not in (None, pc):
+            raise SpecError(f'RGC {n["id"]!r} patch metadata disagrees with its pixel')
         rg_patch[n['id']] = (pr, pc)
-        rg_feature[n['id']] = plr * pshape['cols'] + plc     # patch-local feature index
 
-    # --- classify every tiled node by (module, role[, feature_index]) ---------------------
-    mods = {cid: dict(E=[], Eor=None, I=None, S={}, C={}, If={}) for cid in columns}
-    role_of = {}                     # node id -> (module_id, role, feature_index|None)
+    # --- column membership: E bank + exactly one C and one I, and NEVER an Eor ---------
+    col_roles = {cid: dict(E=[], C=None, I=None) for cid in columns}
     for n in nodes:
         role = n.get('column_role')
         if role is None:
             continue
+        if role == 'Eor':
+            raise SpecError(
+                f'node {n["id"]!r} declares column_role Eor: the direct-identity variant '
+                f'has no output relay -- each ordinary E addresses the parent itself')
         cid = n.get('column_id')
         if cid not in columns:
-            raise SpecError(f'node {n["id"]!r} names undeclared module {cid!r}')
-        slot = mods[cid]
+            raise SpecError(f'node {n["id"]!r} names undeclared column {cid!r}')
+        slot = col_roles[cid]
         if role == 'E':
             slot['E'].append(n['id'])
-            role_of[n['id']] = (cid, 'E', None)
-        elif role in ('Eor', 'I'):
-            if slot[role] is not None:
-                raise SpecError(f'module {cid!r} has more than one {role} node')
+        elif slot[role] is not None:
+            raise SpecError(f'column {cid!r} has more than one {role} node')
+        else:
             slot[role] = n['id']
-            role_of[n['id']] = (cid, role, None)
-        else:                        # 'S' / 'C' / 'If' feature-gate roles
-            fk = n.get('feature_index')
-            if not isinstance(fk, int) or isinstance(fk, bool):
-                raise SpecError(f'feature node {n["id"]!r} ({role}) needs an int feature_index')
-            if not (0 <= fk < n_feat):
-                raise SpecError(f'feature node {n["id"]!r} feature_index {fk} out of range '
-                                f'[0,{n_feat})')
-            if fk in slot[role]:
-                raise SpecError(f'module {cid!r} has more than one {role} for feature {fk}')
-            slot[role][fk] = n['id']
-            role_of[n['id']] = (cid, role, fk)
-
-    features = set(range(n_feat))
+    role_of = {}
     for cid, c in columns.items():
-        s = mods[cid]
+        s = col_roles[cid]
         if len(s['E']) != c['e_count']:
-            raise SpecError(f'module {cid!r} must contain exactly {c["e_count"]} ordinary E, '
-                            f'found {len(s["E"])}')
-        for role in ('Eor', 'I'):
+            raise SpecError(f'column {cid!r} must contain exactly {c["e_count"]} ordinary '
+                            f'E, found {len(s["E"])}')
+        for role in ('C', 'I'):
             if s[role] is None:
-                raise SpecError(f'module {cid!r} is missing its {role}')
-        is_input = (c['layer'] == input_layer)
-        for role in ('S', 'C', 'If'):
-            got = set(s[role])
-            if is_input:
-                if got != features:
-                    raise SpecError(f'input module {cid!r} must have exactly one {role} per '
-                                    f'feature 0..{n_feat - 1}, found {sorted(got)}')
-            elif got:
-                raise SpecError(f'non-input module {cid!r} must have no feature {role} nodes')
+                raise SpecError(f'column {cid!r} is missing its {role}')
+        if not node_by_id[s['C']].get('multi_basal'):
+            raise SpecError(f'column {cid!r} C {s["C"]!r} must declare multi_basal: the '
+                            f'direct-identity column gives it one basal per ordinary E')
+        for eid in s['E']:
+            role_of[eid] = (cid, 'E')
+        role_of[s['C']] = (cid, 'C')
+        role_of[s['I']] = (cid, 'I')
 
-    # --- classify every edge; anything touching a tiled node must match one rule ----------
-    rgc_to_s, s_to_e, e_to_eor, e_to_wta = {}, {}, {}, {}
-    s_to_c_basal, e_to_c_apical = {}, {}
-    c_to_if, if_to_s, wta_to_e = {}, {}, {}
-    link_ff = {}
+    # --- classify every edge; anything touching a tiled node must match one rule -------
+    rg_into_E, e_to_i, i_to_e = {}, {}, {}
+    e_c_basal, c_to_i, link_ff, link_apical = {}, set(), {}, {}
     for e in edges:
         s, t, kind = e['source'], e['target'], e['kind']
         sr, tr = role_of.get(s), role_of.get(t)
         s_is_rg = node_by_id[s]['archetype'] == 'rg_source'
-        if kind == 'pretrained_excitation':
-            if not (s_is_rg and tr and tr[1] == 'S'):
-                raise SpecError(f'pretrained_excitation {s!r}->{t!r} must be an RGC onto a '
-                                f'feature relay S')
-            if rg_patch[s] != (columns[tr[0]]['row'], columns[tr[0]]['col']):
-                raise SpecError(f'RGC {s!r} feeds feature relay {t!r} outside its patch')
-            if rg_feature[s] != tr[2]:
-                raise SpecError(f'RGC {s!r} (patch-feature {rg_feature[s]}) feeds relay {t!r} '
-                                f'for feature {tr[2]}: feature/pixel mismatch')
-            rgc_to_s.setdefault(t, set()).add(s)
-        elif kind == 'feedforward':
-            if sr and sr[1] == 'S' and tr and tr[1] == 'E':
-                if sr[0] != tr[0]:
-                    raise SpecError(f'cross-module feature relay->E feedforward {s!r}->{t!r}')
-                s_to_e.setdefault(s, set()).add(t)
-            elif sr and sr[1] == 'E' and tr and tr[1] == 'Eor':
-                if sr[0] != tr[0]:
-                    raise SpecError(f'cross-module E->Eor feedforward {s!r}->{t!r}')
-                e_to_eor.setdefault(sr[0], set()).add(s)
-            elif sr and sr[1] == 'Eor' and tr and tr[1] == 'E':
+        if kind == 'feedforward':
+            if s_is_rg:
+                if not (tr and tr[1] == 'E'):
+                    raise SpecError(f'RGC feedforward {s!r}->{t!r} must target an ordinary E')
+                c = columns[tr[0]]
+                if rg_patch[s] != (c['row'], c['col']):
+                    raise SpecError(f'RGC {s!r} feeds column {tr[0]!r} outside its patch')
+                rg_into_E.setdefault(t, set()).add(s)
+            elif sr and sr[1] == 'E' and tr and tr[1] == 'E':
                 child, parent = sr[0], tr[0]
+                if child == parent:
+                    raise SpecError(f'lateral E->E feedforward {s!r}->{t!r} inside column '
+                                    f'{child!r}: columns have no lateral connections')
                 if parent not in columns[child]['parent_ids']:
-                    raise SpecError(f'bank link {s!r}->{t!r}: {parent!r} is not a parent of '
-                                    f'{child!r}')
-                link_ff.setdefault(child, set()).add(t)
+                    raise SpecError(f'identity link {s!r}->{t!r}: {parent!r} is not a parent '
+                                    f'of {child!r}')
+                link_ff.setdefault(child, {}).setdefault(s, set()).add(t)
             else:
-                raise SpecError(f'unexpected feedforward edge {s!r}->{t!r} in feature-gated '
-                                f'graph (only RGC-relay->E, E->Eor, Eor->parent-E allowed)')
+                raise SpecError(f'unexpected feedforward edge {s!r}->{t!r} in direct-identity '
+                                f'graph (only RGC->E and child-E->parent-E are allowed)')
+        elif kind == 'relay_excitation':
+            if not (tr and tr[1] == 'I'):
+                raise SpecError(f'relay_excitation {s!r}->{t!r} must target a column I')
+            if sr and sr[1] == 'E':
+                if sr[0] != tr[0]:
+                    raise SpecError(f'cross-column E->I edge {s!r}->{t!r}')
+                e_to_i.setdefault(tr[0], set()).add(s)
+            elif sr and sr[1] == 'C':
+                if sr[0] != tr[0]:
+                    raise SpecError(f'cross-column C->I edge {s!r}->{t!r}')
+                c_to_i.add(tr[0])
+            else:
+                raise SpecError(f'unexpected relay_excitation {s!r}->{t!r} in tiled graph')
+        elif kind == 'hard_reset_inhibition':
+            if not (sr and sr[1] == 'I' and tr and tr[1] == 'E'):
+                raise SpecError(f'hard_reset {s!r}->{t!r} must be a column I onto an ordinary E')
+            if sr[0] != tr[0]:
+                raise SpecError(f'column I {s!r} resets {t!r} outside its own column')
+            i_to_e.setdefault(sr[0], set()).add(t)
         elif kind == 'basal_excitation':
-            if not (sr and sr[1] == 'S' and tr and tr[1] == 'C'
-                    and sr[0] == tr[0] and sr[2] == tr[2]):
-                raise SpecError(f'basal {s!r}->{t!r} must be a feature relay S[k]->paired C[k] '
-                                f'in the same module')
-            s_to_c_basal.setdefault(t, set()).add(s)
+            if not (sr and sr[1] == 'E' and tr and tr[1] == 'C'):
+                raise SpecError(f'basal {s!r}->{t!r} must be an ordinary E -> its column C')
+            if sr[0] != tr[0]:
+                raise SpecError(f'cross-column basal {s!r}->{t!r}: a C receives local '
+                                f'bottom-up evidence only')
+            e_c_basal.setdefault(tr[0], set()).add(s)
         elif kind == 'apical_excitation':
             if not (sr and sr[1] == 'E' and tr and tr[1] == 'C'):
-                raise SpecError(f'apical {s!r}->{t!r} must be a LOCAL ordinary E -> feature C '
-                                f'(no L2->L1 feedback in this variant)')
-            if sr[0] != tr[0]:
-                raise SpecError(f'apical {s!r}->{t!r}: feature C receives apical only from its '
-                                f'own module ordinary E, not module {sr[0]!r}')
-            e_to_c_apical.setdefault(t, set()).add(s)
-        elif kind == 'relay_excitation':
-            if not (tr and tr[1] in ('I', 'If')):
-                raise SpecError(f'relay_excitation {s!r}->{t!r} must target a WTA I or feature If')
-            if tr[1] == 'I':                          # WTA relay: only ordinary E may drive it
-                if not (sr and sr[1] == 'E' and sr[0] == tr[0]):
-                    raise SpecError(f'WTA relay drive {s!r}->{t!r} must be a same-module '
-                                    f'ordinary E (no feature C may drive the WTA I)')
-                e_to_wta.setdefault(tr[0], set()).add(s)
-            else:                                     # feature If: only its paired C may drive it
-                if not (sr and sr[1] == 'C' and sr[0] == tr[0] and sr[2] == tr[2]):
-                    raise SpecError(f'feature If drive {s!r}->{t!r} must be its paired C[k] '
-                                    f'(no ordinary E may drive a feature If)')
-                c_to_if.setdefault(t, set()).add(s)
-        elif kind == 'hard_reset_inhibition':
-            if not (sr and tr):
-                raise SpecError(f'hard_reset {s!r}->{t!r} must connect two tiled nodes')
-            if sr[1] == 'I' and tr[1] == 'E':         # WTA reset onto its own bank
-                if sr[0] != tr[0]:
-                    raise SpecError(f'WTA I {s!r} resets {t!r} outside its own module')
-                wta_to_e.setdefault(sr[0], set()).add(t)
-            elif sr[1] == 'If' and tr[1] == 'S':      # feature reset onto its paired relay only
-                if sr[0] != tr[0] or sr[2] != tr[2]:
-                    raise SpecError(f'feature If {s!r} must reset only its paired feature relay, '
-                                    f'not {t!r}')
-                if_to_s.setdefault(s, set()).add(t)
-            else:
-                raise SpecError(f'unexpected hard_reset {s!r}->{t!r}: only WTA I->own E and '
-                                f'feature If[k]->paired S[k] are allowed')
+                raise SpecError(f'apical {s!r}->{t!r} must be a parent ordinary E -> child C')
+            child = tr[0]
+            if sr[0] not in columns[child]['parent_ids']:
+                raise SpecError(f'apical {s!r}->{t!r}: {sr[0]!r} is not a parent of {child!r}')
+            link_apical.setdefault(child, set()).add(s)
         elif sr is not None or tr is not None or s_is_rg:
             raise SpecError(f'edge kind {kind!r} ({s!r}->{t!r}) is not part of the '
-                            f'feature-gated tiled family')
+                            f'direct-identity tiled cortical-column family')
 
-    # --- per-module completeness (a missing edge is rejected here) ------------------------
-    for cid, c in columns.items():
-        s = mods[cid]
-        ebank = set(s['E'])
-        if e_to_eor.get(cid, set()) != ebank:
-            raise SpecError(f'module {cid!r}: every ordinary E must feed its Eor exactly once')
-        if e_to_wta.get(cid, set()) != ebank:
-            raise SpecError(f'module {cid!r}: every ordinary E must drive its WTA I')
-        if wta_to_e.get(cid, set()) != ebank:
-            raise SpecError(f'module {cid!r}: WTA I must hard-reset exactly its own E bank')
-        if c['layer'] != input_layer:
-            continue
-        expect = {rid for rid, patch in rg_patch.items() if patch == (c['row'], c['col'])}
-        for fk in range(n_feat):
-            s_id, c_id, if_id = s['S'][fk], s['C'][fk], s['If'][fk]
-            # RGC->S: exactly the one patch RGC whose patch-feature index is fk.
-            want_rg = {rid for rid in expect if rg_feature[rid] == fk}
-            if rgc_to_s.get(s_id, set()) != want_rg:
-                raise SpecError(f'feature relay {s_id!r} must receive exactly its paired RGC')
-            # S->E: all and only the module's ordinary E.
-            if s_to_e.get(s_id, set()) != ebank:
-                raise SpecError(f'feature relay {s_id!r} must feed all and only its module E bank')
-            # S->C basal: exactly one, the paired S.
-            if s_to_c_basal.get(c_id, set()) != {s_id}:
-                raise SpecError(f'feature C {c_id!r} must have exactly its paired relay {s_id!r} '
-                                f'as basal source')
-            # E->C apical: exactly the module's ordinary E (all eight, local only).
-            if e_to_c_apical.get(c_id, set()) != ebank:
-                raise SpecError(f'feature C {c_id!r} must receive apical from all and only its '
-                                f'{len(ebank)} local ordinary E')
-            # C->If and If->S: strict paired reset chain.
-            if c_to_if.get(if_id, set()) != {c_id}:
-                raise SpecError(f'feature If {if_id!r} must be driven only by its paired C {c_id!r}')
-            if if_to_s.get(if_id, set()) != {s_id}:
-                raise SpecError(f'feature If {if_id!r} must reset only its paired relay {s_id!r}')
-
-    # --- WTA vs feature-I disjointness (defensive; the edge rules already guarantee it) ----
+    # --- per-column internal completeness (a missing edge is rejected here) ------------
     for cid in columns:
-        wta_targets = wta_to_e.get(cid, set())
-        feature_reset_targets = set()
-        for fk, if_id in mods[cid]['If'].items():
-            feature_reset_targets |= if_to_s.get(if_id, set())
-        if wta_targets & feature_reset_targets:
-            raise SpecError(f'module {cid!r}: WTA I and feature If reset targets must be disjoint')
+        ebank = set(col_roles[cid]['E'])
+        if e_to_i.get(cid, set()) != ebank:
+            raise SpecError(f'column {cid!r}: every ordinary E must drive its I')
+        if i_to_e.get(cid, set()) != ebank:
+            raise SpecError(f'column {cid!r}: I must hard-reset exactly its own ordinary-E bank')
+        if e_c_basal.get(cid, set()) != ebank:
+            raise SpecError(f'column {cid!r}: its C must receive one source-distinct basal '
+                            f'from every ordinary E of the column')
+        if cid not in c_to_i:
+            raise SpecError(f'column {cid!r}: C must drive its I')
 
-    # --- child/parent link completeness + NO L2->L1 apical feedback -----------------------
+    # --- RGC-to-column completeness (input columns get all + only their patch RGCs) ----
+    for cid, c in columns.items():
+        is_input = (c['layer'] == input_layer)
+        expect = {rid for rid, patch in rg_patch.items() if patch == (c['row'], c['col'])}
+        for eid in col_roles[cid]['E']:
+            got = rg_into_E.get(eid, set())
+            if is_input:
+                if got != expect:
+                    raise SpecError(f'ordinary E {eid!r} in input column {cid!r} must receive '
+                                    f'all and only the {len(expect)} RGCs of its patch')
+            elif got:
+                raise SpecError(f'non-input ordinary E {eid!r} must not receive RGC feedforward')
+
+    # --- identity + apical link completeness ------------------------------------------
+    # EVERY child ordinary E addresses EVERY parent ordinary E, so no child winner can be
+    # unrepresented at the parent (the deadlock the removed Eor relay suffered).
     for cid, c in columns.items():
         for pid in c['parent_ids']:
-            parent_E = set(mods[pid]['E'])
-            if link_ff.get(cid, set()) != parent_E:
-                raise SpecError(f'module {cid!r} Eor must feed every ordinary E of parent {pid!r}')
+            parent_E = set(col_roles[pid]['E'])
+            reached = link_ff.get(cid, {})
+            for eid in col_roles[cid]['E']:
+                if reached.get(eid, set()) != parent_E:
+                    raise SpecError(f'ordinary E {eid!r} must address every ordinary E of '
+                                    f'parent {pid!r} (source-addressed identity projection)')
+            if link_apical.get(cid, set()) != parent_E:
+                raise SpecError(f'column {cid!r} C must receive an apical from every ordinary '
+                                f'E of parent {pid!r}')
 
 
 def _default_layer(arch: str) -> str:

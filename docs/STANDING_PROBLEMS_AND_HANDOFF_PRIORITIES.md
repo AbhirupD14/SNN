@@ -1,7 +1,7 @@
 # Standing Problems and Handoff Priorities
 
 **Status:** living handoff document
-**Last updated:** 2026-07-22
+**Last updated:** 2026-07-28
 
 ## Purpose
 
@@ -24,23 +24,29 @@ Status labels:
 
 | Priority | Work | Value | Scope |
 | --- | --- | --- | --- |
-| P0 | Test event-conserving predictive inhibition | Replaces topology-specific latency tuning with a falsifiable invariant | Medium |
+| ~~P0~~ **ADDRESSED** | ~~Resolve the Eor relay and inter-column information contract~~ | Closed two ways: `Eor` is now a **fixed** relay at `θ` in the classic columns (it can no longer strand a new local owner), and `tiled_cc_direct_identity` removes it entirely so the parent receives the **winner identity**, not mere column activity. Evidence: `docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md` | done |
+| ~~P0~~ **FIXED** | ~~Resolve the `tau = 1.0` boundary-edge deadlock~~ | The event loop now drains crossings available at exactly `tau = 1.0`. Two-patch direct-identity: C spikes 0 → 500/1000, feedback resets 0 → 4000, L1 wins 2000/2000 → 1500/2000, runaway C cells 2 → 0. All goldens unchanged. `tests/test_boundary_edge_crossing.py` | done |
+| P0 | Characterize frequency scaling and certainty coupling in the existing tiled topology | Auto-pacing now forces exact presentation-level alternation at the tested loop depths. The remaining question is whether alternation begins only after meaningful C confirmation and remains interpretable across patch count, pattern changes, and sparse evidence. Run the patch-count sweep 1..9 with feedback-off controls. | Medium |
+| ~~P0~~ **ANSWERED** (diagnosis for the row below) | The feedback cadence measures loop latency and input pacing, not certainty | **Confirmed by construction.** `period = 2 × latency`: the diagnostic `tiled_cc_double_eor` preset (classic + one extra output relay) moved the period 6 → 8 on 8/8 seeds. The period-2 alias exists only for **odd** latency, which is why `1010` could never be secured by reseeding. Worse, the halving itself requires `latency % input_period == 0` (predicts 18/18 measured cases) — at the default `input_period=1` that holds only because 1 divides every integer latency. Slowing the input drives per-presentation emission to **1.00** in all three topologies. `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md` | Medium |
+| ~~P0~~ **SOLVED** | ~~Reach exact `1010` alternation~~ | Set `input_period = loop latency` (2 / 3 / 4 for direct-identity / `tiled_cc` / double-Eor). Each volley's confirmation then lands exactly on its successor's drive packet and cancels it, so presentations alternate exactly — **strict `1010` on 12/12 seeds for all three loop depths**, depth-independent, no engine change. Condition is sharp: `ip = L+1` gives rate 1.00. `input_period` is now a runtime-only dashboard control (applies without rebuilding). `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md` | done |
+| P1 | Make suppression consume the next *eligible evidence event* | No longer required for exact alternation (see above), but still the more general contract: it would make the cadence invariant at **every** pacing rather than only at `ip = L`, and robust to pauses and sibling-patch count. Contract stated in the rejected-direction report | Medium |
 | P0 | Run the four-pattern, every-column consolidation experiment | Answers the internship's immediate scientific question | Medium |
 | P1 | Validate the four-competitor capacity transition | Tests whether exhausting L1 capacity creates the need for another layer | Medium |
-| P1 | Finish cap-free-learning integration and regression evidence | Prevents an artificial cap from limiting one-event integrators | Small |
+| P1 | Reconcile cap-free base learning with the intentional detector ceiling | Keeps the general learning equation distinct from the explicit θ/2 evidence-integration constraint | Small |
 | P1 | Run a time-boxed NEST timing-validation prototype | Tests the circuit under a mature simulator before more scheduler-specific tuning | Small–Medium |
 | P1 | Make the handoff reproducible and reconcile documentation | Keeps the next researcher from relying on obsolete topology descriptions | Small |
 | Defer | Replace the hybrid scheduler with a full discrete-event simulator | Potentially valuable, but much larger than the immediate experiments | Large |
 | Defer | Solve general multi-winner composition | Separate scientific problem requiring a new circuit contract | Large |
 
-The first three items should be treated as experiments with explicit acceptance criteria,
+The P0 items should be treated as experiments with explicit acceptance criteria,
 not as dashboard demonstrations.
 
 ---
 
-## P0 — Predictive inhibition has no scale-independent timing invariant
+## P0 — Frequency halving is not yet validated as a certainty signal
 
-**Status:** Candidate identified
+**Status:** Cadence reproducibility solved under auto-pacing; certainty coupling and
+irregular-input semantics remain open
 
 ### Required behavior
 
@@ -49,17 +55,55 @@ of the eligible presentations. This should remain true when identical columns ar
 spatially. It should not depend on node insertion order or on retuning a mature weight
 budget for every topology.
 
+“Half” means alternating accepted and absent evidence events:
+
+```text
+fire, silent, fire, silent, ...
+```
+
+A grouped cadence such as `fire, fire, fire, silent, silent, silent` has an average rate
+of `0.5`, but it is not the required certainty signal. An irregular trace whose long-run
+mean happens to approach `0.5` is likewise reduced activity, not demonstrated frequency
+halving.
+
+### Current architectural decision
+
+Do not add another topology to address this problem, and do not remove or relax the
+pattern-detector per-synapse ceiling `w_i <= theta/2`. That ceiling is intentional: one
+afferent is insufficient evidence for a detector, while multiple simultaneous afferents
+or repeated evidence over time may be integrated.
+
+The existing tiled cortical-column graph is the object under test. Frequency halving is
+intended as a column-level confidence and attention signal:
+
+- high activity indicates active learning, active use, or guided attention;
+- slower alternating activity indicates greater certainty that the current pattern is
+  already learned;
+- a feedback-suppressed presentation must produce no column winner/Eor event, so downstream
+  layers receive a real absence of evidence.
+
 ### Evidence so far
+
+> **Substantially superseded.** The `tau` race described below was one symptom of a more
+> general cause, now measured and resolved: the cadence is set by the top-down loop latency
+> `L` and the input pacing (`period = 2L`; suppression bites only when
+> `L % input_period == 0`). Presenting one volley per resolved causal chain
+> (`input_period = 0`, auto-derived) gives exact alternation on 12/12 seeds at three loop
+> depths. See `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`. The paragraphs below are retained
+> as the original observation.
 
 In the original `rg_coincidence` circuit, the fixed L1 packet is approximately
 `1.05 * theta`, so it crosses at `tau ~= 0.952`. The mature prediction/C path is
 approximately `1.10 * theta`, crossing at `tau ~= 0.909`. Prediction therefore arrives
 first on the suppressing boundaries and the circuit produces exact frequency halving.
 
-In the cap-free tiled circuit, mature ordinary L1 E, Eor/L2 E, and C activity can all
-cross at approximately `tau ~= 0.909`. The scheduler then sees a real numerical tie.
-Stable node order selects ordinary L1 E first, after which the shared I relay has already
-fired and cannot relay the later C input in that boundary. Frequency halving is lost.
+In diagnostic tiled runs using the cap-free ordinary-E rule without the dashboard's
+intentional detector ceiling, mature ordinary L1 E, Eor/L2 E, and C activity can all cross
+at approximately `tau ~= 0.909`. The scheduler then sees a real numerical tie. Stable node
+order selects ordinary L1 E first, after which the shared I relay has already fired and
+cannot relay the later C input in that boundary. Frequency halving is lost. This diagnostic
+race is separate from the sparse-evidence limitation created deliberately by the `theta/2`
+detector ceiling.
 
 A diagnostic-only intervention that rescaled mature L1 ordinary-E input from
 `1.10 * theta` to `1.05 * theta`, leaving Eor/L2 at `1.10 * theta`, restored exact
@@ -71,7 +115,22 @@ active evidence fraction, pipeline phase, or event multiplicity can change the r
 Therefore a fixed latency margin is a useful diagnostic and possibly a physical
 parameter, but it is not yet the architectural invariant.
 
-### Leading candidate: event-conserving predictive inhibition
+The current dashboard also exposes a separate sparse-evidence effect. With one active L1
+patch, an L2 detector receives only one of its possible child-column afferents. Because
+that afferent is intentionally bounded by `theta/2`, L2 can train slowly through temporal
+accumulation but cannot mature into a one-event integrator. Its apical confirmations to
+the associated L1 C cell therefore occur less frequently than accepted L1 presentations.
+Maturing the C basal weight cannot create missing apical events.
+
+The existing feedback path maps one C event to at most one later suppressed L1
+presentation. If several accepted L1 events are required per L2/C event, accepted and
+suppressed event counts cannot balance one-for-one. Longer training alone therefore does
+not imply eventual exact one-patch alternation under the current semantics. With more
+simultaneously active patches, L2 receives more evidence per presentation and may enter a
+different cadence; dashboard observations have included grouped `3 fire / 3 silent`
+behavior. That has the correct average but not the required temporal meaning.
+
+### Deferred candidate: event-conserving predictive inhibition
 
 Treat predictive inhibition as a counted local event rather than a per-boundary Boolean:
 
@@ -95,8 +154,9 @@ count.
 
 This candidate preserves the existing cells, local graph, and feedforward learning rule,
 but it changes the relay/suppression semantics from lossy Boolean signaling to lossless
-counted signaling. It should therefore be introduced as a headless ablation before any
-production change.
+counted signaling. It is not the current implementation task. First characterize the
+existing topology across active-patch scales; revisit event semantics only if that evidence
+justifies doing so.
 
 If counted suppression is rejected as too computational, the alternative is to model
 real inhibitory synaptic delay, conductance, and decay. That is a valid continuous-time
@@ -104,7 +164,34 @@ direction, but then the suppression fraction will legitimately depend on physica
 constants and path delays. Immediate hard reset plus per-boundary Boolean relays cannot
 simultaneously provide continuous-time fidelity and a parameter-free halving guarantee.
 
-### Minimal acceptance experiment
+### Immediate scaling experiment
+
+Keep the topology, `theta/2` detector ceiling, thresholds, learning rules, and feedback
+path fixed. Sweep active-patch count from 1 through 9, including multiple spatial
+arrangements where a count permits them, all four patterns, and a declared seed set.
+
+For every active L1 column record:
+
+- eligible input presentations;
+- ordinary-E winner and Eor events;
+- L2 winner events;
+- C confirmations;
+- feedback resets/suppressed presentations;
+- accepted/input ratio;
+- exact binary firing sequence, run-length distribution, and phase;
+- owner identity and turnover after a pattern change.
+
+Classify results as exact alternation, grouped half-rate, irregular reduced activity, or
+no meaningful suppression. Report the minimum active-patch count—if any—at which exact
+alternation becomes stable across seeds and arrangements. Single-patch sparse feedback is
+an expected negative control for the present implementation, while still remaining an
+unresolved requirement for any future general claim.
+
+Scaling success would establish an operating regime for the existing topology; it would
+not solve or erase the single-patch event-count mismatch. Scaling failure must be preserved
+as a negative result rather than hidden by averaging or parameter tuning.
+
+### Future mechanism acceptance experiment
 
 Run the existing immediate-reset mechanism and the counted-event candidate side by side.
 For each mechanism:
@@ -124,12 +211,13 @@ Do not promote the candidate if it achieves halving by silently building an inhi
 backlog, suppresses novel patterns indefinitely, or relies on identifying layers/neurons
 from string IDs.
 
-### Decision still required
+### Deferred decision
 
-Is the model intended to implement a computational event contract (one prediction buys
-one suppression), or a continuous biophysical circuit whose frequency is an emergent
-function of explicit delays and time constants? This choice should be written down before
-more timing constants are tuned.
+The desired observable contract is now clear: exact alternating column-level absence of
+evidence. What remains undecided is whether the existing circuit reaches that contract in
+a sufficiently supported scaling regime, or whether a later change to event semantics
+inside the same topology is required. Do not answer that question by introducing a new
+topology or removing the intentional integration ceiling.
 
 ---
 
@@ -269,36 +357,68 @@ one failed column would be hidden by the other eight.
 
 ---
 
-## P1 — Sparse-evidence L2 bootstrap remains unresolved
+## Resolved decision — Eor relay and inter-column identity
 
-**Status:** Open; intended operating regime must be declared
+**Status:** Addressed in both classic and identity-preserving column contracts
 
-An inhibition audit found that the C-to-I hard-reset path works when exercised. In
-single-patch isolation, however, L2 ordinary E receives roughly one of nine possible
-afferents. Initial weight on that afferent is far below threshold, and ordinary E learns
-only when it spikes. This creates a cold-start deadlock: L2 rarely spikes, the afferent
-does not mature, apical prediction rarely descends, and C/I activity is correspondingly
-rare.
+The original problem was real: treating `Eor` as a plastic competitor allowed a long
+single-pattern dwell to drive one incoming weight to `1000` and the others to `0.001`.
+After a pattern switch, the new ordinary-E owner could learn correctly while its
+floor-weight packet failed to activate `Eor`, stranding otherwise valid local evidence.
 
-Removing the ordinary-E per-synapse weight cap allows a **mature** sparse afferent to
-become a one-event integrator. It does not by itself make a subthreshold initial afferent
-fire and therefore does not solve cold bootstrap.
+The classic tiled presets now implement `Eor` as the relay its name implies. Every
+ordinary-E-to-Eor afferent is initialized at `theta` and frozen, so any local winner
+produces one column-active event. This removes turnover deadlock without changing the
+intentional parent detector ceiling `w_i <= theta/2`. It also preserves the deliberately
+compressed classic payload: the parent learns that the child column was active, not which
+ordinary E won.
 
-Before changing L2 excitability, decide whether single-patch evidence is a required use
-case. If full-field presentation is the actual protocol, single-patch silence may be a
-valid negative control. If a single learned patch must drive prediction, compare only
-small, explicit bootstrap candidates: normalized/concentrated initialization, a declared
-priming phase, or local learning from subthreshold causal evidence. Do not choose using a
-dashboard trace alone.
+The `tiled_cc_direct_identity` preset supplies the other explicit contract. It removes
+`Eor`, densely projects each of the eight local winner identities to the eight parent
+detectors, and gives the local C eight independent basal associations. The direct-identity
+acceptance sweep passed 12/12 ordered-pattern runs, retained 100% direct parent evidence,
+and distinguished two compositions with the same active patch locations. Exact protocol,
+results, and limitations are in `docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md`.
+
+Neither choice is a proposed fix for certainty-coded frequency halving. Output suppression
+under irregular pacing remains a separate problem: the classic circuit must suppress its
+column-active event, while direct identity must suppress the outbound winner-addressed
+event. Frequency is reserved for confidence/attention rather than winner identity.
 
 ---
 
-## P1 — Cap-free ordinary-E learning needs final scientific acceptance
+## P1 — Sparse-evidence L2 bootstrap remains unresolved
 
-**Status:** Implementation in progress in the current working tree
+**Status:** Open standing limitation; one-patch case is the scaling negative control
 
-Production ordinary-E learning is being changed from a per-synapse cap to a zero floor
-plus the neuron-wide fullness-error budget
+An inhibition audit found that the C-to-I hard-reset path works when exercised. In
+single-patch isolation, however, L2 ordinary E receives roughly one of nine possible
+afferents. Its active afferent is intentionally bounded by the pattern-detector ceiling
+`theta/2`; this is not an accidental cap to remove. L2 may slowly learn and fire through
+temporal accumulation, but one child event cannot make it a one-event integrator.
+
+Consequently, apical prediction descends less frequently than the associated L1 column
+accepts evidence. The L1 C basal synapse may mature, but C still cannot fire without an L2
+apical event. Under the current one-C-event/one-reset mapping, this sparse confirmation
+rate cannot generate exact `fire, silent` alternation.
+
+Do not change topology, lower threshold, raise the cap, or normalize one sparse afferent to
+threshold merely to make the dashboard halve. The immediate work is the fixed-parameter
+active-patch scaling experiment described above. It must determine whether multiple
+simultaneous child columns produce exact alternation, grouped half-rate behavior, or a
+patch-count-dependent irregular cadence.
+
+If later work returns to the single-patch requirement, it must address the mismatch between
+accepted L1 evidence events and L2/C confirmation events while preserving the intentional
+integration rule. More training by itself is not a proposed solution.
+
+---
+
+## P1 — Cap-free base learning and the intentional detector ceiling need reconciliation
+
+**Status:** Implemented and covered by focused regression tests
+
+Production ordinary-E learning uses a zero floor plus the neuron-wide fullness-error budget
 
 ```text
 B = e_maturity_budget_frac * theta
@@ -310,13 +430,21 @@ The intended fixed point is finite total incoming weight `sum(w) ~= B`; a specia
 place most or all of that budget on one afferent and become a one-event integrator. C basal
 weights and predictive-inhibitory weights retain their own role-specific bounds.
 
-Focused tests in `tests/test_ordinary_e_cap_free.py` cover convergence, non-oscillation,
-weights above the historical 500 cap, and retention of C/PI bounds. Remaining handoff work
-is to run the complete suite and the four-pattern consolidation protocol, record the
-results, and ensure no UI or serializer still describes the FE budget as a hard cap.
+That general cap-free rule does not invalidate the explicit
+`e_weight_cap_frac = 0.5` pattern-detector policy used by the dashboard/scaling protocol.
+The latter is an intentional architectural constraint requiring integrated evidence, not
+the historical universal cap that the base-rule work removes. Documentation, tests, and
+configuration reporting must keep these two concepts separate.
 
-This change should not be credited with solving predictive-inhibition timing or L2 cold
-bootstrap; those are separate problems.
+Focused tests in `tests/test_ordinary_e_cap_free.py` cover convergence, non-oscillation,
+weights above the historical 500 cap, and retention of C/PI bounds. The dashboard/scaling
+contract deliberately adds `e_weight_cap_frac=0.5` to pattern-detector edges, while
+one-afferent relay edges retain their separate `theta` ceiling. The pending scientific
+work is the four-pattern consolidation protocol, not implementation of the base rule.
+
+This change should not be credited with solving predictive-inhibition timing or sparse L2
+confirmation. In particular, it must not silently bypass the declared `theta/2` detector
+ceiling in the scaling experiment.
 
 ---
 
@@ -335,24 +463,21 @@ recorded in `docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`.
 
 ---
 
-## P1 — Documentation and handoff drift
+## Resolved maintenance — Documentation and handoff drift
 
-**Status:** Open cleanup
+**Status:** Reconciled for the 2026-07-28 handoff
 
-The repository contains valuable historical reports, but several describe removed
-presets, capped ordinary-E weights, conductance-era inhibition, or earlier coincidence
-semantics as though they were current. The README and methodology must be reconciled with
-the final three-preset dashboard and the final cap/timing decision.
+The README, current methodology, dashboard boundary, and this problem register now describe
+the six built-in presets, fixed classic Eor relay, direct-identity hierarchy, automatic
+graph-derived pacing, `tau = 1.0` boundary drain, cap-free base rule, and the intentional
+dashboard detector ceiling. Historical reports remain as evidence and are labeled or
+framed by the current methodology rather than silently deleted.
 
-Before handoff:
-
-1. Make this file the index of unresolved work.
-2. Label historical documents prominently; do not delete evidence.
-3. Update the README's current preset list, test inventory, and architecture summary.
-4. Record exact commands, seeds, training schedules, and machine-readable outputs for the
-   chosen consolidation and inhibition experiments.
-5. Make one clean handoff commit only after the current overlapping Claude changes are
-   reviewed and the full test suite passes.
+Machine-readable direct-identity results live in
+`experiments/direct_identity_results.json`; the remaining scaling protocol is specified in
+`prompts/Claude_Existing_Topology_Frequency_Scaling_Prompt.md`. Future work should continue
+to record exact commands, seeds, schedules, outputs, and implementation commits when a
+standing question is resolved.
 
 ## Related evidence and design notes
 

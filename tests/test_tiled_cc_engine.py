@@ -14,7 +14,10 @@ from snn.neurons import ExcitatoryNeuron, E_THRESHOLD
 
 
 # ---------------------------------------------------------------- parity
-def test_ordinary_e_and_eor_are_the_same_class_and_config():
+def test_ordinary_e_and_eor_are_the_same_class_and_membrane_config():
+    """Eor is the SAME class and the same membrane/integration cell as an ordinary E -- it is
+    not a Boolean OR. It differs only in its synaptic role: a fixed one-afferent relay of its
+    column's WTA winner (frozen bank at the theta ceiling) vs a plastic theta/2 detector."""
     e = SimulationEngine(seed=1, topology='tiled_cc')
     col = 'L1c11'
     E = next(c for c in e.latency_competitors
@@ -22,10 +25,20 @@ def test_ordinary_e_and_eor_are_the_same_class_and_config():
     Eor = next(c for c in e.latency_competitors
                if e._column_of.get(c.id) == col and e._role_of.get(c.id) == 'Eor')
     assert type(E) is type(Eor) is ExcitatoryNeuron
+    # identical membrane, integration and (nominal) learning configuration
     for attr in ('threshold', 'w_max', 'w_floor', 'eta', 'update_mode',
                  'maturity_budget_frac', 'leak_rate', 'refractory_steps',
-                 'alpha_inh', 'alpha_a', 'beta_v', 'beta_s', 'a_max', 'learn'):
+                 'alpha_inh', 'alpha_a', 'beta_v', 'beta_s', 'a_max'):
         assert getattr(E, attr) == getattr(Eor, attr), attr
+    # ...and exactly two deliberate synaptic-role differences
+    assert E.learn is True and Eor.learn is False           # detector learns; relay is fixed
+    assert Eor.w_cap == E_THRESHOLD                         # one afferent reaches theta exactly
+    assert np.all(Eor.acc_weights == E_THRESHOLD)           # and starts there
+    assert E.w_cap is None                                  # no detector cap at engine defaults
+    capped = SimulationEngine(seed=1, topology='tiled_cc', e_weight_cap_frac=0.5)
+    E2 = next(c for c in capped.latency_competitors
+              if capped._column_of.get(c.id) == col and capped._role_of.get(c.id) == 'E')
+    assert E2.w_cap == 0.5 * E_THRESHOLD                    # >= 2 afferents to reach theta
 
 
 def test_ordinary_e_and_eor_numeric_parity():
@@ -173,10 +186,14 @@ def test_top_c_never_deposits_or_fires(isolation):
         assert top['count'] == 0 and top['spiked'] is False
 
 
-def test_eor_and_l2e_learn_only_on_their_own_firing(isolation):
+def test_eor_is_a_fixed_relay_and_l2e_learns_on_its_own_firing(isolation):
     eor = isolation['eor_cell']
     init = isolation['init']
-    assert not np.array_equal(eor.acc_weights, init['eor'])       # Eor learned
+    # Eor is a FIXED relay: its bank is frozen at theta, so firing never moves it. (The
+    # plasticity it would otherwise have could only depress the afferents of ordinary E that
+    # have not recently won -- silencing the column exactly when a new owner takes over.)
+    assert np.array_equal(eor.acc_weights, init['eor'])           # Eor did not learn
+    assert np.all(eor.acc_weights == E_THRESHOLD)
     win_id = isolation['l2_winner_id']
     assert win_id is not None                                     # an L2 E won
     l2e = isolation['l2e_cells'][win_id]

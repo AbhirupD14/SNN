@@ -72,12 +72,14 @@ def test_config_accepts_editable_keys(engine):
     assert set(applied) == {'leak_rate', 'refractory_steps'}
     assert engine.params['leak_rate'] == 0.1
     assert engine.latency_competitors[0].leak_rate == 0.1    # rebuild propagated it
-    # The dashboard control surface is exactly the retained controls plus the two
-    # experimental toggles (dual FE/FES rule and the top-down feedback-reset halving).
+    # The dashboard control surface is exactly the retained controls, the two experimental
+    # toggles (dual FE/FES rule and the top-down feedback-reset halving), and the runtime
+    # input-pacing control.
     keys = {c['key'] for c in CONFIG_SPEC}
     assert keys == set(config_values(engine.params))
     assert keys == {'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta',
-                    'l2_init_total_frac', 'dual_fe_fes', 'c_feedback_reset'}
+                    'l2_init_total_frac', 'dual_fe_fes', 'c_feedback_reset',
+                    'input_period'}
 
 
 def test_reset_and_reseed_cycle(engine):

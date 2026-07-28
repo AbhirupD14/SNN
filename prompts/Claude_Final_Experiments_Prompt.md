@@ -1,5 +1,11 @@
 # Claude Prompt: Final Dual-FE Experiments and Composition Report
 
+> **Status: superseded as the current work prompt.** Do not execute this omnibus plan as
+> written. It predates the decision to preserve the intentional `theta/2`
+> pattern-detector ceiling and avoid new topology work. The approved next experiment is
+> `prompts/Claude_Existing_Topology_Frequency_Scaling_Prompt.md`. This file remains only as
+> a record of the broader trial-and-error plan.
+
 ## Objective
 
 Carry out the final bounded set of scientific experiments on the current classic
@@ -48,10 +54,9 @@ with:
 - dual FE/FES learning enabled;
 - **no feature relays** and no recursive identity-relay topology.
 
-Do not execute or implement
-`prompts/Claude_Recursive_Feature_Gated_Hierarchy_Prompt.md`. Do not use
-`tiled_cc_feature_gated`. Do not reintroduce feature-specific inhibition, a weight cap,
-normalization, priming, or a new neuron equation.
+Do not reintroduce per-feature gating (the removed `tiled_cc_feature_gated` direction),
+feature-specific inhibition, a weight cap, normalization, priming, or a new neuron
+equation.
 
 The experiments may vary only declared experimental parameters/interventions:
 

@@ -1,43 +1,55 @@
 # Current Work Prompt
 
-## Current task: recursive feature gates through L2
+## Status
 
-Paste the block below into a fresh Claude context:
+The per-feature gated tiled direction has been rejected and removed. The supported built-in
+topologies are `rg_coincidence`, `tiled_cc`, `tiled_cc_l1_4`,
+`tiled_cc_direct_identity`, `tiled_cc_double_eor`, and `rg_direct_cc4`.
+
+Since the original scaling prompt was written, four timing/output changes landed:
+
+1. classic Eor is a fixed, non-plastic relay at `theta`;
+2. direct identity removes Eor and preserves the local winner address;
+3. the event loop drains dependent crossings at `tau=1.0`;
+4. `input_period=0` now auto-matches the graph-derived feedback-loop latency, producing
+   exact presentation-level alternation without relying on a seed-specific cadence alias.
+
+`tiled_cc_double_eor` is a diagnostic latency probe, not an approved research topology.
+The cadence result and its remaining certainty limitation are recorded in
+`docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`.
+
+The rejection rationale and the intended replacement semantics are recorded in
+“Rejected direction: per-feature gated tiled columns” in
+`Current_Implementation_Methodology_Equations.md`. That report is the sole current
+methodological record of the removed direction; git history is the archive for the deleted
+implementation details.
+
+## Current task: existing-topology frequency scaling
+
+Paste the block below into a fresh context:
 
 ```text
-Build and causally validate the recursive feature-gated hierarchy only.
+Read and execute the complete experiment specification in:
+prompts/Claude_Existing_Topology_Frequency_Scaling_Prompt.md
 
-Read and execute the complete specification in:
-prompts/Claude_Recursive_Feature_Gated_Hierarchy_Prompt.md
+Before editing, inspect the repository, complete working-tree diff, current dashboard
+configuration, and the standing-problem/methodology sections referenced by the prompt.
+Preserve all feature-gated removal work and unrelated scientific artifacts.
 
-Before editing, inspect the repository, its relevant documentation/tests, and the complete
-working-tree diff. Preserve all unrelated uncommitted work and prior experiment artifacts.
-Preserve `tiled_cc_feature_gated` as the validated local-only control. Add a new topology
-that keeps winner identity by giving every L1 ordinary competitor its own fixed,
-suppressible inter-layer relay. Wrap those relays with paired C/I feature gates driven by
-the L2 competitors. Do not feed L2 through one anonymous Eor, restore the old whole-bank
-feedback reset, or let an L2 feature gate reset an L1 competitor.
+Use only the existing tiled_cc topology. Start from the LIVE
+backend.dashboard_config.DASHBOARD_OVERRIDES and require the current resolved contract:
+dual FE/FES on, eta=4, c_eta=16, input_period=0 (auto, resolved to loop latency 3),
+theta/2 pattern-detector ceiling, fixed Eor at theta, and feedback reset on. Keep every
+production equation, timing rule, and connection unchanged.
 
-This is an implementation-and-execution task, not a planning/audit task. First prove
-the isolated E-source inter-layer relay/gate, then preserve the existing L1 turnover result,
-then test L2 acquisition, turnover, and causal frequency-halving propagation on seed 1.
-If a stage fails, preserve and report the negative result; do not tune around it. Do not
-run the multi-seed recall/capacity sweep or add the four-competitor variant in this context.
-Add focused tests, run the required headless stages and full suite, run `git diff --check`,
-and provide the completion report required by the specification. Do not commit unless I
-explicitly ask you to commit.
+Sweep active patch count 1 through 9. The experiment must now distinguish two questions:
+(1) whether auto-paced exact alternation is present and stable, and (2) whether its onset
+tracks meaningful C confirmation/maturity rather than merely the pacing schedule. Run
+matched feedback-off controls, record resolved/eligible presentations rather than raw
+boundaries, preserve negative results, and write the required resumable artifacts and
+final scaling report.
 
-If the existing dirty worktree conflicts with the task, identify the exact overlapping
-files and stop before overwriting someone else's changes. Otherwise continue through
-implementation and verification.
+Do not implement a new topology or confidence mechanism. Do not commit or push.
 ```
 
-## Work order after this task
-
-1. Review the causal L1 and L2 gate traces before changing any parameter.
-2. If the recursive seed-1 hierarchy passes, adapt and run frozen recall across seeds.
-3. Add the four-competitor recursive preset only after eight-competitor robustness passes.
-4. Design interleaved continuous learning in a fresh context.
-5. Run noise invariance only after stable hierarchical acquisition and recall.
-
-Do not give one Claude context all three implementation prompts.
+The old `Claude_Final_Experiments_Prompt.md` is not the current execution prompt.

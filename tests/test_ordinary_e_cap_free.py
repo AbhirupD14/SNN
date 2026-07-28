@@ -60,19 +60,23 @@ def test_three_of_nine_detector_converges_near_budget_without_pathological_growt
     assert float(n.acc_weights[~np.asarray(part)].sum()) == pytest.approx(0.0, abs=1e-6)
 
 
-def test_tiled_l1_eor_weight_can_exceed_500_and_matures():
-    # An Eor cell integrates its local ordinary-E afferents; under sustained drive its row
-    # total approaches the FE budget, and individual weights are free to exceed 500.
+def test_tiled_ordinary_e_row_bounded_by_budget_eor_fixed_at_theta():
+    # An ordinary E integrates its RGC patch: individual weights are free to exceed 500 and
+    # the neuron-wide FE budget -- not a per-synapse ceiling -- bounds the ROW total. Eor is
+    # not part of that story: it is a fixed one-afferent relay held at theta.
     e = SimulationEngine(seed=1, topology='tiled_cc', leak_rate=0.0)
     e.set_pattern('row 1')
-    eors = [c for c in e.latency_competitors if getattr(c, 'id', '').endswith('Eor')]
-    assert eors                                              # tiled graph exposes Eor competitors
+    eors = [c for c in e.latency_competitors if e._role_of.get(c.id) == 'Eor']
+    detectors = [c for c in e.latency_competitors if e._role_of.get(c.id) != 'Eor']
+    assert eors and detectors                                # tiled graph exposes both roles
     for _ in range(4000):
         e.step()
-    maxima = [float(c.acc_weights.max()) for c in e.latency_competitors]
-    totals = [float(c.acc_weights.sum()) for c in e.latency_competitors]
-    assert max(maxima) > 500.0                               # some ordinary-E/Eor weight exceeds 500
+    maxima = [float(c.acc_weights.max()) for c in detectors]
+    totals = [float(c.acc_weights.sum()) for c in detectors]
+    assert max(maxima) > 500.0                               # some ordinary-E weight exceeds 500
     assert max(totals) <= B + 1.0                            # but no total overshoots the budget
+    for c in eors:
+        assert np.all(c.acc_weights == E_THRESHOLD)          # relay bank frozen at theta
 
 
 def test_predictive_inhibitory_weights_remain_bounded_by_pi_w_max():

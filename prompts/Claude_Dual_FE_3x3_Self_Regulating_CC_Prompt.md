@@ -26,10 +26,10 @@ unit tests. Run the reference experiment and report the result honestly.
 
 ## Scope and precedence
 
-This task supersedes the recursive feature-gated hierarchy as the current experiment.
-Do not implement `prompts/Claude_Recursive_Feature_Gated_Hierarchy_Prompt.md` in the same
-change. Preserve all existing feature-gated work as a control and preserve every existing
-preset, replay, experiment, and golden artifact.
+This task supersedes the per-feature gated tiled direction as the current experiment (that
+direction has since been rejected and removed; see “Rejected direction: per-feature gated
+tiled columns” in `Current_Implementation_Methodology_Equations.md`). Preserve every
+existing preset, replay, experiment, and golden artifact.
 
 Inspect the entire working tree before editing. Preserve unrelated changes. Do not commit
 or push unless explicitly instructed after the results are reviewed.
@@ -46,9 +46,7 @@ Read:
   smallest reusable WTA-bank builder;
 - `backend/dashboard_config.py`, `backend/api.py`, `frontend/controls.js`, and the topology
   layout/renderer;
-- `experiments/microcircuit_turnover.py`,
-  `experiments/feature_gated_turnover.py`, and
-  `experiments/basic_consolidation.py`;
+- `experiments/microcircuit_turnover.py` and `experiments/basic_consolidation.py`;
 - tests for ordinary-E learning, coincidence learning, preset contracts, serialization,
   dashboard configuration, deterministic topology construction, and replay recording;
 - `docs/STANDING_PROBLEMS_AND_HANDOFF_PRIORITIES.md`.
@@ -490,7 +488,7 @@ Run:
 
 1. the new focused tests;
 2. existing ordinary-E, coincidence, topology, dashboard, serialization, and replay tests;
-3. the existing feature-gated and basic-consolidation tests;
+3. the existing basic-consolidation tests;
 4. the complete Python suite;
 5. the replay JavaScript tests;
 6. `git diff --check`.

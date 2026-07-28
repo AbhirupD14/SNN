@@ -1,40 +1,58 @@
-# Current implementation: methodology and equations
+# Implementation methodology and equations
 
-This document describes **only** the model that exists in code today: a
-conductance-based spiking network with **persistent inhibitory conductance**
-(there are no hard wipes anywhere), a local post-synaptic activity trace, and
-**local predictive inhibition** (PI). Neuron behaviour lives in `snn/neurons.py`;
-topology, the synchronous timestep, and serialization live in
-`backend/simulation.py`.
+## Current implementation snapshot (2026-07-28)
 
-The network is defined by a **`NetworkSpec`** (typed nodes + typed edges, in
-`backend/network_spec.py`); the engine executes whatever graph it is given via
-per-edge-kind dispatch. The fixed vocabulary is eight node archetypes
-(`rg_source`, `e_sensory`, `e_encoder`, `e_residual`, `e_competitor`, `i_relay`,
-`predictor`, `switch`) and six edge kinds (`feedforward`, `fixed_excitation`,
-`trace_excitation`, `relay_excitation`, `inhibition`, `predictive_inhibition`). Two
-intrinsic population rules are NOT edges: `e_sensory` — every threshold crosser
-fires; `e_competitor` — deterministic single-winner WTA (one winner fires + learns
-its feedforward weights). Four built-in presets ship, selected by the `topology`
-parameter, and arbitrary graphs can be built/saved/loaded live in the browser
-Topology Editor:
+The live network is defined by a validated **`NetworkSpec`** of typed nodes and edges in
+`backend/network_spec.py`. Neuron and dendritic behavior lives in `snn/neurons.py`;
+graph construction, event delivery, analytic crossing-time scheduling, learning dispatch,
+runtime pacing, and serialization live in `backend/simulation.py`.
 
-* **`topology='pi'` — the predictive-inhibition (PI) experiment.** 26 neurons.
-  Eight pattern-specific predictive interneurons `PI[j]`, paired one-to-one with the
-  competitors `L2E[j]`, each owning nine locally-plastic inhibitory output synapses
-  onto the sensory `L1E_s` cells. This is the topology the symmetry-breaking science
-  is about.
-* **`topology='old'` — the original dense global-inhibition topology.** 27 neurons.
-  Nine paired `L1I` relays fed densely by every `L2E` (every `L2E`→every `L1I`), each
-  projecting a paired inhibitory conductance onto its own `L1E_s`. The single L2
-  winner drives all nine `L1I`, so every `L1E_s` is shunted — winner-gated global
-  inhibition. Its inhibition is conductance too (no hard wipes anywhere).
-* **`topology='rg'` — old cortex with explicit RG sources.** 36 neurons. Plastic
-  paired RG→L1E afferents precede the unchanged old dense-feedback topology.
-* **`topology='rg_residual'` — classification-preserving residual/error circuit.**
-  52 neurons. L1E remains complete and uninhibited; learned prediction targets a
-  separate ErrorE sheet, whose unexplained events drive locally traced incumbent
-  switches before ordinary L2 WTA re-competition.
+The supported built-in presets are:
+
+| Preset | Nodes / edges | Current role |
+| --- | ---: | --- |
+| `rg_coincidence` | 45 / 196 | validated 3×3 coincidence/turnover circuit |
+| `tiled_cc` | 191 / 1052 | classic 9×9 tiled hierarchy; dashboard default |
+| `tiled_cc_l1_4` | 155 / 620 | classic hierarchy with four L1 competitors |
+| `tiled_cc_direct_identity` | 181 / 1546 | Eor-less source-addressed hierarchy |
+| `tiled_cc_double_eor` | 201 / 1062 | diagnostic feedback-latency probe only |
+| `rg_direct_cc4` | 14 / 44 | minimal direct four-competitor column |
+
+All six built-ins are event-resolved. Integer outer boundaries still carry delay-one
+feedforward, basal, and feedback-reset events, but membrane crossings are resolved at
+analytic sub-boundary timestamps `tau`. The scheduler repeatedly selects the earliest
+crossing, advances the membranes, applies same-`tau` apical and hard-reset consequences,
+and drains dependent events available exactly at `tau=1.0`. Custom graphs without an
+event-resolved archetype or hard-reset edge retain the legacy synchronous path.
+
+The current tiled path uses two distinct forms of inhibition:
+
+- ordinary `E→I→E` WTA is an immediate same-`tau` hard reset of the local ordinary-E bank;
+- `C→I→E` confirmation schedules a delay-one boundary-start hard reset, applied after the
+  next drive packet is frozen so that the packet is discarded.
+
+Persistent inhibitory conductance remains available to historical/custom graph mechanics,
+but it is not the tiled column's WTA or confirmation mechanism.
+
+Production ordinary-E learning has a cap-free base equation with a zero floor and
+neuron-wide free-energy budget. The tiled dashboard/scaling contract then applies
+structural per-synapse ceilings by role: `theta/2` for pattern detectors and `theta` for
+the one-afferent Eor and C-basal relays. The generic engine default leaves the optional
+detector ceiling unset. Classic Eor is initialized at `theta` and frozen. Direct-identity
+removes Eor, transmits the ordinary-E winner address directly to the parent, and gives C
+one causal-source-specific basal weight per local winner.
+
+The editor vocabulary currently contains eleven archetypes and ten edge kinds, as declared
+by `ARCHETYPES` and `EDGE_KINDS` in `backend/network_spec.py`; those registries, rather than
+the historical lists below, are authoritative.
+
+## Historical predictive-inhibition lineage (retained evidence)
+
+The following sections through the older RG/predictive-inhibition results document removed
+or low-level experimental graphs (`pi`, `old`, `rg`, `rg_residual`). Their builders and
+mechanics remain useful to tests and custom graphs, but they are not accepted built-in
+`topology=` values and their old configuration lists are not the dashboard contract. The
+current tiled-family methodology resumes at “Tiled cortical columns.”
 
 ## Populations and topology
 
@@ -155,29 +173,30 @@ Defaults `alpha_a = 0.85`, `beta_v = 0.30`, `beta_s = 1.00`, `a_max = 1.0`. The
 trace means only "this cell was recently depolarized/firing"; it carries **no**
 information about which afferent supplied the charge.
 
-## The one accumulating excitatory weight rule (production: linear-bounded)
+## The one accumulating excitatory weight rule (production: linear FE)
 
-Runs when an excitatory neuron fires, on `acc_weights` only. The **production default is
-linear-bounded** — the per-synapse `(1 - (w_i/w_max)^2)` multiplier was removed after a
-32/32 fresh-seed confirmation (see `docs/LINEAR_WEIGHT_ABLATION_REPORT.md`). The E hard
-cap and the zero floor are retained:
+Runs when a plastic excitatory neuron fires, on `acc_weights` only. The production default
+is the cap-free `linear_fe` base rule: the historical per-synapse quadratic multiplier and
+universal `w_max` clip are absent, while the zero floor and neuron-wide maturity budget are
+retained:
 
 ```text
-p        = threshold - sum(acc_weights)               # pre-update, signed
+p        = maturity_budget_frac*threshold - sum(acc_weights)  # pre-update, signed
 signal_i = +1 if afferent i spiked in the causal volley else -1
-delta_i  = eta · p · signal_i · distance_factor_i     # linear_bounded (production)
-w_i      = clip(w_i + delta_i, 0, w_max)              # E cap retained, floor 0
+delta_i  = eta · p · signal_i · distance_factor_i
+w_i      = max(w_i + delta_i, 0)                      # base rule: floor only
 ```
 
 Geometry is a per-synapse learning-rate multiplier only; it never scales delivered
-charge. `p` (the neuron-wide FE) is signed, so a projection self-limits as its total
-approaches threshold. L2E feedforward weights learn by this rule; sensory `L1E_s` weights
-are frozen.
+charge. `p` is signed, so a row self-limits as its total approaches the maturity budget.
+An independent structural `w_cap`, when configured, is applied after the rule in every
+mode: the dashboard uses `theta/2` for pattern detectors and `theta` for one-afferent
+relays. This architectural ceiling must not be confused with the removed universal
+learning-rule cap.
 
-The **historical** rule multiplied `delta_i` by `(1 - (w_i/w_max)^2)`; it remains
-available as the headless `e_weight_update_mode='quadratic_bounded'` for regression
-comparison. Note this is the ORDINARY E/L2E rule; the **coincidence C basal rule is
-unchanged and still keeps its `(1 - (w_b/w_C_max)^2)` term** (see the C section / spec).
+The historical `linear_bounded` and `quadratic_bounded` modes remain headless regression
+controls. The experimental dashboard can instead select the dual FE/FES rule; the same
+role-specific structural ceiling is still applied after that update.
 
 ## Strictly-local predictive-inhibition plasticity
 
@@ -511,24 +530,22 @@ ordinary-E count `N = cc_e_count` is configurable and deeper hierarchies compose
 copying a hard-coded graph. For any `N` the graph has exactly `10N+111` nodes and
 `129N+20` edges (default `N=8` → **191 nodes, 1052 directed edges**).
 
-**Eor is an ordinary learned excitatory neuron, not a Boolean OR.** Each column's output
-`Eor` is the *same* `ExcitatoryNeuron` class instantiated through the *same* construction
-path as the ordinary competing E, with the same threshold θ, leak, refractory, analytic
-crossing, activity trace, plastic feedforward bank, target-owned participation vector,
-accumulating rule, weight floor/cap, maturity budget, learning rate, and delay-one
-emission. Its only differences are **edges**: ordinary E drives and is reset by the local
-relay I; Eor does not touch the local WTA; ordinary E feeds the local Eor; Eor feeds the
-parent's ordinary E and its own column's C basal; Eor never supplies apical feedback.
-Learning eligibility on the event path follows the plastic archetype (every fired
-event-resolved plastic E learns its own delivered volley), never an id prefix or a
-"L2 competitor" list — so Eor and every L2 ordinary E learn exactly like an L1 ordinary E.
-Fan-in differs across the hierarchy (9 RGCs into an L1 E, `N` local E into an Eor, 9 child
-Eor into an L2 E), so each event-plastic row is initialized by the same policy applied to
-its **own** fan-in — seeded narrow jitter, then bounded proportional normalization to
-`min(l2_init_total_frac·θ, fan_in·cap)` — and the `1/d²` learning-rate factor is
-normalized **per target** (each target's closest afferent scores 1.0) so a short
-within-column edge never rescales a long inter-layer projection. Legacy presets keep the
-per-archetype reference verbatim (goldens are bit-exact).
+**Eor is a membrane relay with a fixed afferent bank.** It still uses the ordinary
+event-resolved excitatory membrane, threshold, leak, refractory, analytic crossing, trace,
+and delay-one emission. Its synaptic role is now deliberately different: every local
+`E→Eor` weight is initialized at `theta`, capped at `theta`, and frozen
+(`eor_w_init_frac=1.0`, `eor_plasticity_enabled=False`). Any one local WTA winner therefore
+drives Eor from the first boundary and forever after. This prevents the signed
+participation rule from depressing inactive-owner afferents and stranding a newly recruited
+winner. Only Eor's own incoming bank is frozen: `Eor→parent E` is a parent-owned plastic
+pattern-detector weight, while `Eor→C` is the C-owned learned basal weight. Eor remains a
+pooled “this column fired” message; use `tiled_cc_direct_identity` when the parent must
+receive the local winner address.
+
+Fan-in differs across the hierarchy (9 RGCs into an L1 E, `N` local E into Eor, 9 child
+Eor into an L2 E). Ordinary detector rows retain seeded initialization and per-target
+distance normalization; the fixed Eor override is applied only after consuming the same RNG
+draws, so enabling the relay contract does not perturb other cells' initialization.
 
 **The shared one-shot relay I gives immediate hard single-winner WTA.** Every ordinary E
 drives its column's single I (`relay_excitation`) and is reset by it
@@ -568,7 +585,210 @@ cross-column reset leakage, plus a two-patch probe confirming two independent L1
 under a single hard L2 winner). A dashboard screenshot is supplemental; the headless trace
 is authoritative.
 
+### Intentional θ/2 integration and the sparse-evidence halving limit
+
+The dashboard configuration applies a deliberate per-synapse ceiling of
+`e_weight_cap_frac = 0.5` to pattern-detector feedforward weights:
+
+```text
+w_i <= theta/2
+```
+
+This is an evidence-integration constraint, not a tuning defect. No single afferent can
+drive a detector across threshold in one event. A detector must combine at least two
+sufficient simultaneous afferents or accumulate repeated evidence over time when its leak
+permits that accumulation. Eor and C basal weights retain their separate role-specific
+semantics.
+
+For one active L1 patch, L2 receives one active child-column afferent out of its possible
+inputs. It can train slowly through repeated Eor events, but the intentional ceiling means
+that it never becomes a one-event integrator for that lone child. L2 apical feedback to the
+associated L1 C is therefore sparser than accepted L1 evidence. A mature C basal weight
+only makes C responsive when apical permission arrives; it cannot increase the frequency
+of L2 permission.
+
+This creates an event-count limitation in the current feedback implementation:
+
+```text
+several accepted L1 events -> one L2 event -> at most one C event
+                            -> at most one later suppressed L1 event
+```
+
+Exact alternating halving requires accepted and suppressed eligible presentations to
+balance one-for-one. Longer training alone cannot manufacture missing L2/C confirmations,
+and the `theta/2` constraint must not be removed to force the result.
+
+The later cadence audit established an additional, independent timing effect. With a volley
+every boundary, the confirmation loop produces `L` fires followed by `L` silences, and
+suppression is effective only when the reset happens to land on a drive packet. The
+dashboard now uses graph-derived auto-pacing (`input_period=0`, resolved to the loop latency)
+so each confirmation lands on its successor presentation and forces presentation-level
+alternation. This resolves reproducible cadence under the model's paced-input abstraction;
+it does not prove that cadence encodes certainty under arbitrary or interrupted input.
+
+The remaining scaling experiment keeps the graph, cap, thresholds, learning rules, auto
+pacing, and feedback path fixed while sweeping one through nine active patches. It must
+distinguish whether exact alternation begins only after C is meaningfully confirmed from a
+trivial pacing artifact that alternates any mature loop.
+
+Evaluation must distinguish:
+
+```text
+101010...   exact alternating halving; required certainty signal
+111000...   average 0.5 but grouped; not accepted as halving
+irregular   reduced activity only, even if its long-run mean is near 0.5
+```
+
+No new topology is approved for this issue. Any later mechanism that makes suppression
+robust to irregular timing must preserve the intentional integration ceiling and existing
+sparse column graph; the standing candidate is for a prediction to be consumed by the next
+eligible evidence event rather than by a wall-clock boundary.
+
+## Rejected direction: per-feature gated tiled columns
+
+**Decision:** the dedicated `tiled_cc_feature_gated` topology was implemented and tested,
+but it is not the selected architecture and is being removed from the supported preset
+surface.
+
+The experiment inserted a separate fixed relay, coincidence cell, and inhibitory relay
+(`S/C/If`) for every input feature in every L1 receptive field. When an established local
+owner predicted an active feature, that feature's C/I chain suppressed only its paired
+relay. Novel feature relays remained active. In the tested seed-1 protocols this produced
+clean local frequency alternation and allowed changed patterns to recruit different
+ordinary-E owners. The experiment therefore established that selective feature suppression
+can cause turnover; it was not rejected because the mechanism failed to operate.
+
+It was rejected because it solves the problem at the wrong structural and representational
+level:
+
+* **Topology density grows too quickly.** The local-only version replicated nine `S/C/If`
+  chains in each of nine receptive fields. Applying the same motif between competition
+  layers would require identity relays and paired C/I gates for every child competitor,
+  making inter-column connectivity substantially denser at each hierarchical boundary.
+  This works against the intended sparse cortical-column design.
+* **Competitive learning already allocates changed patterns.** An ordinary E that has
+  specialized for one pattern becomes less competitive for a sufficiently different
+  pattern under the existing weight-distribution and fullness-error dynamics. Continued
+  presentation can therefore allow a different neuron to acquire the new pattern without
+  reproducing a gate for every input feature.
+* **The desired frequency signal is column-level certainty.** Frequency halving is intended
+  as groundwork for certainty and attention guidance. A highly active region should mean
+  that it is actively learning, actively being used, or being held at high gain by guided
+  attention. A slower-firing region should mean that its current pattern is already learned
+  with greater certainty. Per-feature explaining-away does not directly encode that
+  region-level state.
+* **Suppressed evidence must become absent evidence.** When feedback suppresses a confirmed
+  presentation, the column should emit no winner/output evidence for that presentation.
+  Downstream layers should observe a genuine missing event, not a feature-expanded alternate
+  representation and not merely a lower average caused by an unrelated feedback-loop
+  latency.
+
+No replacement topology is approved. The immediate direction is to characterize scaling in
+the existing tiled graph with the intentional `theta/2` detector ceiling unchanged. The
+desired future semantics remain sparse and column-level: once a local owner is confirmed,
+eligible presentations should alternate `fire, silent, fire, silent`, and a suppressed
+presentation should emit no evidence. A changed pattern should be handled by the existing
+competitive population rather than per-feature gates. This describes the target semantics
+only; neither the rejected experiment nor the present feedback loop proves that exact
+single-patch alternation has been implemented.
+
+## Direct-identity tiled columns (`topology='tiled_cc_direct_identity'`)
+
+The `Eor` output relay is removed and each ordinary-E winner's **identity** is transmitted
+directly: every child ordinary E projects to every parent ordinary E, so a parent detector
+owns one plastic weight per `(child column, child winner)` source address rather than a
+single pooled "this column was active" event. 181 nodes, 1546 edges at 8 E per column.
+
+Two equations change shape; none change form.
+
+**Multi-basal coincidence gate.** A column C now owns one learned basal afferent per local
+ordinary E. With `k` the causal basal source (a current event preferred over a carried one;
+within each, the earliest delivered):
+
+```text
+B = current OR one-boundary-carried basal event on ANY source
+A = any current apical event
+q = w_k * s_k        deposited at most once per boundary iff B AND A
+```
+
+**Causal-source-only basal learning.** The C update is the unchanged learning family
+applied at index `k` alone:
+
+```text
+w_k  <- clip(w_k + dw(w_k, s_k, phi_k), 0, theta)
+w_j  <- w_j          for every j != k        (exactly unchanged, no participation term)
+```
+
+There is deliberately **no** `+1/-1` participation term across the basal vector. That term
+is what made `Eor` undeliverable: it depresses every non-participating afferent, so an
+owner that has not recently won loses the weight it needs to be heard. Measured
+(seed 1, patch (1,1), 2500-boundary phases): the `row 1` owner's basal weight moved
+`250.00 -> 613.80`, and while the `col 1` owner then matured `250.00 -> 612.30`, the first
+owner's weight changed by **exactly 0.0**.
+
+Apical permission is unchanged: unweighted, Boolean `any(apical)`, with source identity
+retained only as a diagnostic. The dendritic orientation is unchanged — bottom-up/local
+evidence is basal, top-down feedback is apical.
+
+The full contract, protocol, results and negative findings are in
+`docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md`. The topology exposed a boundary-edge scheduler
+defect: with the mandated `theta/2` detector ceiling and zero leak, two coordinated child
+identity events deliver exactly `theta`, so L2 and its dependent C crossing can occur at
+`tau = 1.0`. The event loop now drains all crossings already available at that edge. C
+therefore fires, learns, and schedules feedback; a sub-threshold cell still reports
+`inf` because no interval remains. Regression coverage is
+`tests/test_boundary_edge_crossing.py`.
+
+## Feedback cadence: loop latency and input pacing
+
+The top-down `C -> I` confirmation is not instantaneous. Each hop costs a whole boundary
+(`SYNAPTIC_DELAY = 1`), and the confirmation is always downstream of the spike it would
+suppress — measured 450/450 boundaries, the C fires at `tau = 1.0` while its column's E
+already fired at `0.667`, because that E spike IS the evidence that travels up. Define the
+loop latency `L` as boundaries from an ordinary-E spike to the feedback reset landing on its
+own bank:
+
+```text
+child E --(h feedforward hops)--> parent E     fires at +h
+parent E --apical (zero latency)--> child C    fires at the same boundary
+C --> I --(delay-1 feedback reset)-->          lands at +h+1        =>  L = h + 1
+```
+
+Two measured laws follow, both confirmed by construction with the diagnostic
+`tiled_cc_double_eor` preset (classic column + one extra output relay, `L` 3 -> 4):
+
+```text
+period      = 2 * L                        (with a volley every boundary)
+suppression bites  <=>  L % input_period == 0
+```
+
+`period = 2L` because exactly `L` emissions escape before the first confirmation returns, so
+`L` confirmations then arrive back-to-back. Observed 4 / 6 / 8 for `L` = 2 / 3 / 4. The
+period-2 alias seen on some `tiled_cc` seeds requires ODD `L` and is not robust (a
+2-boundary input gap destroys it permanently).
+
+The divisibility rule is the important one: at the historical `input_period = 1` the halving
+holds only because every integer divides 1. Setting
+
+```text
+input_period = L
+```
+
+makes each volley's confirmation land exactly on its successor's drive packet and cancel it,
+forcing exact `fire, silent` alternation independent of loop depth (strict 1010 on 12/12
+seeds at `L` = 2, 3 and 4). The condition is sharp: `input_period = L + 1` gives no
+suppression at all. `input_period = 0` derives `L` from the graph so the pacing re-tracks on
+any topology change.
+
+Physically this is one presentation per RESOLVED causal chain: a real cortical loop settles
+far faster than the input changes, so the overlapping-wave regime at `input_period = 1` is an
+artifact of the unit-delay discretization rather than a property of the circuit. Full record
+and measurements: `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`.
+
 ## Failure modes and honest limitations
+
+The limitations below concern the earlier conductance-based predictive-inhibition overlap
+experiment, not the rejected `tiled_cc_feature_gated` topology described immediately above.
 
 * **Contamination is real.** While the incumbent still wins the overlapping pattern it
   *does* learn the novel features (measured: novel-weight sum rises during Phase B).

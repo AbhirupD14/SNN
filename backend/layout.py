@@ -138,45 +138,6 @@ def _tile_axis(idx, count, patch, spacing, gap):
     return raw - span / 2.0
 
 
-TILE_FEATURE_DZ = 4.4     # feature relay plane rise above the RGC surface
-TILE_FEATURE_C_OFF = 1.0  # paired feature C offset (feedback side) from its relay
-TILE_FEATURE_I_OFF = 1.0  # paired feature If offset (inhibitory side) from its relay
-
-
-def _place_feature_gates(pos, spec, in_rows, in_cols, p_rows, p_cols, jit) -> None:
-    """Place the feature-gated variant's relays/C/I: each feature relay S sits directly above
-    its paired RGC pixel (one plane up), with its paired C offset to the feedback (+y) side
-    and its paired If to the inhibitory (-z) side, so every relay->C->If->relay loop is
-    visually associated yet separated enough to inspect the paired edges. Derived entirely
-    from node metadata (input_row/input_col + column_role/feature_index), never from ids."""
-    for n in spec['nodes']:
-        role = n.get('column_role')
-        if role not in ('S', 'C', 'If'):
-            continue
-        gr, gc = n.get('input_row'), n.get('input_col')
-        if gr is None or gc is None:
-            # C/If carry no pixel; derive the relay's pixel plane from the paired S below.
-            continue
-        x = _tile_axis(gc, in_cols, p_cols, TILE_PX, TILE_PATCH_GAP)
-        y = -_tile_axis(gr, in_rows, p_rows, TILE_PX, TILE_PATCH_GAP)
-        pos[n['id']] = np.array([x, y, TILE_FEATURE_DZ]) + jit(0.08)
-    # C/If inherit their paired relay S position (by module + feature_index) plus an offset.
-    relay_pos = {}
-    for n in spec['nodes']:
-        if n.get('column_role') == 'S':
-            relay_pos[(n['column_id'], n.get('feature_index'))] = pos[n['id']]
-    for n in spec['nodes']:
-        role = n.get('column_role')
-        if role not in ('C', 'If'):
-            continue
-        base = relay_pos.get((n.get('column_id'), n.get('feature_index')))
-        if base is None:
-            continue
-        off = (np.array([0.0, TILE_FEATURE_C_OFF, 0.6]) if role == 'C'
-               else np.array([0.0, -TILE_FEATURE_I_OFF, -0.6]))
-        pos[n['id']] = base + off + jit(0.08)
-
-
 def generate_tiled_layout(rng, spec) -> dict[str, np.ndarray]:
     """Deterministic functional coordinates for a tiled cortical-column graph, derived
     from its ``topology`` metadata and per-node ``column_*`` / ``patch_*`` tags.
@@ -209,24 +170,13 @@ def generate_tiled_layout(rng, spec) -> dict[str, np.ndarray]:
         y = -_tile_axis(gr, in_rows, p_rows, TILE_PX, TILE_PATCH_GAP)
         pos[n['id']] = np.array([x, y, 0.0]) + jit(0.05)
 
-    # Feature-gated variant: place the feature relays directly above their paired RGC, with
-    # the paired C/I visibly associated but offset for edge inspection, then the competitor
-    # banks/L2 via the shared column placement below.
-    if meta.get('variant') == 'feature_gated':
-        _place_feature_gates(pos, spec, in_rows, in_cols, p_rows, p_cols, jit)
-
-    # column layout: gather the competitor-bank members per column (E ring + Eor + WTA I).
-    # Feature relays/C/I (roles S/C/If in the feature-gated variant) are placed above by
-    # ``_place_feature_gates`` and skipped here; only the classic single column C (role 'C'
-    # with no feature_index) is placed as a column role below.
+    # column layout: gather the members per column (ordinary-E ring + Eor + C + I).
     columns = {c['id']: c for c in meta['columns']}
-    members = {cid: dict(E=[], Eor=None, C=None, I=None) for cid in columns}
+    members = {cid: dict(E=[], Eor=None, Eor2=None, C=None, I=None) for cid in columns}
     for n in spec['nodes']:
         role = n.get('column_role')
-        if role is None or role in ('S', 'If'):
+        if role is None:
             continue
-        if role == 'C' and n.get('feature_index') is not None:
-            continue                                  # a feature C, already placed above
         slot = members[n['column_id']]
         if role == 'E':
             slot['E'].append(n['id'])
@@ -254,11 +204,20 @@ def generate_tiled_layout(rng, spec) -> dict[str, np.ndarray]:
         # (-z). C stays off to the feedback (+y) side. All distinct and non-coincident
         # with the ring. Display only -- the I neuron has no feedforward edges, so its
         # position never enters the 1/d^2 learning-rate factor.
-        pos[members[cid]['Eor']] = center + np.array([0.0, 0.0, TILE_ROLE_OFF]) + jit()
-        if members[cid]['C'] is not None:            # classic column C (absent in feature-gated)
+        # Eor is absent in the direct-identity variant (each ordinary E addresses the parent
+        # itself), so every role is placed only when the column actually has it. Guarding
+        # rather than indexing also keeps a partially-wired custom graph from writing a
+        # ``None`` key into the position map.
+        if members[cid]['Eor'] is not None:
+            pos[members[cid]['Eor']] = center + np.array([0.0, 0.0, TILE_ROLE_OFF]) + jit()
+        if members[cid]['Eor2'] is not None:      # diagnostic double-relay variant
+            pos[members[cid]['Eor2']] = center + np.array(
+                [0.0, 0.0, TILE_ROLE_OFF + 1.4]) + jit()
+        if members[cid]['C'] is not None:
             pos[members[cid]['C']] = center + np.array(
                 [TILE_ROLE_OFF, TILE_ROLE_OFF, 0.9]) + jit()
-        pos[members[cid]['I']] = center + np.array([0.0, 0.0, -TILE_ROLE_OFF]) + jit()
+        if members[cid]['I'] is not None:
+            pos[members[cid]['I']] = center + np.array([0.0, 0.0, -TILE_ROLE_OFF]) + jit()
 
     # Any node the metadata did not place (defensive) gets a deterministic offset rather
     # than the zero placeholder.

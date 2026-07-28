@@ -52,7 +52,7 @@ _MODEL_PARAM_KEYS = (
 # Neuron identity/metadata fields the computation depends on (archetype/role/class/layer and
 # the cortical-column grouping). Display-only labels/positions are excluded.
 _NEURON_KEYS = ("archetype", "role", "type", "layer",
-                "column_id", "column_role", "column_index", "feature_index")
+                "column_id", "column_role", "column_index")
 
 # Tiling metadata that shapes the graph (family/variant/dimensions/column membership). The
 # display-only ``selected_patch`` and ``patch_patterns`` are excluded.

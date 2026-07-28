@@ -1,0 +1,439 @@
+{
+  "topology": "tiled_cc_direct_identity",
+  "rates": {
+    "dual_fe_fes": true,
+    "eta": 4.0,
+    "c_eta": 2.0,
+    "dual_fe_B": 5.0,
+    "leak_rate": 0.0,
+    "refractory_steps": 0,
+    "c_feedback_reset": true,
+    "e_weight_cap_frac": 0.5
+  },
+  "dwell": 2500,
+  "tail": 400,
+  "dominance": 0.8,
+  "probe_a_turnover": {
+    "seed": 1,
+    "patch": [
+      1,
+      1
+    ],
+    "patterns": [
+      "row 1",
+      "col 1",
+      "row 1"
+    ],
+    "dwell": 2500,
+    "owners": [
+      "L1c11E6",
+      "L1c11E4",
+      "L1c11E6"
+    ],
+    "phases": [
+      {
+        "pattern": "row 1",
+        "owner": "L1c11E6",
+        "owner_dominance": 1.0,
+        "distinct_owners_in_tail": 1,
+        "won_boundaries": 2215,
+        "direct_evidence_boundaries": 2215,
+        "direct_evidence_fraction": 1.0,
+        "l2_owner": "L2c00E5",
+        "l2_win_boundaries": 732,
+        "c_basal": {
+          "L1c11E0": 250.0,
+          "L1c11E1": 250.0,
+          "L1c11E2": 250.0,
+          "L1c11E3": 250.0,
+          "L1c11E4": 250.0,
+          "L1c11E5": 250.0,
+          "L1c11E6": 613.8024674542454,
+          "L1c11E7": 250.0
+        }
+      },
+      {
+        "pattern": "col 1",
+        "owner": "L1c11E4",
+        "owner_dominance": 1.0,
+        "distinct_owners_in_tail": 1,
+        "won_boundaries": 2214,
+        "direct_evidence_boundaries": 2214,
+        "direct_evidence_fraction": 1.0,
+        "l2_owner": "L2c00E0",
+        "l2_win_boundaries": 730,
+        "c_basal": {
+          "L1c11E0": 250.0,
+          "L1c11E1": 250.0,
+          "L1c11E2": 250.0,
+          "L1c11E3": 250.0,
+          "L1c11E4": 612.2995719189539,
+          "L1c11E5": 250.0,
+          "L1c11E6": 613.8024674542454,
+          "L1c11E7": 250.0
+        }
+      },
+      {
+        "pattern": "row 1",
+        "owner": "L1c11E6",
+        "owner_dominance": 1.0,
+        "distinct_owners_in_tail": 1,
+        "won_boundaries": 2143,
+        "direct_evidence_boundaries": 2143,
+        "direct_evidence_fraction": 1.0,
+        "l2_owner": "L2c00E5",
+        "l2_win_boundaries": 715,
+        "c_basal": {
+          "L1c11E0": 250.0,
+          "L1c11E1": 250.0,
+          "L1c11E2": 250.0,
+          "L1c11E3": 250.0,
+          "L1c11E4": 612.2995719189539,
+          "L1c11E5": 250.0,
+          "L1c11E6": 855.463227253138,
+          "L1c11E7": 250.0
+        }
+      }
+    ],
+    "checks": {
+      "stable_owner_each_phase": true,
+      "turnover_on_switch": true,
+      "recall_on_return": true,
+      "every_owner_emits_direct_evidence": true,
+      "first_owner_basal_not_depressed": true
+    },
+    "first_owner_basal_delta_during_second_phase": 0.0
+  },
+  "probe_b_pattern_sweep": {
+    "seeds": [
+      1,
+      2,
+      3
+    ],
+    "n_runs": 12,
+    "passed": {
+      "stable_owner_each_phase": 12,
+      "turnover_on_switch": 12,
+      "recall_on_return": 12,
+      "every_owner_emits_direct_evidence": 12,
+      "first_owner_basal_not_depressed": 12
+    },
+    "runs": [
+      {
+        "seed": 1,
+        "first": "row 1",
+        "second": "col 1",
+        "owners": [
+          "L1c11E6",
+          "L1c11E4",
+          "L1c11E6"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 1,
+        "first": "col 1",
+        "second": "diag \\",
+        "owners": [
+          "L1c11E6",
+          "L1c11E4",
+          "L1c11E6"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 1,
+        "first": "diag \\",
+        "second": "diag /",
+        "owners": [
+          "L1c11E4",
+          "L1c11E6",
+          "L1c11E4"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 1,
+        "first": "diag /",
+        "second": "row 1",
+        "owners": [
+          "L1c11E6",
+          "L1c11E0",
+          "L1c11E6"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 2,
+        "first": "row 1",
+        "second": "col 1",
+        "owners": [
+          "L1c11E3",
+          "L1c11E7",
+          "L1c11E3"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 2,
+        "first": "col 1",
+        "second": "diag \\",
+        "owners": [
+          "L1c11E7",
+          "L1c11E5",
+          "L1c11E7"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 2,
+        "first": "diag \\",
+        "second": "diag /",
+        "owners": [
+          "L1c11E5",
+          "L1c11E3",
+          "L1c11E5"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 2,
+        "first": "diag /",
+        "second": "row 1",
+        "owners": [
+          "L1c11E5",
+          "L1c11E3",
+          "L1c11E5"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 3,
+        "first": "row 1",
+        "second": "col 1",
+        "owners": [
+          "L1c11E4",
+          "L1c11E5",
+          "L1c11E4"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 3,
+        "first": "col 1",
+        "second": "diag \\",
+        "owners": [
+          "L1c11E5",
+          "L1c11E7",
+          "L1c11E5"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 3,
+        "first": "diag \\",
+        "second": "diag /",
+        "owners": [
+          "L1c11E5",
+          "L1c11E7",
+          "L1c11E5"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      },
+      {
+        "seed": 3,
+        "first": "diag /",
+        "second": "row 1",
+        "owners": [
+          "L1c11E7",
+          "L1c11E4",
+          "L1c11E7"
+        ],
+        "checks": {
+          "stable_owner_each_phase": true,
+          "turnover_on_switch": true,
+          "recall_on_return": true,
+          "every_owner_emits_direct_evidence": true,
+          "first_owner_basal_not_depressed": true
+        }
+      }
+    ]
+  },
+  "probe_c_composition": {
+    "seed": 1,
+    "patches": [
+      [
+        0,
+        0
+      ],
+      [
+        2,
+        2
+      ]
+    ],
+    "patterns": [
+      "row 1",
+      "col 1"
+    ],
+    "dwell": 2500,
+    "per_column_owner": {
+      "L1c00": [
+        "L1c00E4",
+        1817
+      ],
+      "L1c22": [
+        "L1c22E4",
+        1815
+      ]
+    },
+    "distinct_column_owners": true,
+    "simultaneous_boundaries": 1815,
+    "distinct_pair_evidence_boundaries": 1815,
+    "observed_identity_pairs": {
+      "L1c00E4+L1c22E4": 1815
+    },
+    "l2_owner": "L2c00E3",
+    "l2_win_boundaries": 1524,
+    "max_l2_identity_weight": 500.0,
+    "identity_cap_respected": true
+  },
+  "probe_d_identity_discrimination": {
+    "seed": 1,
+    "patches": [
+      [
+        0,
+        0
+      ],
+      [
+        2,
+        2
+      ]
+    ],
+    "composition_a": [
+      "row 1",
+      "col 1"
+    ],
+    "composition_b": [
+      "diag \\",
+      "col 1"
+    ],
+    "dwell": 2500,
+    "probe": 600,
+    "local_owners_a": {
+      "L1c00": "L1c00E4",
+      "L1c22": "L1c22E4"
+    },
+    "local_owners_b": {
+      "L1c00": "L1c00E3",
+      "L1c22": "L1c22E4"
+    },
+    "local_identity_actually_changed": true,
+    "l2_distribution_a": {
+      "L2c00E4": 2,
+      "L2c00E3": 247
+    },
+    "l2_distribution_b": {
+      "L2c00E3": 1,
+      "L2c00E4": 239
+    },
+    "l2_top_a": "L2c00E3",
+    "l2_top_b": "L2c00E4",
+    "l2_distinguishes_compositions": true
+  },
+  "probe_e_boundary_edge_anomaly": {
+    "one_patch": {
+      "boundaries": 1000,
+      "l2_spike_taus": {
+        "0.0": 285
+      },
+      "c_deposit_taus": {
+        "0.0": 285
+      },
+      "deposits_at_boundary_edge": 0,
+      "deposits_total": 285,
+      "c_spikes": 142,
+      "feedback_resets": 1144,
+      "c_cells_with_runaway_retained_charge": {}
+    },
+    "two_patches": {
+      "boundaries": 1000,
+      "l2_spike_taus": {
+        "1.0": 667
+      },
+      "c_deposit_taus": {
+        "1.0": 1334
+      },
+      "deposits_at_boundary_edge": 1334,
+      "deposits_total": 1334,
+      "c_spikes": 666,
+      "feedback_resets": 5344,
+      "c_cells_with_runaway_retained_charge": {}
+    }
+  }
+}

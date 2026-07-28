@@ -6,6 +6,12 @@
 // between click and first dynamic message, or paused simulation).  Now it
 // shows a loading placeholder and retries via requestAnimationFrame so the
 // panel always self-populates as soon as data arrives.
+//
+// Layout stability: the panel is rebuilt every frame, so which cards exist must depend
+// only on the SELECTED NEURON, never on this boundary's values.  A card gated on a value
+// that turns on and off each boundary (spike_tau) is added/removed from the two-column grid
+// and reflows every card below it into the other column.  Gate such cards on the presence of
+// the KEY and render a placeholder for the idle state instead.
 
 export class Inspector {
   constructor(store) {
@@ -121,27 +127,40 @@ export class Inspector {
         ${card('Spike', `<span class="firing-badge ${state.spiked ? 'yes' : 'no'}">${state.spiked ? 'SPIKE' : 'idle'}</span>`, '', true)}
         ${card('Firing freq', (state.freq * 100).toFixed(1) + '%', bar(state.freq))}
         ${card('Refractory', state.refractory + ' steps')}
-        ${state.basal_weight != null ? card('Learned basal weight', `
+        ${state.basal_weights ? card(`Learned basal weights (${state.basal_weights.length})`, `
+          <div class="basal-list">
+            ${state.basal_weights.map((w, i) => {
+              const src = (state.basal_sources || [])[i] ?? `#${i}`;
+              const causal = state.deposit_source === src;
+              const carrying = (state.basal_eligible_sources || []).includes(src);
+              const now = (state.basal_active_sources || []).includes(src);
+              const tag = causal ? 'causal' : now ? 'now' : carrying ? 'carried' : '';
+              return `<div class="syn-row"${causal ? ' style="color:#c084fc"' : ''}>
+                <span class="name" title="${src}">${src}</span>
+                <span class="wbar"><i style="left:0;width:${Math.max(0, Math.min(1, w / meta.threshold)) * 100}%;background:#c084fc"></i></span>
+                <span class="wv">${w.toFixed(1)}</span>
+                <span class="wv" style="color:var(--txt-2);width:52px">${tag}</span></div>`;
+            }).join('')}
+          </div>
+          <div style="font-size:11px;color:var(--txt-2);margin-top:6px">one learned weight per local ordinary E; only the causal source learns</div>`,
+          '', true, true) : (state.basal_weight != null ? card('Learned basal weight', `
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-variant-numeric:tabular-nums">${state.basal_weight.toFixed(1)}</span>
             <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
               <div style="height:100%;width:${Math.max(0, Math.min(1, state.basal_weight / meta.threshold)) * 100}%;background:#c084fc;border-radius:3px"></div>
             </div>
             <span style="font-size:11px;color:var(--txt-2)">the only plastic C weight</span>
-          </div>`) : ''}
+          </div>`) : '')}
         ${state.coincidence_active != null ? card('Coincidence gate', `
-          <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center">
-            <span class="tag" style="color:${state.basal_received || state.basal_eligible ? '#c084fc' : 'var(--txt-2)'}">
-              basal ${state.basal_received ? 'now' : (state.basal_eligible ? 'eligible' : '—')}</span>
-            <span class="tag" style="color:${state.apical_active ? '#f472b6' : 'var(--txt-2)'}">
-              apical ${state.apical_active ? `on (${(state.apical_sources || []).length})` : 'off'}</span>
-            <span class="firing-badge ${state.coincidence_active ? 'yes' : 'no'}">
-              ${state.coincidence_active ? 'COINCIDENCE' : 'no gate'}</span>
-            <span style="font-size:11px;color:var(--txt-2)">charge ${(state.coincidence_charge ?? 0).toFixed(1)}</span>
-          </div>`) : ''}
-        ${state.spike_tau != null ? card('Spike sub-boundary τ',
-          `<span style="font-variant-numeric:tabular-nums">${state.spike_tau.toFixed(4)}</span>
-           <span style="font-size:11px;color:var(--txt-2);margin-left:8px">analytic within-boundary crossing time</span>`) : ''}
+          <div class="insp-chips">
+            <span class="tag" style="color:${state.basal_received || state.basal_eligible ? '#c084fc' : 'var(--txt-2)'}">basal ${state.basal_received ? 'now' : (state.basal_eligible ? 'eligible' : '—')}</span>
+            <span class="tag" style="color:${state.apical_active ? '#f472b6' : 'var(--txt-2)'}">apical ${state.apical_active ? `on (${(state.apical_sources || []).length})` : 'off'}</span>
+            <span class="firing-badge ${state.coincidence_active ? 'yes' : 'no'}">${state.coincidence_active ? 'COINCIDENCE' : 'no gate'}</span>
+            <span style="font-size:11px;color:var(--txt-2);font-variant-numeric:tabular-nums">charge ${(state.coincidence_charge ?? 0).toFixed(1)}</span>
+          </div>`, '', false, true) : ''}
+        ${'spike_tau' in state ? card('Spike sub-boundary τ',
+          `<span style="font-variant-numeric:tabular-nums">${state.spike_tau != null ? state.spike_tau.toFixed(4) : '—'}</span>
+           <div style="font-size:11px;color:var(--txt-2);margin-top:2px">analytic within-boundary crossing time</div>`) : ''}
         ${state.winner_trace != null ? card('Local winner trace x_j', `
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-variant-numeric:tabular-nums">${state.winner_trace.toFixed(3)}</span>
@@ -173,8 +192,10 @@ export class Inspector {
   }
 }
 
-function card(lbl, val, extra = '', small = false) {
-  return `<div class="icard">
+// ``full`` spans both grid columns -- use it for cards whose content would otherwise be
+// squeezed into a half-width cell and re-wrap as its live values change.
+function card(lbl, val, extra = '', small = false, full = false) {
+  return `<div class="icard${full ? ' full' : ''}">
     <div class="lbl">${lbl}</div>
     <div class="val ${small ? 'sm' : ''}">${val}</div>${extra}</div>`;
 }

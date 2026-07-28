@@ -1,8 +1,10 @@
-"""Conductance-based predictive-inhibition SNN: construction, a synchronous
-double-buffered timestep with explicit integer synaptic delays, and state
-snapshots for the dashboard.
+"""Graph-driven SNN engine with analytic event-resolved public presets, a compatible
+synchronous conductance path for legacy/custom graphs, explicit integer synaptic delays,
+and dashboard snapshots.
 
-Five topologies share one engine, selected by ``topology``:
+The six public presets are declared by ``backend.network_spec.PRESETS``. The `pi`, `old`,
+`rg`, and `rg_residual` descriptions below document retained low-level graph mechanics;
+those names are no longer accepted as public preset selections.
 
 ``topology='pi'`` -- the predictive-inhibition (PI) experiment (default here for the
 scientific question)::
@@ -27,7 +29,8 @@ scientific question)::
     9 L1E_s, 9 L1I (paired relays), 8 L2E, 1 L2I_WTA  = 27 neurons. The single L2
     winner drives ALL nine L1I relays (dense feedback), so every L1E_s receives a
     persistent inhibitory conductance pulse on the next boundary -- global inhibition
-    gated by the winner. Inhibition is conductance now (no hard wipes anywhere).
+    gated by the winner. This retained legacy path uses conductance rather than the
+    event-resolved presets' hard-reset edges.
 
 ``topology='rg'`` -- the `old` cortical topology with an explicit retinal-ganglion
 source layer spliced in ahead of L1 (36 neurons)::
@@ -104,7 +107,8 @@ from snn.neurons import (  # noqa: E402
 from backend.layout import generate_layout, generate_tiled_layout, grid_dims  # noqa: E402
 from backend.network_spec import (  # noqa: E402
     preset_spec, validate_spec, ARCHETYPES, I_THRESHOLD_FRAC,
-    tiled_cc_spec, tiled_cc_feature_gated_spec, rg_direct_cc4_spec,
+    tiled_cc_spec, tiled_cc_direct_identity_spec, tiled_cc_double_eor_spec,
+    rg_direct_cc4_spec,
     embed_patch_pattern, tiled_input_size,
     TILED_FAMILY, TILED_CC_DEFAULTS, TILED_PRESETS,
 )
@@ -170,9 +174,21 @@ DEFAULTS = dict(
     # uncapped (default; byte-identical). 0.5 caps every afferent at theta/2, so a competitor's
     # row needs >= 2 coincident afferents to reach theta -- no single source fires it alone
     # (it becomes a true integrator). Applies to latency/legacy competitors + encoders; NOT to
-    # Eor (a 1:1 relay of the WTA winner, which must fire on one afferent) or the coincidence
-    # C basal (its own rule; it already gates on basal AND apical).
+    # Eor or the coincidence C basal, which are ONE-AFFERENT cells bounded by
+    # ``relay_weight_cap_frac`` below instead.
     e_weight_cap_frac=None,
+    # Hard per-synapse ceiling on the ONE-AFFERENT relay weights -- the Eor feedforward bank
+    # and the coincidence C basal -- as a fraction of theta, applied in EVERY update mode
+    # (incl. cap-free linear_fe / dual_fe_fes). None = uncapped.
+    #
+    # These two cells are deliberately exempt from the theta/2 pattern-detector rule: each
+    # fires on a SINGLE afferent (Eor relays whichever ordinary E won its column's WTA; a C
+    # deposit is its lone basal event), so theta/2 would make them unable to fire at all.
+    # They are not, however, unbounded: 1.0 caps each such weight at theta, which is exactly
+    # the one-shot target. One afferent then reaches the threshold (the crossing test is
+    # ``V >= theta``) and can never overshoot it, mirroring how two theta/2 detector
+    # afferents sum to exactly theta.
+    relay_weight_cap_frac=1.0,
     # --- linear weight-update ablation (headless; defaults reproduce production) ---
     e_weight_update_mode='linear_fe',              # PRODUCTION default (cap-free FE, floor-only); also: linear_bounded | quadratic_bounded (historical headless, capped)
     c_weight_update_mode='c_linear_bounded',       # PRODUCTION default (multiplier dropped); also: c_quadratic_bounded (historical) | c_linear_nonnegative (cap-free diagnostic)
@@ -265,6 +281,23 @@ DEFAULTS = dict(
     c_eta=0.005,                                   # separately controlled basal learning rate
     c_fe_enabled=True,                             # include the w1-budget fullness-error factor in the C rule
     l2_init_total_frac=L2_INIT_TOTAL_FRAC,          # normalized latency-WTA afferent total / theta
+    # Initial value of EVERY E->Eor feedforward weight, as a fraction of theta. Eor is not a
+    # pattern detector: it relays whichever ordinary E won its column's WTA, on ONE afferent.
+    # 1.0 therefore starts it already mature -- at the same theta its ``relay_weight_cap_frac``
+    # ceiling holds it to -- so any single winner drives it to threshold from the first
+    # boundary instead of having to learn its way there. None = the historical seeded
+    # ``l2_init_total_frac`` row normalization shared with the ordinary latency competitors.
+    eor_w_init_frac=1.0,
+    # Whether the E->Eor bank learns. OFF (default) makes Eor a FIXED RELAY, which is the
+    # only setting consistent with starting it at its own theta ceiling: a plastic Eor could
+    # then move in one direction only -- down -- and the accumulating rule depresses every
+    # NON-participating afferent, so the afferents of ordinary E that have not recently won
+    # decay toward zero. A newly recruited owner would then fire its column's WTA but fail to
+    # drive Eor to threshold, silencing the column's output during exactly the turnover the
+    # hierarchy exists to express. Frozen at theta, any single winner relays immediately and
+    # permanently. This freezes ONLY Eor's own afferent bank: Eor->parent-E is owned by the
+    # parent (still a theta/2 pattern detector) and Eor->C basal by the C cell.
+    eor_plasticity_enabled=False,
     c_basal_weight_init=None,                      # None -> 1.01 * w_2(T)
     c_basal_weight_max=None,                       # None -> 1.10 * w_2(T)
     c_basal_window_steps=1,                        # basal eligibility window (fixed at 1)
@@ -289,10 +322,15 @@ DEFAULTS = dict(
 # extra population-size variants (cc_e_count) -- the two tiled presets fix those sizes.
 EDITABLE_KEYS = {
     'topology', 'leak_rate', 'refractory_steps', 'eta', 'c_eta', 'l2_init_total_frac',
-    'dual_fe_fes', 'c_feedback_reset',
+    'dual_fe_fes', 'c_feedback_reset', 'input_period',
 }
-VALID_TOPOLOGIES = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_feature_gated',
-                    'rg_direct_cc4')
+# Editable keys that change RUNTIME PACING ONLY, never graph construction or initial
+# weights. Applying one of these must NOT rebuild the network -- the whole point is to
+# change presentation timing on an ALREADY TRAINED column and watch the cadence respond.
+# Every other editable key still rebuilds (and wipes learned state) as before.
+RUNTIME_ONLY_KEYS = {'input_period'}
+VALID_TOPOLOGIES = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4',
+                    'tiled_cc_direct_identity', 'tiled_cc_double_eor', 'rg_direct_cc4')
 
 
 class BoundaryEventScheduler:
@@ -376,6 +414,14 @@ class SimulationEngine:
             if float(params['e_weight_cap_frac']) <= 0.0:
                 raise ValueError('e_weight_cap_frac must be > 0 or None')
             params['e_weight_cap_frac'] = float(params['e_weight_cap_frac'])
+        if params['relay_weight_cap_frac'] is not None:
+            if float(params['relay_weight_cap_frac']) <= 0.0:
+                raise ValueError('relay_weight_cap_frac must be > 0 or None')
+            params['relay_weight_cap_frac'] = float(params['relay_weight_cap_frac'])
+        if params['eor_w_init_frac'] is not None:
+            if float(params['eor_w_init_frac']) < 0.0:
+                raise ValueError('eor_w_init_frac must be >= 0 or None')
+            params['eor_w_init_frac'] = float(params['eor_w_init_frac'])
         params['n_pix'] = int(params['n_pix'])
         params['n_out'] = int(params['n_out'])
         params['cc_e_count'] = int(params['cc_e_count'])
@@ -523,11 +569,15 @@ class SimulationEngine:
             self.mode = 'tiled_cc_l1_4'
             spec = validate_spec(preset_spec('tiled_cc_l1_4', self.n_pix, self.n_out),
                                  self.n_pix)
-        elif p['topology'] == 'tiled_cc_feature_gated':
-            # Fixed-shape feature-gated variant (L1=8, L2=8, nine feature C/I gates per
-            # 3x3 RF + a separate WTA I); does not read cc_e_count.
-            self.mode = 'tiled_cc_feature_gated'
-            spec = validate_spec(tiled_cc_feature_gated_spec(), self.n_pix)
+        elif p['topology'] == 'tiled_cc_double_eor':
+            # Diagnostic latency probe: classic column + one extra output relay in series.
+            self.mode = 'tiled_cc_double_eor'
+            spec = validate_spec(tiled_cc_double_eor_spec(), self.n_pix)
+        elif p['topology'] == 'tiled_cc_direct_identity':
+            # Eor-less direct-identity variant: every child ordinary E addresses every
+            # parent ordinary E, and each column C is multi-basal. Fixed-shape (8 E).
+            self.mode = 'tiled_cc_direct_identity'
+            spec = validate_spec(tiled_cc_direct_identity_spec(), self.n_pix)
         elif p['topology'] == 'rg_direct_cc4':
             # Direct 3x3 RGC -> four ordinary E + one central WTA I (dual FE/FES experiment).
             self.mode = 'rg_direct_cc4'
@@ -773,6 +823,13 @@ class SimulationEngine:
         # A third pass initializes e_latency_competitor LAST. It only draws for graphs
         # that contain latency competitors, so presets without them keep a bit-identical
         # RNG draw order (and therefore identical goldens).
+        # Eor's row is overwritten with a flat theta AFTER its seeded row is drawn (never
+        # instead of it), so toggling ``eor_w_init_frac`` changes only Eor's own values and
+        # leaves the RNG cursor -- and therefore every other cell's init -- untouched. Same
+        # draw-then-discard convention the ``enc_init_jitter`` control uses above.
+        _eor_frac = p.get('eor_w_init_frac')
+        eor_init = None if _eor_frac is None else float(_eor_frac) * thr
+
         ff_w = {}
         for arch_pass in ('e_competitor', 'e_encoder', 'e_latency_competitor'):
             for n in nodes:
@@ -781,6 +838,11 @@ class SimulationEngine:
                 srcs = ff_by_tgt.get(n['id'], [])
                 if not srcs:
                     ff_w[n['id']] = np.zeros(0)
+                    continue
+                if eor_init is not None and n.get('column_role') in ('Eor', 'Eor2'):
+                    _ = (dual_row(len(srcs)) if dual
+                         else normalized_latency_row(jitter(ff_mean, len(srcs))))
+                    ff_w[n['id']] = np.full(len(srcs), eor_init)
                     continue
                 if dual:
                     # One draw per row in the same by-archetype order, so toggling the flag
@@ -800,14 +862,20 @@ class SimulationEngine:
         # d_ref for the basal distance influence is the smallest positive basal-edge
         # distance across the whole e_coincidence target population (geometry changes
         # learning rate only, never delivered charge).
-        basal_in_map = {}        # c_target_id -> (source_id, edge_id)
+        basal_in_map = {}        # c_target_id -> [(source_id, edge_id) ...] (>1 = multi-basal)
         apical_in_map = {}       # c_target_id -> [(source_id, edge_id) ...]
-        basal_dist = {}          # c_target_id -> functional L1E->L1C distance
+        basal_dist = {}          # (c_target_id, source_id) -> functional E->C distance
+        basal_pairs = set()
         apical_pairs = set()
         for e in dedges:
             if e['kind'] == 'basal_excitation':
-                basal_in_map[e['target']] = (e['source'], e['id'])
-                basal_dist[e['target']] = float(np.linalg.norm(pos[e['source']] - pos[e['target']]))
+                key = (e['target'], e['source'])       # keyed as the C cell looks it up
+                if key in basal_pairs:
+                    raise ValueError(
+                        f'duplicate parallel basal edge {e["source"]!r}->{e["target"]!r}')
+                basal_pairs.add(key)
+                basal_in_map.setdefault(e['target'], []).append((e['source'], e['id']))
+                basal_dist[key] = float(np.linalg.norm(pos[e['source']] - pos[e['target']]))
             elif e['kind'] == 'apical_excitation':
                 pair = (e['source'], e['target'])
                 if pair in apical_pairs:
@@ -816,16 +884,20 @@ class SimulationEngine:
                 apical_pairs.add(pair)
                 apical_in_map.setdefault(e['target'], []).append((e['source'], e['id']))
         if tiled_dist_scope:
-            # Per-target basal reference: every C's own single Eor->C basal edge is its
-            # reference, so one spatially distant column never loses learning merely
-            # because another column's Eor/C happen to sit closer. Delivered charge is
-            # unaffected -- geometry changes the C basal learning rate only.
-            basal_phi = {t: 1.0 for t in basal_dist}
+            # Column-local basal edges carry NO distance penalty. A column's ordinary E are
+            # one functional pool; their ring positions come from the display layout
+            # (TILE_E_RING_R), not from modelled geometry, so letting them scale learning
+            # would make a C's maturation depend on which ring seat its owner happens to
+            # occupy -- measured spread 0.21..1.00, a 4.7x arbitrary penalty. This also
+            # keeps one spatially distant column from losing learning because another
+            # column's cells sit closer. Identical to the historical one-basal behaviour
+            # (a single Eor->C basal was already its own reference, phi = 1.0).
+            basal_phi = {k: 1.0 for k in basal_dist}
         else:
             _basal_positive = [d for d in basal_dist.values() if d > 0]
             d_ref_basal = min(_basal_positive) if _basal_positive else 1.0
-            basal_phi = {t: (d_ref_basal / max(d, d_ref_basal)) ** DISTANCE_POWER
-                         for t, d in basal_dist.items()}
+            basal_phi = {k: (d_ref_basal / max(d, d_ref_basal)) ** DISTANCE_POWER
+                         for k, d in basal_dist.items()}
 
         # Resolve C basal weight scale + pretrained packet only when this graph uses
         # them; a legacy graph never pays the cost and never risks the invariant check.
@@ -845,6 +917,10 @@ class SimulationEngine:
         # relays the single WTA winner and must fire on one afferent.
         _capfrac = p.get('e_weight_cap_frac')
         pattern_cap = None if _capfrac in (None, '') else float(_capfrac) * float(thr)
+        # The one-afferent counterpart (theta by default): Eor's feedforward bank and the
+        # coincidence C basal. Exempt from the theta/2 detector rule, bounded at theta.
+        _relayfrac = p.get('relay_weight_cap_frac')
+        relay_cap = None if _relayfrac in (None, '') else float(_relayfrac) * float(thr)
         for n in nodes:
             nid, arch = n['id'], n['archetype']
             if arch == 'rg_source':
@@ -887,11 +963,14 @@ class SimulationEngine:
                 eids = ff_edge_ids.get(nid, [])
                 w = ff_w[nid]
                 dfac = np.array([ff_factor(eid) for eid in eids]) if eids else np.zeros(0)
-                # Eor relays the single WTA winner (1 active afferent) -> never capped;
-                # ordinary latency competitors are pattern detectors -> capped.
-                cap = None if n.get('column_role') == 'Eor' else pattern_cap
-                cell = self._mkE(nid, 'competitor', w, dfac, learn=True, alpha_inh=alpha_l2,
-                                 w_cap=cap)
+                # Eor relays the single WTA winner (1 active afferent) -> the one-afferent
+                # relay cap (theta) and, by default, a FROZEN bank (see eor_plasticity_enabled);
+                # ordinary latency competitors are pattern detectors -> the theta/2 cap.
+                is_eor = (n.get('column_role') in ('Eor', 'Eor2'))
+                cap = relay_cap if is_eor else pattern_cap
+                learn_ff = bool(p['eor_plasticity_enabled']) if is_eor else True
+                cell = self._mkE(nid, 'competitor', w, dfac, learn=learn_ff,
+                                 alpha_inh=alpha_l2, w_cap=cap)
                 cell.ff_src = list(srcs)
                 cell.ff_edge_ids = list(eids)
                 self.latency_competitors.append(cell)
@@ -909,15 +988,21 @@ class SimulationEngine:
                 neurons[nid] = cell
             elif arch == 'e_coincidence':
                 basal = basal_in_map.get(nid)
-                if basal is None:
+                if not basal:
                     raise ValueError(f'e_coincidence {nid!r} has no basal_excitation edge')
                 apical = apical_in_map.get(nid, [])
+                # Source-distinct basal afferents in spec edge order, each with its own
+                # weight and distance factor. A one-basal cell passes single-element lists,
+                # which the cell treats exactly as the historical scalar form.
+                b_src = [s for (s, _) in basal]
+                b_eid = [eid for (_, eid) in basal]
                 cell = CoincidencePyramidalNeuron(
-                    nid, basal[0], basal[1],
+                    nid, b_src, b_eid,
                     apical_sources=[s for (s, _) in apical],
                     apical_edge_ids=[eid for (_, eid) in apical],
-                    basal_weight=cpar['c_init'], basal_distance_factor=basal_phi.get(nid, 1.0),
-                    w_max=cpar['c_max'], eta_c=cpar['c_eta'], learn=True,
+                    basal_weight=[cpar['c_init']] * len(b_src),
+                    basal_distance_factor=[basal_phi.get((nid, s), 1.0) for s in b_src],
+                    w_max=cpar['c_max'], w_cap=relay_cap, eta_c=cpar['c_eta'], learn=True,
                     use_fe=bool(p['c_fe_enabled']),
                     update_mode=('c_dual_fe_fes' if p['dual_fe_fes']
                                  else str(p['c_weight_update_mode'])),
@@ -1071,7 +1156,7 @@ class SimulationEngine:
             for f in ('column_id', 'column_role', 'column_index', 'column_row',
                       'column_col', 'patch', 'patch_id', 'patch_row', 'patch_col',
                       'patch_local_row', 'patch_local_col', 'input_row', 'input_col',
-                      'feature_index', 'has_parent'):
+                      'has_parent'):
                 if n.get(f) is not None:
                     m[f] = n[f]
             meta[n['id']] = m
@@ -1090,11 +1175,14 @@ class SimulationEngine:
         for cell in self.pi:
             for widx, eid in enumerate(cell.pred_edge_ids):
                 self._pred_weight_ref[eid] = (cell, widx)
-        # basal_excitation weight lookup: edge_id -> (c_cell, basal_index=0). Serves
-        # serialization and manual editing (clipped with the C-specific basal cap).
+        # basal_excitation weight lookup: edge_id -> (c_cell, basal_index). Serves
+        # serialization and manual editing (clipped with the C-specific basal cap). Every
+        # basal afferent of a multi-basal C gets its own entry, so each source-distinct
+        # weight is independently serializable, editable and replay-restorable.
         self._basal_weight_ref = {}
         for cell in self.coincidence:
-            self._basal_weight_ref[cell.basal.edge_ids[0]] = (cell, 0)
+            for bidx, eid in enumerate(cell.basal.edge_ids):
+                self._basal_weight_ref[eid] = (cell, bidx)
         # Source-indexed feedforward adjacency for the event path: a fired source
         # schedules charge (owned by each target) onto its plastic targets for t+1.
         self._ff_out = {}              # source_id -> [(target_id, widx, edge_id) ...]
@@ -1111,6 +1199,74 @@ class SimulationEngine:
         self._column_of = {n['id']: n.get('column_id') for n in nodes}
         self._role_of = {n['id']: n.get('column_role') for n in nodes}
         self._ordinary_e_ids = {nid for nid, r in self._role_of.items() if r == 'E'}
+        self.feedback_loop_latency = self._derive_feedback_loop_latency(nodes, edges)
+
+    def _derive_feedback_loop_latency(self, nodes, edges):
+        """Boundaries from a child ordinary-E spike to the top-down reset landing on its
+        own bank -- derived from the GRAPH, never from a preset name.
+
+            child E --(h feedforward hops)--> parent E   fires at +h
+            parent E --apical (zero latency)--> child C  fires at the same boundary
+            C --> I --(delay-1 feedback reset)-->        lands at +h+1
+
+        so ``latency = h + 1``. Returns None for a graph with no top-down feedback loop
+        (no ``column_c_to_i`` edge, or no child column with a parent).
+
+        This is what the input pacing must match: a fresh volley every ``latency``
+        boundaries makes each presentation's confirmation land exactly on its successor's
+        drive packet. The real cortical loop resolves far faster than the input changes, so
+        one presentation per resolved chain is the physically meaningful regime -- the
+        overlapping-wave regime at ``input_period=1`` is an artifact of the unit-delay
+        discretization. See docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md section 8.1d.
+        """
+        meta = self.tiled_meta
+        if meta is None:
+            return None
+        if not any(e.get('projection') == 'column_c_to_i' for e in edges):
+            return None                              # no top-down feedback path at all
+        parents = {c['id']: (c.get('parent_ids') or []) for c in meta.get('columns', [])}
+        children = [cid for cid, p in parents.items() if p]
+        if not children:
+            return None
+        ff = {}                                      # feedforward adjacency
+        for e in edges:
+            if e['kind'] == 'feedforward':
+                ff.setdefault(e['source'], []).append(e['target'])
+        best = None
+        for cid in children:
+            targets = {nid for nid, col in self._column_of.items()
+                       if col in parents[cid] and self._role_of.get(nid) == 'E'}
+            starts = [nid for nid, col in self._column_of.items()
+                      if col == cid and self._role_of.get(nid) == 'E']
+            for start in starts[:1]:                 # columns are structurally identical
+                seen, frontier, hops = {start}, [start], 0
+                while frontier and hops < 16:
+                    hops += 1
+                    nxt = []
+                    for u in frontier:
+                        for v in ff.get(u, ()):
+                            if v in targets:
+                                best = hops if best is None else min(best, hops)
+                                nxt = []
+                                break
+                            if v not in seen:
+                                seen.add(v)
+                                nxt.append(v)
+                        if not nxt and best is not None:
+                            break
+                    if best is not None:
+                        break
+                    frontier = nxt
+        return None if best is None else best + 1
+
+    def resolved_input_period(self):
+        """The effective input period. ``input_period=0`` means AUTO: match the graph's own
+        feedback-loop latency so exactly one presentation is in flight at a time. Falls back
+        to 1 for a graph with no top-down loop."""
+        ip = int(self.params['input_period'])
+        if ip > 0:
+            return ip
+        return self.feedback_loop_latency or 1
 
     # ============================================================== stepping
     def _begin_step(self):
@@ -1178,7 +1334,7 @@ class SimulationEngine:
         # An rg_source sink does NOT integrate: its spike is exogenous and is simply
         # asserted for this boundary, which is why a held edge keeps producing RG spikes
         # on every input boundary no matter how hard L1 is being inhibited.
-        input_arrives = (t % max(1, int(p['input_period'])) == 0)
+        input_arrives = (t % max(1, self.resolved_input_period()) == 0)
         for n, pix in self._input_sinks:
             active = bool(input_arrives and pix is not None and self.input_vec[pix] > 0.5)
             if isinstance(n, SourceNeuron):
@@ -1346,7 +1502,7 @@ class SimulationEngine:
                     c.gather_basal(src, sig)
         # external input to RG sources (delay 0); a fired RG schedules its fixed
         # pretrained packet + any structural outputs for t+1 (it owns no membrane).
-        input_arrives = (t % max(1, int(p['input_period'])) == 0)
+        input_arrives = (t % max(1, self.resolved_input_period()) == 0)
         for n, pix in self._input_sinks:
             active = bool(input_arrives and pix is not None and self.input_vec[pix] > 0.5)
             if isinstance(n, SourceNeuron):
@@ -1405,9 +1561,24 @@ class SimulationEngine:
             self._crossing_capture.append(snap)
 
         # ---- sub-boundary event loop ----------------------------------------------
+        # The loop DRAINS events, including those that only become available at exactly
+        # tau = 1.0. The scheduler already bounds candidates to [current_tau, 1] (a cell
+        # below threshold at 1.0 has no room left to cross and reports inf), so the extra
+        # pass admits exactly the cells that are ALREADY at or over threshold at the
+        # boundary edge. Termination is guaranteed independently of tau: a fired cell sets
+        # ``fired_this_boundary`` and reports inf thereafter, so the loop can run at most
+        # once per membrane.
+        #
+        # Why this matters: a DEPENDENT crossing -- one enabled by another cell's spike at
+        # tau = 1.0 -- was previously unschedulable. A coincidence cell whose apical
+        # permission arrives from a parent that itself fires at exactly 1.0 would commit
+        # its deposit, sit above threshold with an open gate, and then have the gate
+        # cleared by the next boundary (a closed gate correctly forbids firing), retaining
+        # charge forever without ever firing or learning. See
+        # docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md section 8.1.
         membranes = [self.exc[nid] for nid in self.order if nid in self.exc]
         sched = BoundaryEventScheduler(membranes, p['crossing_time_tolerance'])
-        while sched.current_tau < 1.0:
+        while True:
             cell, tau = sched.next_event()
             if cell is None:
                 sched.advance_to_end()
@@ -1460,8 +1631,13 @@ class SimulationEngine:
         self.spiked[cell.id] = True
         if isinstance(cell, CoincidencePyramidalNeuron):
             cell.update_basal_weight()               # causal firing-boundary gate state
+            # Report ONLY the causal basal edge: on a multi-basal C every other weight is
+            # untouched by design, so broadcasting the whole vector would misreport
+            # unchanged associations as learning events.
+            k = cell._deposit_index
             self.changed_synapses.append(
-                dict(id=cell.basal.edge_ids[0], weight=round(float(cell.basal_weight), 6)))
+                dict(id=cell.basal.edge_ids[k],
+                     weight=round(float(cell.basal.weights[k]), 6)))
         elif cell.id in self._latency_ids:
             # Every fired event-resolved plastic E learns its own delivered volley -- this
             # covers every tiled ordinary E AND every Eor, keyed on the plastic archetype
@@ -1851,9 +2027,9 @@ class SimulationEngine:
             return w
         ref = self._basal_weight_ref.get(edge_id)
         if ref is not None:
-            cell, _ = ref
+            cell, bidx = ref
             w = float(np.clip(weight, 0.0, cell.w_max))     # C-specific basal cap
-            cell.basal.weights[0] = w
+            cell.basal.weights[bidx] = w
             return w
         raise KeyError(edge_id)                             # apical/pretrained/reset: not editable
 
@@ -1989,8 +2165,8 @@ class SimulationEngine:
                 cell, widx = self._pred_weight_ref[eid]
                 cell.w[widx] = v
             elif kind == 'basal_excitation':
-                cell, _ = self._basal_weight_ref[eid]
-                cell.basal.weights[0] = v
+                cell, bidx = self._basal_weight_ref[eid]
+                cell.basal.weights[bidx] = v
 
     def branch_from_weights(self, weights, *, input_vector=None, restore_input=True,
                             provenance=None):
@@ -2055,6 +2231,10 @@ class SimulationEngine:
                 raise ValueError('l2_init_total_frac must satisfy 0 < rho < 1')
             if k == 'c_eta' and v is not None and float(v) < 0.0:
                 raise ValueError('c_eta must be non-negative or None')
+            if k == 'input_period':
+                v = int(v)
+                if v < 0:
+                    raise ValueError('input_period must be >= 0 (0 = auto-match loop latency)')
             if k in ('dual_fe_fes', 'c_feedback_reset'):
                 v = bool(v)
             self.params[k] = v
@@ -2063,8 +2243,14 @@ class SimulationEngine:
         if 'topology' in applied:
             self._custom_spec = None
         if applied:
-            self._build()
-            self._log('config', f'applied {applied}; network rebuilt')
+            # Runtime-pacing keys take effect immediately and PRESERVE learned state, so a
+            # trained column's cadence can be re-measured under a different presentation
+            # rate without retraining. Anything else still rebuilds (and wipes) as before.
+            if set(applied) <= RUNTIME_ONLY_KEYS:
+                self._log('config', f'applied {applied}; runtime pacing only, state kept')
+            else:
+                self._build()
+                self._log('config', f'applied {applied}; network rebuilt')
         return applied
 
     # ---------------------------------------------------------- topology editing
@@ -2132,7 +2318,9 @@ class SimulationEngine:
             return None if ref is None else float(ref[0].w[ref[1]])
         if kind == 'basal_excitation':
             ref = self._basal_weight_ref.get(eid)
-            return None if ref is None else float(ref[0].basal_weight)
+            # Index by the edge's OWN basal slot: on a multi-basal C every afferent must
+            # report its own learned weight, never the cell's first one.
+            return None if ref is None else float(ref[0].basal.weights[ref[1]])
         if kind == 'pretrained_excitation':
             # Report the fixed delivered charge (a named fixed magnitude, not a learned
             # weight). Apical / hard-reset edges are unweighted -> None below.
@@ -2179,11 +2367,11 @@ class SimulationEngine:
     def _public_params(self):
         p = self.params
         thr = float(p['e_threshold'])
-        # e_maturity_budget = the neuron-wide FE budget B = maturity_budget_frac*theta.
-        # This is the natural display reference for ordinary-E weights (there is NO hard
-        # per-synapse cap): a matured one-afferent specialist approaches B. e_weight_cap is
-        # reported for legacy/headless bounded modes only and must not be read as a production
-        # ceiling.
+        # e_maturity_budget = the neuron-wide FE budget B = maturity_budget_frac*theta, the
+        # natural display reference for an ordinary-E ROW total. The per-synapse ceilings are
+        # reported separately (e_weight_cap_frac for pattern detectors, relay_weight_cap_frac
+        # for the one-afferent Eor/C basal). e_weight_cap is reported for legacy/headless
+        # bounded modes only and must not be read as a production ceiling.
         e_budget_frac = float(p['e_maturity_budget_frac'])
         out = dict(seed=p['seed'], e_threshold=thr, e_weight_cap=float(p['e_weight_cap']),
                    e_maturity_budget_frac=e_budget_frac,
@@ -2191,6 +2379,9 @@ class SimulationEngine:
                    eta=float(p['eta']), leak_rate=float(p['leak_rate']),
                    refractory_steps=int(p['refractory_steps']),
                    input_period=int(p['input_period']),
+                   resolved_input_period=int(self.resolved_input_period()),
+                   feedback_loop_latency=(None if self.feedback_loop_latency is None
+                                          else int(self.feedback_loop_latency)),
                    topology=str(p['topology']),
                    topology_name=str(self.mode),
                    is_custom_topology=bool(self._custom_spec is not None),
@@ -2219,6 +2410,11 @@ class SimulationEngine:
                    c_feedback_reset=bool(p['c_feedback_reset']),
                    e_weight_cap_frac=(None if p['e_weight_cap_frac'] is None
                                       else float(p['e_weight_cap_frac'])),
+                   relay_weight_cap_frac=(None if p['relay_weight_cap_frac'] is None
+                                          else float(p['relay_weight_cap_frac'])),
+                   eor_w_init_frac=(None if p['eor_w_init_frac'] is None
+                                    else float(p['eor_w_init_frac'])),
+                   eor_plasticity_enabled=bool(p['eor_plasticity_enabled']),
                    # Experimental dual FE/FES rule: the active flag plus its three validated
                    # parameters (so a replay/serialized state records whether it was on).
                    dual_fe_fes=bool(p['dual_fe_fes']),
@@ -2270,6 +2466,19 @@ class SimulationEngine:
                     rec['basal_eligible'] = bool(n.basal_eligible)
                     rec['apical_active'] = bool(n.apical_active)
                     rec['apical_sources'] = sorted(n.apical_sources)
+                    # Multi-basal diagnostics: every source-distinct basal weight, which
+                    # sources delivered/carry, and which one was causal. Emitted ONLY for a
+                    # multi-basal cell so one-basal dynamic payloads stay byte-identical.
+                    if n.n_basal > 1:
+                        rec['basal_weights'] = [
+                            round(float(w), 6) for w in n.basal.weights]
+                        rec['basal_sources'] = list(n.basal.source_ids)
+                        rec['basal_active_sources'] = n.basal_sources
+                        rec['basal_eligible_sources'] = [
+                            n.basal.source_ids[i] for i in n.basal_eligible_order]
+                        rec['basal_extra_sources'] = n.basal_extra_sources
+                        rec['basal_duplicate_count'] = int(n.basal_duplicate_count)
+                        rec['deposit_source'] = n.deposit_source
                     rec['coincidence_active'] = bool(n.coincidence_active)
                     rec['coincidence_charge'] = round(float(n.coincidence_charge), 6)
                     rec['deposit_committed_this_boundary'] = bool(

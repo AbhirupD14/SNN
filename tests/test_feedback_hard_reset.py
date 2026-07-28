@@ -173,8 +173,14 @@ def test_ginh_stays_zero_with_feedback_on():
 # ------------------------------------------------------------------------- integration
 
 
-def _train_and_measure(fb, warm=1500, measure=600, seed=1):
-    eng = SimulationEngine(seed=seed, topology='tiled_cc', c_feedback_reset=fb)
+def _train_and_measure(fb, warm=4000, measure=1000, seed=1):
+    # Measured at the dashboard's FAST maturation rates. At the engine-default eta=0.01 the
+    # top-down loop is still immature after a short warm-up, so the on/off gap is a couple of
+    # boundaries out of ~540 -- too small to be evidence of anything. These rates mature both
+    # the L2 feedforward and the coincidence C, where the reduction is a robust ~3%.
+    eng = SimulationEngine(seed=seed, topology='tiled_cc', c_feedback_reset=fb,
+                           dual_fe_fes=True, eta=4.0, c_eta=2.0, dual_fe_B=5.0,
+                           leak_rate=0.0, refractory_steps=0, e_weight_cap_frac=0.5)
     c_ids = [n.id for n in eng.exc.values() if isinstance(n, CoincidencePyramidalNeuron)]
     eng.set_pattern('row 1')
     for _ in range(warm):

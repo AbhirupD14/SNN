@@ -2,26 +2,55 @@
 
 A small, from-scratch spiking neural network for learning four overlapping 3×3
 line patterns. The model uses NumPy, local plasticity, no gradients, and no global
-error signal. Inhibition is **persistent conductance** (never a hard wipe), every
-excitatory cell carries a local activity trace, and the timestep is synchronous with
-explicit unit synaptic delays.
+error signal. The public presets use analytic sub-boundary event resolution, explicit
+unit-delay excitation, immediate WTA hard resets, and delayed feedback hard resets.
+The generic engine also retains the synchronous conductance path for compatible custom
+graphs.
 
 The network is a **graph** built from a `NetworkSpec` (typed nodes + typed edges);
-the engine executes whatever graph it is given. **Four** built-in presets ship,
+the engine executes whatever graph it is given. **Six** built-in presets ship,
 selected by the `topology` parameter (`'rg_coincidence'` default, `'tiled_cc'`,
-`'tiled_cc_l1_4'`, `'tiled_cc_feature_gated'`), and you can build arbitrary graphs live in
+`'tiled_cc_l1_4'`, `'tiled_cc_direct_identity'`, `'tiled_cc_double_eor'`,
+`'rg_direct_cc4'`), and you can build arbitrary graphs live in
 the browser **Topology Editor** (🧬 in the top bar) and save/load them as presets:
 
-Both the general `SimulationEngine` default and the browser dashboard open on the
-validated `rg_coincidence` turnover preset: zero leak/refractory, L2 learning rate
-`0.01`, normalized L2 initial afferent total `0.95θ`, and C basal learning rate `0.005`.
+The general `SimulationEngine` default remains the validated `rg_coincidence` turnover
+preset. The browser dashboard intentionally opens on `tiled_cc` with the fast-maturation
+inspection contract (`eta=4`, `c_eta=16`, `e_weight_cap_frac=0.5`,
+`input_period=0`/auto); this does not alter headless or golden defaults.
 
-> **Ordinary-E learning is cap-free.** Ordinary excitatory feedforward weights (RGC→L1E,
-> E→Eor, Eor→parent-E, and legacy ordinary learners) have a **zero floor and no individual
-> upper bound**. Saturation is the neuron-wide free-energy term: as the incoming row total
-> approaches the budget `B = e_maturity_budget_frac·θ` the update vanishes on its own, so a
-> one-afferent specialist matures toward `B ≈ 1100` (θ=1000) and fires in one boundary. Only
-> **C basal** and **predictive-inhibitory** weights keep their own mechanism-specific caps.
+> **The learning rule is cap-free; the structural ceilings are separate.** The ordinary-E
+> update itself has a **zero floor and no upper bound**: saturation comes from the
+> neuron-wide free-energy term, as the incoming row total approaches the budget
+> `B = e_maturity_budget_frac·θ` the update vanishes on its own. Two hard **per-synapse**
+> ceilings can then be applied on top of whichever rule is active, by how many afferents the
+> cell must integrate. The `θ/2` detector ceiling is explicit in the tiled dashboard and
+> scaling contract; the generic engine default leaves it unset:
+>
+> | Ceiling | Applies to | Why |
+> | --- | --- | --- |
+> | `θ/2` (`e_weight_cap_frac`) | pattern-detector feedforward: RGC→L1E, Eor→parent-E, legacy ordinary learners | no single afferent may fire the cell, so it must integrate **≥ 2** evidence volleys |
+> | `θ` (`relay_weight_cap_frac`) | **E→Eor** and the **C basal** | these fire on **one** afferent, so `θ/2` would silence them — `θ` is exactly their one-shot target, reached and never exceeded |
+>
+> **Predictive-inhibitory** weights keep their own mechanism-specific cap.
+
+> **Input pacing is derived, not fixed.** A top-down `C → I` feedback loop of latency `L`
+> takes `L` boundaries to return, so presenting a fresh RGC volley every boundary
+> (`input_period=1`, the engine default) leaves ~`L` presentations overlapping in flight and
+> makes the feedback cadence depend on wiring depth. `input_period=0` (the dashboard default)
+> means **auto**: the engine derives `L` from the graph and presents **one volley per
+> resolved causal chain**, which yields exact `fire/silent` alternation on every seed and at
+> every loop depth. See `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`.
+
+> **E→Eor is a fixed relay.** Every `E → Eor` weight starts at `θ` (`eor_w_init_frac=1.0`)
+> and does **not** learn (`eor_plasticity_enabled=False`), so any single winner in a column
+> drives its Eor to threshold from the first boundary and forever after. Starting at the
+> ceiling leaves plasticity only one direction to move — down — and the accumulating rule
+> depresses every *non-participating* afferent, so a plastic Eor would decay the afferents of
+> ordinary E that have not recently won. A newly recruited owner would then win its column's
+> WTA but fail to drive Eor, silencing the column's output during exactly the turnover the
+> hierarchy exists to express. Only Eor's own bank is frozen: `Eor→parent-E` is owned by the
+> parent (still a `θ/2` detector) and `Eor→C` basal by the C cell.
 
 > **Removed built-ins.** The historical `pi`, `old`, `rg`, and `rg_residual` presets are no
 > longer built-in topologies (they are rejected as `topology=` values). Their graph-building
@@ -54,9 +83,11 @@ validated `rg_coincidence` turnover preset: zero leak/refractory, L2 learning ra
   single-winner WTA; `Eor → C` is the one learned basal; `C → I` lets a mature C recruit
   the same relay. Between columns: a child `Eor → parent E` (feedforward) and
   `parent E → child C` (unweighted **apical**) — parent ordinary E, **never** Eor,
-  supplies the child C's apical permission. **Eor is numerically an ordinary plastic E**
-  (same class, threshold, leak, cap-free FE rule, budget — it is *not* a Boolean OR); it
-  differs only by its edges. There are no lateral connections; columns are independent, so
+  supplies the child C's apical permission. **Eor uses the ordinary event-resolved
+  excitatory membrane** (same class, threshold, leak, membrane and integration — it is
+  not a stateless Boolean operator); it differs by its edges and by its synaptic role:
+  a **fixed** relay bank held at `θ`
+  rather than a plastic `θ/2` detector (see the callout above). There are no lateral connections; columns are independent, so
   several columns may each produce one local winner in the same boundary while each stays
   hard single-winner. The **top L2 C has no parent and is intentionally dormant** — it
   keeps its single Eor basal edge and eligibility state machine but has zero apical
@@ -72,24 +103,40 @@ validated `rg_coincidence` turnover preset: zero leak/refractory, L2 learning ra
   Identical to `tiled_cc` except each **L1** column has **four** ordinary competing E
   neurons instead of eight (the **L2** column keeps eight); every column still has one Eor,
   one C, and one I. A fixed-shape preset (does not read `cc_e_count`).
-- **`topology='tiled_cc_feature_gated'` — the feature-gated tiled variant (424 neurons,
-  1932 edges).** Restores `rg_coincidence`'s **feature-specific** inhibitory microcircuit
-  inside the tiled L1 layer, which the `tiled_cc` whole-bank column reset had removed.
-  Between each `3×3` RGC patch and its **eight** competitors sit **nine fixed feature
-  relays** `S[k]` (one per pixel); each relay has a paired coincidence **C[k]** and feature
-  inhibitory **If[k]**, and the competitor bank keeps a **separate WTA-only I**. Per feature:
-  `RGC[k]→S[k]` (pretrained), `S[k]→E[j]` (feedforward), `S[k]→C[k]` (basal),
-  `E[j]→C[k]` (local apical), `C[k]→If[k]` (relay), `If[k]→S[k]` (paired hard reset). This is
-  exactly the small circuit (`S`≙`L1E` relay, `E`≙`L2E`, `C`≙`L1C`, `If`≙`L1I`) replicated
-  once per feature in every recognition module, so a mature local owner suppresses **only**
-  its explained relays — the shared center relay is transiently silenced while the novel
-  relays stay active, handing ownership to a different competitor. `variant='feature_gated'`
-  in the topology metadata is the single source of truth construction/validation/layout
-  branch on. Its top L2 is a plain WTA bank (no C); this variant isolates the input-feature
-  turnover mechanism and does **not** solve hierarchical composition. Headless causal
-  acceptance: `experiments/feature_gated_turnover.py` (Stage A one RF, Stage B nine RFs).
+- **`topology='tiled_cc_direct_identity'` — the Eor-less direct-identity hierarchy (181
+  neurons, 1546 edges).** Same tiling and same column motif *minus the `Eor` relay*: every
+  ordinary **E** projects to **every** parent ordinary E, so each L2 detector owns **72**
+  distinct plastic weights (9 child columns × 8 possible winners) — one per
+  `(child column, child winner)` **source address** — instead of one pooled "this column
+  fired" event. Because the winner identity is the output alphabet, each column's **C**
+  owns one learned basal afferent **per local E** (a *multi-basal* C: the causal source
+  selects the weight, and only that weight learns, so one owner's association never
+  depresses another's). Apical permission stays the unweighted Boolean parent-E gate.
+  Measured: turnover + recall with 100 % direct parent evidence (12/12 runs, 3 seeds), and
+  L2 distinguishes two compositions that differ **only** in local winner identity.
+  The former exact-two-patch `tau=1.0` C deadlock is fixed: the event loop now drains
+  boundary-edge crossings, so C fires, learns, and schedules feedback without retaining
+  runaway voltage. See `docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md` §8.1.
+  Acceptance: `experiments/direct_identity_experiment.py`.
+- **`topology='tiled_cc_double_eor'` — DIAGNOSTIC latency probe (201 neurons, 1062
+  edges).** Exactly `tiled_cc` with one extra output relay spliced into the ascending path
+  (`E → Eor → Eor2 → parent E`), lengthening the top-down confirmation loop by one boundary
+  and changing nothing else. Built to falsify the prediction that the feedback cadence is set
+  by loop latency — it is: the period moved 6 → 8 on 8/8 seeds. Not a research topology; see
+  `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`.
+- **`topology='rg_direct_cc4'` — the direct single-column experiment (14 neurons, 44
+  edges).** A `3×3` RGC surface feeding **four** ordinary latency-E competitors densely,
+  each driving one **central WTA I** that hard-resets all four. No feature relay,
+  coincidence C, Eor, or hierarchical feedback — the minimal competitive column used as the
+  dual FE/FES acceptance topology (`experiments/dual_fe_cc4_consolidation.py`).
 
-All four built-in presets are **event-resolved** (the analytic sub-boundary scheduler,
+> **Rejected direction.** A dedicated per-feature gated tiled variant
+> (`tiled_cc_feature_gated`) was implemented and then removed: it demonstrated selective
+> relay suppression but at the wrong structural level. See “Rejected direction: per-feature
+> gated tiled columns” in `Current_Implementation_Methodology_Equations.md`; git history is
+> the archive for the deleted implementation.
+
+All six built-in presets are **event-resolved** (the analytic sub-boundary scheduler,
 selected automatically from graph metadata). A custom *non*-coincidence graph built in the
 editor instead runs the synchronous event engine. The fixed editor vocabulary is eleven node
 archetypes (`rg_source`, `e_sensory`, `e_encoder`, `e_residual`, `e_competitor`,
@@ -162,18 +209,14 @@ browser action
     -> frontend rendering and inspectors
 ```
 
-For a single simulation step, read `SimulationEngine.step()` in
-`backend/simulation.py` top to bottom. It runs synchronous subphases: deliver
-delay-1 arrivals (inhibitory conductance, then excitatory charge) and external
-input; integrate every excitatory neuron once (joint excitation/inhibition);
-threshold-test and fire (exogenous RG sources, then L1E_s / plastic encoders, then the
-deterministic L2E winner-take-all); update each cell's local activity trace; emit
-spikes into delay-1 queues and run the local PI / L1I inhibitory plasticity; decay
-conductances and count down refractory; record the frame. `ExcitatoryNeuron`,
-`SourceNeuron`, `InhibitoryNeuron`, `PredictiveInterneuron`, and
-`SwitchInterneuron` in `snn/neurons.py` own
-the local state transitions, the conductance/trace dynamics, and the two weight rules
-(excitatory accumulating + local predictive-inhibition).
+For a single simulation step, read `SimulationEngine.step()` and `_event_step()` in
+`backend/simulation.py`. Every built-in preset is event-resolved: integer outer boundaries
+deliver delay-1 feedforward/basal/reset events, while an analytic sub-boundary scheduler
+orders membrane crossings by `tau`, executes zero-latency apical and WTA consequences, and
+drains dependent crossings available exactly at `tau=1.0`. Custom graphs without an
+event-resolved archetype or hard-reset edge retain the legacy synchronous path.
+`ExcitatoryNeuron`, `CoincidencePyramidalNeuron`, `SourceNeuron`, and `InhibitoryNeuron`
+in `snn/neurons.py` own the local state transitions and learning rules.
 
 Feedforward dispatch is **generic over hops**: any permitted source spike (an RG cell
 or any fired excitatory cell, including a competitor) schedules weighted charge onto its plastic
@@ -187,7 +230,7 @@ neighbouring boundary's).
 | Path | Responsibility |
 | --- | --- |
 | `snn/neurons.py` | Excitatory/source/relay/predictor cells plus the local traced `SwitchInterneuron`. |
-| `backend/network_spec.py` | The `NetworkSpec` vocabulary, the four built-in presets, and `validate_spec`. |
+| `backend/network_spec.py` | The `NetworkSpec` vocabulary, the six built-in presets, and `validate_spec`. |
 | `backend/simulation.py` | Spec-driven construction (`_build_from_spec`), the generic edge-dispatched step, `current_spec`/`apply_topology`, state snapshots. |
 | `backend/presets.py` | Server-side preset persistence (built-ins + saved-graph JSON under `.claude/presets/`). |
 | `backend/dashboard_config.py` | The dashboard preset and the small control schema (topology selector + rules). |
@@ -224,8 +267,8 @@ drag one node onto another to wire an edge (the kind is inferred from the two
 archetypes), click an edge to toggle it directional/bidirectional or delete it, add
 neurons from the palette, and **Apply** to rebuild the live network (every view
 refreshes off the broadcast). Save the current graph as a named preset and load it
-back later; the four built-ins (`rg_coincidence`, `tiled_cc`, `tiled_cc_l1_4`,
-`tiled_cc_feature_gated`) are always
+back later; the six built-ins (`rg_coincidence`, `tiled_cc`, `tiled_cc_l1_4`,
+`tiled_cc_direct_identity`, `tiled_cc_double_eor`, `rg_direct_cc4`) are always
 available. Presets persist server-side under `.claude/presets/`.
 
 The palette carries the two archetypes `rg` introduced. An **RG** node is an exogenous
@@ -253,8 +296,8 @@ reset** and **L2 WTA is emergent** — the first `L2E` to threshold wins and its
 cancels the rest. See the measured behavior above and
 `docs/COINCIDENCE_PYRAMIDAL_CELL_TECHNICAL_SPEC.md`.
 
-Excitatory neurons integrate `acc_weights` (learned, **cap-free** — the FE budget saturates
-the row total, see above) jointly with a persistent inhibitory conductance `g_inh` (decaying,
+Excitatory neurons integrate `acc_weights` (learned by a cap-free rule under a hard
+per-synapse ceiling — see the table above) jointly with a persistent inhibitory conductance `g_inh` (decaying,
 `E_inh = 0` shunting) and carry a local activity trace that survives voltage reset. Inhibitory
 relays are stateless; the engine turns their firing into a conductance pulse or hard reset.
 Functional coordinates set per-synapse
@@ -278,29 +321,14 @@ Behavioural `pytest` suite under `tests/`:
 .venv/bin/python -m pytest tests/ -q
 ```
 
-Coverage: conductance/trace dynamics and local PI plasticity
-(`test_conductance_neuron.py`), the excitatory weight rule, all built-ins' exact
-neuron/edge counts (including `test_residual_topology.py`), the
-graph-driven engine + `NetworkSpec` validation + custom-graph execution + bidirectional
-edges (`test_network_spec.py`), preset persistence (`test_presets.py`), a bit-exact
-behavioural regression for the three built-in presets (`test_golden_topology.py`), the
-synchronous causal WTA step, engine-level predictive inhibition + the symmetry-breaking
-causal controls (`test_predictive_inhibition.py`), serialization/API, and the legacy
-frequency model. The event-resolved coincidence topology adds the shared LIF/segment
-primitives (`test_lif_segments.py`), the isolated C cell + learning rule
-(`test_coincidence_cell.py`), graph vocabulary/validation (`test_coincidence_spec.py`),
-the sub-boundary scheduler + emergent latency WTA (`test_event_scheduler.py`), the full
-`rg_coincidence` preset (`test_rg_coincidence.py`), its public protocol
-(`test_coincidence_protocol.py`), and the scientific-validation harness
-(`test_coincidence_experiment.py`). The `tiled_cc` cortical-column hierarchy adds the
-reusable tile builder + structural validation and exact `191`-node/`1052`-edge counts
-(`test_tiled_cc_builder.py`), ordinary-E/Eor numeric parity + generic event-plastic
-learning + local hard WTA + shared-tau apical/deposit timing (`test_tiled_cc_engine.py`),
-the 81-pixel input surface + patch embedding + dimension config (`test_tiled_cc_input.py`),
-the metadata-driven layout + serialization (`test_tiled_cc_layout.py`), the dashboard
-payload/config contract (`test_tiled_cc_dashboard_contract.py`), and the headless
-acceptance experiment (`test_tiled_cc_experiment.py`, driving
-`experiments/tiled_cc_experiment.py`).
+Coverage includes the shared membrane/segment equations, causal event scheduler, boundary-edge
+drain, hard-reset WTA and delayed feedback, both learning families and their structural
+ceilings, graph validation, preset persistence, replay/branching, serialization/API, and
+golden topology regressions. Tiled coverage includes classic 8-E and 4-E columns, fixed Eor,
+the diagnostic double-Eor loop, 81-pixel patch composition, graph-derived auto-pacing, and
+the Eor-less direct-identity hierarchy. The direct-identity tests pin down its 181/1546
+graph, source-addressed L2 weights, multi-basal C causal learning, `tau=1.0` behavior, and
+identity-discrimination experiment.
 
 ## Overlap symmetry-breaking experiment
 

@@ -230,6 +230,18 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 .firing-badge { display: inline-block; padding: 3px 9px; border-radius: 20px; font-size: 11px; font-weight: 650; }
 .firing-badge.yes { background: rgba(94,234,212,.16); color: var(--accent); }
 .firing-badge.no { background: var(--bg-3); color: var(--txt-2); }
+/* Row of live-state chips whose LABELS change length every boundary (e.g. the coincidence
+   gate's "no gate" -> "COINCIDENCE"). A wrapping flex row re-wraps when a label grows, which
+   changes the card's height and makes the whole panel jump while the simulation runs. A fixed
+   2-column grid gives every chip a slot of constant size, so the card keeps the same height in
+   every state -- no dependence on font metrics or label text. */
+/* Multi-basal C: one row per source-distinct learned basal weight. Fixed height so the
+   card does not resize as the causal source changes from boundary to boundary. */
+.basal-list { display: flex; flex-direction: column; gap: 4px; margin-top: 8px;
+  max-height: 132px; overflow-y: auto; }
+.insp-chips { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; align-items: center; }
+.insp-chips > * { min-width: 0; text-align: center; white-space: nowrap;
+  overflow: hidden; text-overflow: ellipsis; }
 
 /* ============================= Bottom panel ========================== */
 .bottom { background: var(--bg-1); border-top: 1px solid var(--line); display: flex; flex-direction: column; min-height: 0; }

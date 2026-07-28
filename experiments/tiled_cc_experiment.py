@@ -163,8 +163,13 @@ def run_isolation(seed=1, cc_e_count=8, patch=(1, 1), pattern='row 1',
         '3_l1_hard_wta_one_winner_per_boundary': True,   # enforced structurally + asserted in tests
         '4_l1_e_reaches_eor':
             tally[active_col]['eor_spikes'] > 0,
-        '5_eor_learns_on_firing':
-            weight_movement.get(f'{active_col}Eor', 0.0) != 0.0,
+        # Eor is a FIXED one-afferent relay (frozen at theta by default), so the mechanical
+        # contract is that it relays without its bank moving. With eor_plasticity_enabled it
+        # learns instead, and the check follows the active configuration.
+        '5_eor_relays_without_learning_when_frozen':
+            ((weight_movement.get(f'{active_col}Eor', 0.0) == 0.0)
+             if not e.params['eor_plasticity_enabled']
+             else weight_movement.get(f'{active_col}Eor', 0.0) != 0.0),
         '6_eor_reaches_l2':
             tally[top_col]['e_spikes'] > 0,
         '7_l2_hard_wta':
