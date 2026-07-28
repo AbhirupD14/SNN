@@ -1,5 +1,11 @@
 # Claude Prompt: Linear Weight Default Promotion and Cleanup
 
+> **Historical kickoff prompt.** The ablation report and phase-status files named below
+> were removed after their production conclusions were incorporated into
+> `Current_Implementation_Methodology_Equations.md` and the live regression suite. They
+> remain available through git history. This prompt records the completed task; it is not
+> the current learning-rule authority.
+
 Finish the linear-weight ablation package, clean the remaining documentation and
 composition-probe issues, and promote the validated ordinary E/L2E equation to the
 production default.

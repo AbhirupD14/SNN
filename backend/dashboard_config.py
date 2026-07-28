@@ -73,7 +73,9 @@ CONFIG_SPEC = [
                   "label": "Tiled CC Direct Identity · 9×9 · 8 E/column"},
                  {"value": "tiled_cc_double_eor",
                   "label": "Tiled CC Double-Eor · 9×9 (latency probe)"},
-                 {"value": "rg_direct_cc4", "label": "3×3 Direct CC · 4 E + WTA I"}],
+                 {"value": "rg_direct_cc4", "label": "3×3 Direct CC · 4 E + WTA I"},
+                 {"value": "two_tower_composition",
+                  "label": "Two-Tower Composition · 9×18 · 18 L1 / 2 L2 / 1 L3"}],
      "desc": "rg_coincidence: the 3x3 coincidence circuit -- pretrained RG->L1E, "
              "coincidence L1C cells (one learned basal + eight unweighted apical), "
              "immediate hard-reset L1I/L2I relays, and an emergent first-spike-latency L2 "
@@ -92,7 +94,16 @@ CONFIG_SPEC = [
              "3x3 RGC surface densely feeding four ordinary latency-E competitors, each "
              "driving one central WTA I that hard-resets the four E; no feature relay, "
              "coincidence C, feature-specific I, Eor, or hierarchical feedback (14 nodes / "
-             "44 edges). Applying rebuilds the network and wipes learned state. "
+             "44 edges). two_tower_composition: TWO 9x9 towers side by side on one 9x18 "
+             "input sheet (18 L1 columns, nine per tower), each tower feeding its own L2 "
+             "column, and BOTH L2 columns feeding one L3 composition column through the "
+             "same generic child->parent rule -- 393 nodes / 2162 edges, three column "
+             "layers. Selecting it rebuilds the input to 162 pixels and the patch grid to "
+             "3x6. Because each tower L2 now has a parent, its C is no longer dormant; L3's "
+             "C is. Note the structural result it was built to test: L3 sees only TWO "
+             "source identities (the two tower Eors), so distinct glyphs that differ below "
+             "L2 arrive identical at L3 -- see docs/TWO_TOWER_COMPOSITION.md. "
+             "Applying rebuilds the network and wipes learned state. "
              "(Use the Topology Editor for arbitrary graphs and saved presets.)"},
     {"key": "dual_fe_fes", "label": "Dual FE/FES learning (experimental)", "kind": "toggle",
      "desc": "Experimental self-regulating learning rule. When ON, BOTH ordinary/latency-E "

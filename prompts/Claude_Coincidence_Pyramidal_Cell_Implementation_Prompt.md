@@ -1,5 +1,11 @@
 # Claude Kickoff: Coincidence Pyramidal Cell Refactor
 
+> **Historical kickoff prompt.** The implementation ledger, original technical
+> specification, and workflow essay named below were removed from the current docs set
+> after the refactor landed. They remain recoverable through git history. Do not use this
+> prompt as the current fabric contract; use
+> `Current_Implementation_Methodology_Equations.md` and the live tests instead.
+
 You are the primary implementation engineer for a large, timing-sensitive refactor of this SNN repository. Work deliberately and incrementally. Do not perform this as one sweeping rewrite.
 
 ## Source of truth

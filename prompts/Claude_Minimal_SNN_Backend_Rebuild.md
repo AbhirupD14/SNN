@@ -1,5 +1,10 @@
 # Claude implementation brief: minimal SNN backend rebuild
 
+> **Historical kickoff prompt.** The rebuild has already landed. Its former
+> `docs/REFACTOR.txt` source note was removed during documentation consolidation; use git
+> history to audit that input and `Current_Implementation_Methodology_Equations.md` for
+> the current contract.
+
 ## Role and outcome
 
 Act as the primary implementation engineer for this repository. This is an intentional backend replacement, not a compatibility-preserving refactor. The present model accumulated many experimental branches, flags, helper methods, and regression scripts. Replace it with the smallest coherent implementation of the network specified below while preserving the dashboard's visual design, layout, interaction model, and overall frontend structure.
@@ -8,7 +13,6 @@ Do the work in the repository, run the relevant verification, and leave the tree
 
 Before editing, inspect `git status` and `git diff`. The worktree contains intentional uncommitted work. Do not discard or overwrite unrelated user changes. Read the Markdown sources for scientific context, especially:
 
-- `docs/REFACTOR.txt` (the authoritative new direction)
 - `Current_Implementation_Methodology_Equations.md` (historical equations and terminology)
 - `README.md`
 - `docs/DASHBOARD.md` (browser protocol and frontend boundary)

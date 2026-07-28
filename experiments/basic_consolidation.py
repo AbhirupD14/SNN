@@ -10,7 +10,8 @@ competitors — under two matched, *separately reported* conditions:
 
 Runs without FastAPI/WebSockets/browser. Emits, per (topology, condition, seed), a shared
 replay-recorder artifact directory (manifest / replay.snn.jsonl / metrics.csv / summary),
-plus batch-level aggregate summary.json + metrics.csv. See docs/BASIC_CONSOLIDATION.md.
+plus batch-level aggregate summary.json + metrics.csv. The historical result and its
+claim boundary are summarized in docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md.
 
 This module records evidence; it does not modify any network dynamic, learning equation,
 threshold, delay, scheduler rule, or topology preset. A timeout is never reinterpreted as

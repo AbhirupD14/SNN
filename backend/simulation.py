@@ -2,7 +2,7 @@
 synchronous conductance path for legacy/custom graphs, explicit integer synaptic delays,
 and dashboard snapshots.
 
-The six public presets are declared by ``backend.network_spec.PRESETS``. The `pi`, `old`,
+The seven public presets are declared by ``backend.network_spec.PRESETS``. The `pi`, `old`,
 `rg`, and `rg_residual` descriptions below document retained low-level graph mechanics;
 those names are no longer accepted as public preset selections.
 
@@ -108,8 +108,10 @@ from backend.layout import generate_layout, generate_tiled_layout, grid_dims  # 
 from backend.network_spec import (  # noqa: E402
     preset_spec, validate_spec, ARCHETYPES, I_THRESHOLD_FRAC,
     tiled_cc_spec, tiled_cc_direct_identity_spec, tiled_cc_double_eor_spec,
-    rg_direct_cc4_spec,
+    rg_direct_cc4_spec, two_tower_composition_spec,
     embed_patch_pattern, tiled_input_size,
+    tiled_preset_input_shape, tiled_preset_input_size,
+    sheet_glyph_bank, sheet_glyph_names,
     TILED_FAMILY, TILED_CC_DEFAULTS, TILED_PRESETS,
 )
 
@@ -330,7 +332,8 @@ EDITABLE_KEYS = {
 # Every other editable key still rebuilds (and wipes learned state) as before.
 RUNTIME_ONLY_KEYS = {'input_period'}
 VALID_TOPOLOGIES = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4',
-                    'tiled_cc_direct_identity', 'tiled_cc_double_eor', 'rg_direct_cc4')
+                    'tiled_cc_direct_identity', 'tiled_cc_double_eor', 'rg_direct_cc4',
+                    'two_tower_composition')
 
 
 class BoundaryEventScheduler:
@@ -436,13 +439,14 @@ class SimulationEngine:
         self._base_n_out = params['n_out']
         # The canonical tiled input surface is fixed; a headless n_pix override that
         # disagrees with 81 must fail loudly rather than build a partly tiled graph.
-        if params['topology'] in TILED_PRESETS and 'n_pix' in overrides \
-                and self._base_n_pix != TILED_CC_INPUT:
-            raise ValueError(
-                f'{params["topology"]} has a fixed {TILED_CC_DEFAULTS["input_rows"]}x'
-                f'{TILED_CC_DEFAULTS["input_cols"]} ({TILED_CC_INPUT}) input surface; '
-                f'do not override n_pix (got {self._base_n_pix}). Use cc_e_count to size '
-                f'the columns, or a custom tiled spec for other shapes.')
+        if params['topology'] in TILED_PRESETS and 'n_pix' in overrides:
+            rows, cols = tiled_preset_input_shape(params['topology'])
+            if self._base_n_pix != rows * cols:
+                raise ValueError(
+                    f'{params["topology"]} has a fixed {rows}x{cols} ({rows * cols}) input '
+                    f'surface; do not override n_pix (got {self._base_n_pix}). Use '
+                    f'cc_e_count to size the columns, or a custom tiled spec for other '
+                    f'shapes.')
         self.params = params
         self._custom_spec = None       # a user/editor NetworkSpec overrides the preset when set
         self._patch = None             # tiled: selected (row,col) patch for local patterns
@@ -540,7 +544,9 @@ class SimulationEngine:
             else:
                 self.n_pix = self._base_n_pix
         elif p['topology'] in TILED_PRESETS:
-            self.n_pix = TILED_CC_INPUT
+            # Each tiled preset declares its OWN fixed surface (81 for the 9x9 family,
+            # 162 for the two-tower 9x18 sheet) -- never one shared constant.
+            self.n_pix = tiled_preset_input_size(p['topology'])
         else:
             self.n_pix = self._base_n_pix
 
@@ -582,6 +588,13 @@ class SimulationEngine:
             # Direct 3x3 RGC -> four ordinary E + one central WTA I (dual FE/FES experiment).
             self.mode = 'rg_direct_cc4'
             spec = validate_spec(rg_direct_cc4_spec(n_pix=self.n_pix), self.n_pix)
+        elif p['topology'] == 'two_tower_composition':
+            # Two 9x9 towers on one 9x18 sheet -> two L2 columns -> one L3 composition
+            # column. Same classic column motif and same generic child->parent rule as
+            # tiled_cc, three layers deep. See docs/TWO_TOWER_COMPOSITION.md.
+            self.mode = 'two_tower_composition'
+            spec = validate_spec(two_tower_composition_spec(cc_e_count=self.cc_e_count),
+                                 self.n_pix)
         else:
             self.mode = str(p['topology'])             # 'pi' | 'old' | 'rg' | ...
             spec = preset_spec(self.mode, self.n_pix, self.n_out)
@@ -1861,18 +1874,34 @@ class SimulationEngine:
         return sum(h) / len(h) if h else 0.0
 
     # ================================================================ control
+    def _sheet_pattern_names(self) -> tuple:
+        """Names of the WHOLE-SHEET stimuli this graph's input shape declares (empty for a
+        non-tiled graph or a shape with none). Keyed on the validated input shape, never on
+        a preset name -- a 9x18 surface has the two-tower glyph bank whatever built it."""
+        if self.tiled_meta is None:
+            return ()
+        ishape = self.tiled_meta['input_shape']
+        return sheet_glyph_names(ishape['rows'], ishape['cols'])
+
     def _active_patterns(self) -> dict:
         """The active topology-sized pattern bank. Legacy 9-pixel presets keep the four
         3x3 stimuli verbatim; tiled_cc embeds each into the selected patch as a full
         81-length vector, so the bank never advertises a 9-length vector to an 81-input
-        engine. ``set_pattern`` / ``topology()`` resolve against this bank."""
+        engine. ``set_pattern`` / ``topology()`` resolve against this bank.
+
+        A tiled graph whose input shape declares WHOLE-SHEET stimuli (the 9x18 two-tower
+        glyphs) also gets those, appended after the four patch-local names so existing
+        ordering is untouched. They are full-surface vectors, NOT patch embeddings: a glyph
+        crosses the tower seam and cannot be expressed as any single 3x3 patch."""
         if self.tiled_meta is None:
             return {k: list(map(int, v)) for k, v in PATTERNS.items()}
         ishape, pshape = self.tiled_meta['input_shape'], self.tiled_meta['patch_shape']
         patch = self._patch or (0, 0)
-        return {name: embed_patch_pattern((ishape['rows'], ishape['cols']),
+        bank = {name: embed_patch_pattern((ishape['rows'], ishape['cols']),
                                           (pshape['rows'], pshape['cols']), patch, vec)
                 for name, vec in PATTERNS.items()}
+        bank.update(sheet_glyph_bank(ishape['rows'], ishape['cols']))
+        return bank
 
     def set_patch(self, row, col):
         """Select the tiled patch local pattern buttons embed into. Validates bounds;
@@ -1900,10 +1929,15 @@ class SimulationEngine:
                 f'n_pix={self.n_pix}')
         self.current_pattern = name
         self.input_vec = np.array(vec, dtype=float)
-        # On a tiled graph, a single named pattern is the current patch alone; mirror it
-        # into the per-patch map so the compositional view (which patch holds which pattern)
-        # stays consistent with what is actually driving the input.
-        if self.tiled_meta is not None and self._patch is not None:
+        if name in self._sheet_pattern_names():
+            # A WHOLE-SHEET stimulus spans the entire surface and crosses patch (and tower)
+            # boundaries, so no per-patch assignment describes it. Drop the composition map
+            # rather than mislabel one patch as owning the glyph.
+            self._patch_patterns = {}
+        elif self.tiled_meta is not None and self._patch is not None:
+            # On a tiled graph, a single named LOCAL pattern is the current patch alone;
+            # mirror it into the per-patch map so the compositional view (which patch holds
+            # which pattern) stays consistent with what is actually driving the input.
             self._patch_patterns = {tuple(self._patch): name}
 
     # ------------------------------------------------- per-patch composition
@@ -1936,6 +1970,12 @@ class SimulationEngine:
             self._patch_patterns.pop((row, col), None)
         else:
             if name not in PATTERNS:
+                # A whole-sheet stimulus is not a 3x3 local feature and can never be
+                # embedded into one patch -- say so instead of a bare KeyError.
+                if name in self._sheet_pattern_names():
+                    raise KeyError(
+                        f'{name!r} is a WHOLE-SHEET stimulus, not a 3x3 local pattern; '
+                        f'drive it with set_pattern()/POST /api/pattern instead')
                 raise KeyError(name)
             self._patch_patterns[(row, col)] = name
         self.current_pattern = None            # a composition is not one single named pattern
@@ -2361,7 +2401,11 @@ class SimulationEngine:
                 columns=self.tiled_meta['columns'],
                 cc_e_count=self.tiled_meta.get('cc_e_count'),
                 selected_patch=list(self._patch) if self._patch is not None else None,
-                patch_patterns=self.patch_pattern_map())
+                patch_patterns=self.patch_pattern_map(),
+                # Names in ``patterns`` that are WHOLE-SHEET stimuli rather than 3x3 local
+                # features. The dashboard must drive these through /api/pattern (the whole
+                # surface) instead of /api/patch_pattern (embed into the selected patch).
+                sheet_patterns=list(self._sheet_pattern_names()))
         return out
 
     def _public_params(self):

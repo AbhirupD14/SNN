@@ -40,13 +40,15 @@ with two patches pre-loaded. (`SimulationEngine`'s own default stays `rg_coincid
 the production rule, so every golden and headless run is unaffected.) Ordinary-E learning is
 cap-free
 (no per-synapse weight cap on the RULE; the FE budget saturates each row total, under the
-`θ/2` detector and `θ` one-afferent ceilings). The six built-in topologies are
+`θ/2` detector and `θ` one-afferent ceilings). The seven built-in topologies are
 `rg_coincidence`, `tiled_cc`, `tiled_cc_l1_4`, `tiled_cc_direct_identity`
 (`Tiled CC Direct Identity · 9×9 · 8 E/column` in the selector — the Eor-less
 source-addressed hierarchy, see `docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md`),
 `tiled_cc_double_eor` (`Tiled CC Double-Eor · 9×9 (latency probe)` — a DIAGNOSTIC preset with
-one extra output relay, see `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`), and
-`rg_direct_cc4` (`3×3 Direct CC · 4 E + WTA I`).
+one extra output relay, see `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`),
+`rg_direct_cc4` (`3×3 Direct CC · 4 E + WTA I`), and `two_tower_composition`
+(`Two-Tower Composition · 9×18 · 18 L1 / 2 L2 / 1 L3`, see
+`docs/TWO_TOWER_COMPOSITION.md`).
 
 **Input period** is the only control that applies *without* rebuilding, so a trained column
 can be re-paced live. Its default `0` means auto: the engine derives the graph's top-down
@@ -140,7 +142,8 @@ synapse values and applies sparse deltas from dynamic messages.
 | `controls.js` | Inputs, execution, and generated config controls. |
 | `renderer.js` | Three.js neuron and synapse view. |
 | `inspector.js` | Selected-neuron details. |
-| `raster.js`, `charge.js`, `weights.js`, `receptive.js` | Focused analysis panels. |
+| `raster.js`, `charge.js`, `weights.js` | Focused analysis panels. |
+| `receptive.js` | Receptive-field panel — see [Receptive fields at any scale](#receptive-fields-at-any-scale) below. |
 | `replay.js`, `replay_player.js` | Read-only **Load Test** replay of a recorded `replay.snn.jsonl` — see [REPLAY_PLAYER.md](REPLAY_PLAYER.md). |
 
 The renderer stores backend coordinates as `functionalPos`. It derives a
@@ -150,6 +153,49 @@ only to set per-synapse learning rates (they never scale delivered charge).
 
 The orthographic camera is refit after topology changes. Neuron meshes and
 synapse lines are created once per topology, then mutated for each dynamic frame.
+
+## Receptive fields at any scale
+
+The panel shows **one card per learning target** — every cell in the graph that owns a
+learned weight — grouped by layer and column, and it derives its whole layout from the
+topology message rather than from any fixed surface.
+
+A card is one of two kinds, decided by the target's own afferents:
+
+| kind | when | layout |
+|---|---|---|
+| `pixels` | every afferent comes from an input-owning source | the target's **own patch** (tiled: `patch_shape`, placed by the source's `patch_local_row/col`) or the whole input sheet (non-tiled: `topology.grid`) |
+| `afferents` | the afferents are other neurons | a source → weight list |
+
+So an L1 detector shows a real 3×3 retinal map whatever the sheet is (3×3, 9×9 or the
+9×18 two-tower surface), while an L2/L3 ordinary E (child-column `Eor` outputs), an `Eor`
+(its local E bank) and a coincidence `C` (its one learned basal) get honest afferent
+lists instead of a pretend pixel grid. Unweighted apical permissions carry no weight and
+are not shown. The card grid's column count comes from a `--rf-cols` CSS variable set per
+card, so no shape is hard-coded in the stylesheet either.
+
+Two display details worth knowing:
+
+- **`ratio` mode** divides by the ceiling that actually binds for that role — `theta/2`
+  for pattern detectors, `theta` for the one-afferent `Eor` bank and `C` basal — so a
+  matured weight reads ~1.0 instead of an arbitrary fraction of a shared budget.
+- **`sub-θ`** flags a target whose afferents cannot reach threshold *even all together*,
+  i.e. one full volley from rest does not cross. At `leak_rate=0` such a cell still
+  integrates across boundaries, so this marks "not yet a one-volley integrator", **not**
+  "can never fire". It replaced a fixed "three strongest afferents" proxy that silently
+  assumed a 3-pixel stimulus and a 9-afferent detector.
+
+A layer filter appears whenever the graph has more than one column layer, because a large
+hierarchy has many targets (the two-tower graph has 210).
+
+The model builder is pure and DOM-free (`buildReceptiveFieldModel`), unit-tested against
+**real engine topology payloads** for every current surface shape:
+
+```bash
+node --test tests/receptive.model.test.mjs
+# regenerate the fixtures after a topology/serialization change:
+PYTHONPATH=. .venv/bin/python tests/fixtures/make_rf_topologies.py
+```
 
 ## Adding a control
 

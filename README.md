@@ -71,7 +71,7 @@ inspection contract (`eta=4`, `c_eta=16`, `e_weight_cap_frac=0.5`,
   Inhibition is a **zero-latency hard reset** (`L1I` resets its paired `L1E`; `L2I`
   resets every `L2E`). **L2 WTA is emergent**: the first `L2E` to reach threshold wins
   and its `L2I` reset cancels the rest — no deterministic winner phase. See the
-  measured behavior below and `docs/COINCIDENCE_PYRAMIDAL_CELL_TECHNICAL_SPEC.md`.
+  measured behavior below and `Current_Implementation_Methodology_Equations.md`.
 - **`topology='tiled_cc'` — the tiled cortical-column hierarchy (191 neurons, 1052
   edges at the default `cc_e_count=8`).** Reuses the `rg_coincidence` mechanics inside
   reusable **cortical-column tiles** instead of one neuron per pixel. A `9×9` **RGC**
@@ -129,6 +129,13 @@ inspection contract (`eta=4`, `c_eta=16`, `e_weight_cap_frac=0.5`,
   each driving one **central WTA I** that hard-resets all four. No feature relay,
   coincidence C, Eor, or hierarchical feedback — the minimal competitive column used as the
   dual FE/FES acceptance topology (`experiments/dual_fe_cc4_consolidation.py`).
+- **`topology='two_tower_composition'` — the two-tower scaling experiment (393 neurons,
+  2162 edges).** Two lateral `9×9` tiled towers share one `9×18` input sheet. Each tower's
+  nine L1 columns feed its own L2 column, and the two L2 columns feed one L3 composition
+  column through the existing column connector. Tower L2 separates the tested `V`, `A`,
+  and `7` glyph halves, but the classic one-Eor output collapses each tower to the same
+  source address at L3, so the three composed glyphs collide there. See
+  `docs/TWO_TOWER_COMPOSITION.md`.
 
 > **Rejected direction.** A dedicated per-feature gated tiled variant
 > (`tiled_cc_feature_gated`) was implemented and then removed: it demonstrated selective
@@ -136,7 +143,7 @@ inspection contract (`eta=4`, `c_eta=16`, `e_weight_cap_frac=0.5`,
 > gated tiled columns” in `Current_Implementation_Methodology_Equations.md`; git history is
 > the archive for the deleted implementation.
 
-All six built-in presets are **event-resolved** (the analytic sub-boundary scheduler,
+All seven built-in presets are **event-resolved** (the analytic sub-boundary scheduler,
 selected automatically from graph metadata). A custom *non*-coincidence graph built in the
 editor instead runs the synchronous event engine. The fixed editor vocabulary is eleven node
 archetypes (`rg_source`, `e_sensory`, `e_encoder`, `e_residual`, `e_competitor`,
@@ -156,8 +163,9 @@ row owner, recruited a different column owner, and recovered the original owner 
 the row returned, with zero L2 tie events. To watch that protocol in the dashboard,
 run **row 1** for roughly 2500 steps, **col 1** for 2500, then return to **row 1**. At
 120 steps/s, each phase takes about 21 seconds.
-The rationale, equations, rejected alternatives, and complete tuning tables are in
-`docs/COINCIDENCE_TURNOVER_TUNING.md`.
+The current equations, rationale, and measured limitations are in
+`Current_Implementation_Methodology_Equations.md` and
+`docs/STANDING_PROBLEMS_AND_HANDOFF_PRIORITIES.md`.
 
 Run `PYTHONPATH=. .venv/bin/python experiments/coincidence_experiment.py`
 (→ `experiments/coincidence_results.json`). Mechanical correctness and the scientific
@@ -230,7 +238,7 @@ neighbouring boundary's).
 | Path | Responsibility |
 | --- | --- |
 | `snn/neurons.py` | Excitatory/source/relay/predictor cells plus the local traced `SwitchInterneuron`. |
-| `backend/network_spec.py` | The `NetworkSpec` vocabulary, the six built-in presets, and `validate_spec`. |
+| `backend/network_spec.py` | The `NetworkSpec` vocabulary, the seven built-in presets, and `validate_spec`. |
 | `backend/simulation.py` | Spec-driven construction (`_build_from_spec`), the generic edge-dispatched step, `current_spec`/`apply_topology`, state snapshots. |
 | `backend/presets.py` | Server-side preset persistence (built-ins + saved-graph JSON under `.claude/presets/`). |
 | `backend/dashboard_config.py` | The dashboard preset and the small control schema (topology selector + rules). |
@@ -247,16 +255,12 @@ neighbouring boundary's).
 The implemented model — conductance dynamics, activity trace, local PI plasticity,
 timestep/delays, and the symmetry-breaking results — is documented in
 [`Current_Implementation_Methodology_Equations.md`](Current_Implementation_Methodology_Equations.md).
-The evolution from a GPT-5.5 architect/Claude implementer split to the current
-strength-based Sol/Claude workflow is recorded in
-[`docs/agent_workflow_evolution.md`](docs/agent_workflow_evolution.md).
-The detailed reading of Silver's *Neuronal arithmetic*, its limits, and the staged
-plan for multiplicative `SwitchI` coincidence and paired hard reset are in
-[`docs/SILVER_NEURONAL_ARITHMETIC_SWITCHI.md`](docs/SILVER_NEURONAL_ARITHMETIC_SWITCHI.md).
 The browser protocol and view boundary are in
-[`docs/DASHBOARD.md`](docs/DASHBOARD.md). `docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md`
-and `docs/INTRINSIC_ADAPTATION_DESIGN.md` predate the conductance/PI rewrite and are
-retained as historical context only.
+[`docs/DASHBOARD.md`](docs/DASHBOARD.md). The fabric's validated operating envelope,
+known failure boundaries, and unresolved work are in
+[`docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md`](docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md)
+and
+[`docs/STANDING_PROBLEMS_AND_HANDOFF_PRIORITIES.md`](docs/STANDING_PROBLEMS_AND_HANDOFF_PRIORITIES.md).
 
 ## Editing the topology
 
@@ -267,8 +271,9 @@ drag one node onto another to wire an edge (the kind is inferred from the two
 archetypes), click an edge to toggle it directional/bidirectional or delete it, add
 neurons from the palette, and **Apply** to rebuild the live network (every view
 refreshes off the broadcast). Save the current graph as a named preset and load it
-back later; the six built-ins (`rg_coincidence`, `tiled_cc`, `tiled_cc_l1_4`,
-`tiled_cc_direct_identity`, `tiled_cc_double_eor`, `rg_direct_cc4`) are always
+back later; the seven built-ins (`rg_coincidence`, `tiled_cc`, `tiled_cc_l1_4`,
+`tiled_cc_direct_identity`, `tiled_cc_double_eor`, `rg_direct_cc4`,
+`two_tower_composition`) are always
 available. Presets persist server-side under `.claude/presets/`.
 
 The palette carries the two archetypes `rg` introduced. An **RG** node is an exogenous
@@ -294,7 +299,7 @@ coincidence cell `L1C_i` on one learned **basal** afferent, while every `L2E_j` 
 its basal charge as an instantaneous same-`tau` impulse. Inhibition is a **zero-latency hard
 reset** and **L2 WTA is emergent** — the first `L2E` to threshold wins and its `L2I` reset
 cancels the rest. See the measured behavior above and
-`docs/COINCIDENCE_PYRAMIDAL_CELL_TECHNICAL_SPEC.md`.
+`Current_Implementation_Methodology_Equations.md`.
 
 Excitatory neurons integrate `acc_weights` (learned by a cap-free rule under a hard
 per-synapse ceiling — see the table above) jointly with a persistent inhibitory conductance `g_inh` (decaying,

@@ -17,8 +17,9 @@ The supported built-in presets are:
 | `tiled_cc_direct_identity` | 181 / 1546 | Eor-less source-addressed hierarchy |
 | `tiled_cc_double_eor` | 201 / 1062 | diagnostic feedback-latency probe only |
 | `rg_direct_cc4` | 14 / 44 | minimal direct four-competitor column |
+| `two_tower_composition` | 393 / 2162 | two 9×9 towers feeding one L3 composition column |
 
-All six built-ins are event-resolved. Integer outer boundaries still carry delay-one
+All seven built-ins are event-resolved. Integer outer boundaries still carry delay-one
 feedforward, basal, and feedback-reset events, but membrane crossings are resolved at
 analytic sub-boundary timestamps `tau`. The scheduler repeatedly selects the earliest
 crossing, advances the membranes, applies same-`tau` apical and hard-reset consequences,

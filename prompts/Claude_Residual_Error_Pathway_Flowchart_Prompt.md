@@ -1,5 +1,9 @@
 # Create a graphical residual/error-pathway architecture flowchart
 
+> **Historical kickoff prompt.** The `rg_residual` built-in and its generated flowchart
+> were removed from the active fabric. This prompt is retained as a record of that
+> investigation; the generated files remain available through git history.
+
 ## Objective
 
 Create a polished, genuinely graphical vector flowchart of the **proposed

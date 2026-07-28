@@ -144,9 +144,9 @@ Read all of:
 - `experiments/dual_fe_cc4_consolidation.py`;
 - `experiments/interleaving_parallel_rf.py`;
 - `experiments/replay_recorder.py`;
-- `docs/BASIC_CONSOLIDATION.md`;
+- `docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md`;
 - `docs/ENGINE_VALIDATION_REPORT.md`;
-- `docs/ENGINE_VALIDATION_HANDOFF_REPORT.md`;
+- `docs/ENGINE_VALIDATION_REPORT.md`;
 - `docs/STANDING_PROBLEMS_AND_HANDOFF_PRIORITIES.md`;
 - `docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`;
 - tests for tiled topology construction, patch input, consolidation analysis, dual FE/FES,
@@ -1156,6 +1156,50 @@ structure, and which remain untested.
 
 # Task 4 — Two 9x9 towers feeding one L3 composition column
 
+> **EXECUTED (Task 4 only), 2026-07-28.** Tasks 1–3 and the omnibus plan above remain
+> superseded and were not run. Task 4 was re-specified against the CURRENT LIVE CONTRACT
+> in the next subsection before execution, and its result is reported in
+> `docs/TWO_TOWER_COMPOSITION.md`. Verdict: the lower towers learn V/A/7 completely and
+> each tower's L2 holds a distinct cold-recallable owner per glyph, but the single-Eor
+> column output makes the three glyphs **byte-identical at L3's input**, so L3 collapses
+> them onto one owner — `representation_not_identifiable`, structural, not a dwell or
+> tuning problem.
+
+## Current live contract (supersedes the reference block above, for Task 4)
+
+The historical `eta=1.0 / c_eta=0.5 / plastic-Eor` reference block earlier in this file is
+NOT the operating point. Task 4 uses, and asserts on the constructed engine:
+
+```text
+dual_fe_fes           = true
+dual_fe_e             = 0.001
+dual_fe_wte           = 0.001
+dual_fe_B             = 5.0     (the reference; the low-B condition depends on Task 1)
+eta                   = 4.0
+c_eta                 = 16.0
+leak_rate             = 0.0
+refractory_steps      = 0
+input_period          = 0       AUTO: one volley per resolved causal chain
+e_weight_cap_frac     = 0.5     theta/2 pattern-detector ceiling
+relay_weight_cap_frac = 1.0     theta one-afferent ceiling
+eor_w_init_frac       = 1.0
+eor_plasticity_enabled= false   Eor is a FIXED NON-PLASTIC relay at theta
+c_feedback_reset      = true    top-down delay-1 feedback reset enabled
+```
+
+Two milestone consequences follow and must be reported, not hidden:
+
+- **Eor one-event maturity is structural by construction.** A bank frozen at `theta` means
+  one ordinary-E winner always drives Eor to exactly threshold, so Milestone C/F's
+  structural half is trivially true and only the OBSERVED reliability is informative.
+- **The `theta/2` ceiling defines the L3 problem.** Each L3 ordinary E owns exactly two
+  afferents (the two tower Eors), each capped at `theta/2`, so a matured L3 detector needs
+  BOTH towers on the same delivery boundary and can never be fired by one tower alone.
+
+Because Task 1 was not executed, the second composition condition below has no selected
+low-B value. Record `low_B_candidate = null` **with a reason**; never substitute an
+undeclared `B`.
+
 ## Purpose and gate
 
 Run this task last. Do not allow its implementation to delay or invalidate Tasks 1–3.
@@ -1412,6 +1456,13 @@ Run seed 1 under two declared parameter conditions:
 
 1. reference `B=5`, no transition wipe;
 2. the selected low-B/no-wipe condition from Task 1.
+
+> **As executed:** only condition 1 is evaluable. Task 1 was not run, so condition 2 is
+> recorded as `low_B_candidate = null` with its reason in `config.json` and
+> `aggregate_summary.json -> completion.not_evaluable`. The preflight's lower-tower stop
+> gate is the A–F subset, because `G` (L3 maturity) is unreachable BY CONSTRUCTION while
+> L3 plasticity is frozen and must not hold the preflight hostage; every milestone is
+> still evaluated and recorded on every boundary.
 
 For each condition:
 

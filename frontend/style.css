@@ -182,6 +182,10 @@ input[type="range"] { accent-color: var(--accent); height: 4px; }
 }
 .pat-btn:hover { color: var(--txt-0); border-color: var(--accent-2); background: var(--bg-3); }
 .pat-btn.active { color: #0a1410; background: var(--accent); border-color: var(--accent); font-weight: 650; }
+/* Whole-sheet stimulus (e.g. the 9x18 two-tower glyphs): drives the ENTIRE surface rather
+   than composing into the selected 3x3 patch. Dashed edge marks the different scope. */
+.pat-btn-sheet { border-style: dashed; border-color: var(--accent-2); }
+.pat-btn-sheet.active { border-style: solid; }
 
 /* ============================== Viewport ============================= */
 .viewport { position: relative; background: radial-gradient(ellipse at 50% 0%, #131a28, #0a0d13 70%); min-height: 0; }
@@ -314,9 +318,34 @@ canvas.chart, #histogram { width: 100%; display: block; }
 .rf-title { display: flex; justify-content: space-between; align-items: center; font-size: 12px; color: var(--txt-1); margin-bottom: 7px; font-variant-numeric: tabular-nums; }
 .rf-badge { font-size: 10px; text-transform: uppercase; letter-spacing: .5px; color: var(--inh); border: 1px solid var(--inh); border-radius: 4px; padding: 0 4px; }
 
-.rf-cells { display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; }
+/* Column count is driven by the TARGET's own shape (--rf-cols), so a 3x3 patch, a 9x9
+   sheet, a 9x18 two-tower sheet and an N-afferent list all lay out correctly. */
+.rf-cells { display: grid; grid-template-columns: repeat(var(--rf-cols, 3), 1fr); gap: 3px; }
 .rf-cell { aspect-ratio: 1 / 1; border-radius: 4px; border: 1px solid var(--line); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: var(--txt-2); }
 .rf-input { width: 84px; }
+/* A wide sheet (9x18) needs more room than the 3x3 default or the cells collapse. */
+.rf-input.rf-input-wide { width: 264px; }
+/* Group heading: one per column / layer, spanning the whole card grid. */
+.rf-group {
+  grid-column: 1 / -1; font-size: 11px; font-weight: 700; letter-spacing: .4px;
+  text-transform: uppercase; color: var(--txt-2); border-bottom: 1px solid var(--line);
+  padding: 8px 2px 4px; margin-top: 4px;
+}
+.rf-filter {
+  background: var(--bg-2); color: var(--txt-1); border: 1px solid var(--line);
+  border-radius: 6px; padding: 3px 6px; font-size: 11px;
+}
+.rf-summary { font-size: 11px; color: var(--txt-2); }
+.rf-role {
+  font-size: 9px; text-transform: uppercase; letter-spacing: .4px; color: var(--txt-2);
+  border: 1px solid var(--line); border-radius: 4px; padding: 0 4px;
+}
+/* Afferent-list cells carry a small source tag above the number. */
+.rf-card-afferents .rf-cell { aspect-ratio: auto; min-height: 30px; flex-direction: column; gap: 1px; }
+.rf-cell-tag {
+  font-size: 8px; font-weight: 600; color: var(--txt-2); letter-spacing: .2px;
+  text-shadow: none; line-height: 1;
+}
 .rf-cell.sig-plus { background: rgba(69,212,131,.18); color: var(--ok); border-color: rgba(69,212,131,.5); }
 .rf-cell.sig-minus { background: transparent; color: var(--inh); border-color: var(--line); }
 

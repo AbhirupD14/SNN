@@ -1,12 +1,14 @@
-"""Contract for the built-in preset registry: the project exposes exactly six current
+"""Contract for the built-in preset registry: the project exposes exactly seven current
 built-in topologies (rg_coincidence, tiled_cc, tiled_cc_l1_4, tiled_cc_direct_identity,
-tiled_cc_double_eor, rg_direct_cc4). tiled_cc_direct_identity removes Eor and transmits each
-local winner's identity directly to the parent; tiled_cc_double_eor is the DIAGNOSTIC latency
-probe (classic column + one extra output relay); rg_direct_cc4 is the experimental dual FE/FES
-acceptance column; the earlier presets are unchanged historical controls. The obsolete presets
-(pi, old, rg, rg_residual) and the removed feature-gated tiled variant are rejected as
-built-ins, the dashboard surface is the retained controls plus the one new dual FE/FES
-toggle, and custom/saved graphs still load.
+tiled_cc_double_eor, rg_direct_cc4, two_tower_composition). tiled_cc_direct_identity removes
+Eor and transmits each local winner's identity directly to the parent; tiled_cc_double_eor is
+the DIAGNOSTIC latency probe (classic column + one extra output relay); rg_direct_cc4 is the
+experimental dual FE/FES acceptance column; two_tower_composition is the three-layer
+composition graph (two 9x9 towers on one 9x18 sheet -> two L2 -> one L3) and is the ONLY
+built-in whose input surface is not 81 pixels; the earlier presets are unchanged historical
+controls. The obsolete presets (pi, old, rg, rg_residual) and the removed feature-gated tiled
+variant are rejected as built-ins, the dashboard surface is the retained controls plus the one
+new dual FE/FES toggle, and custom/saved graphs still load.
 """
 
 import pytest
@@ -17,7 +19,7 @@ from backend.dashboard_config import CONFIG_SPEC, config_values
 from backend import presets as ps
 
 RETAINED = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_direct_identity',
-            'tiled_cc_double_eor', 'rg_direct_cc4')
+            'tiled_cc_double_eor', 'rg_direct_cc4', 'two_tower_composition')
 OBSOLETE = ('pi', 'old', 'rg', 'rg_residual', 'tiled_cc_feature_gated')
 
 

@@ -203,13 +203,13 @@ DIRECTED_ONLY_KINDS = ('pretrained_excitation', 'basal_excitation', 'apical_exci
 # offered as built-ins (their spec builders remain in this module only as reusable
 # low-level mechanics for custom/saved graphs and unit tests, NOT as public presets).
 PRESETS = ('rg_coincidence', 'tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_direct_identity',
-           'tiled_cc_double_eor', 'rg_direct_cc4')
+           'tiled_cc_double_eor', 'rg_direct_cc4', 'two_tower_composition')
 
 # Built-in presets that build a tiled cortical-column hierarchy on the fixed 81-pixel
 # surface (as opposed to the legacy n_pix/n_out presets). Used for size resolution and
 # the fixed-input guard so new tiled presets are handled without name-by-name branching.
 TILED_PRESETS = ('tiled_cc', 'tiled_cc_l1_4', 'tiled_cc_direct_identity',
-                 'tiled_cc_double_eor')
+                 'tiled_cc_double_eor', 'two_tower_composition')
 
 # Tiled-family topology variants. The top-level ``topology.variant`` field is the single
 # source of truth construction/validation/layout branch on -- NEVER the preset name or a
@@ -232,6 +232,42 @@ TILED_VARIANTS = (TILED_VARIANT_CLASSIC, TILED_VARIANT_DIRECT_IDENTITY,
 # surface is fixed; only ``cc_e_count`` (ordinary E per column) is configurable.
 TILED_CC_DEFAULTS = dict(input_rows=9, input_cols=9, patch_rows=3, patch_cols=3,
                          cc_e_count=8)
+# Construction dimensions for the two-tower composition preset: two lateral 9x9 fields on
+# ONE validated 9x18 sheet. See ``two_tower_composition_spec`` below.
+TWO_TOWER_TOWER_COUNT = 2
+TWO_TOWER_DEFAULTS = dict(input_rows=9, input_cols=18, patch_rows=3, patch_cols=3,
+                          cc_e_count=8)
+
+# Per-preset input surface for the tiled family. A tiled preset's pixel count is a
+# CONSTRUCTION property of that preset, not one shared constant -- the two-tower graph is
+# 162 pixels while every 9x9 variant is 81. Size resolution, the fixed-input guard and the
+# preset store all read this table instead of assuming a single tiled surface.
+TILED_PRESET_INPUT_SHAPE = {
+    'tiled_cc': (TILED_CC_DEFAULTS['input_rows'], TILED_CC_DEFAULTS['input_cols']),
+    'tiled_cc_l1_4': (TILED_CC_DEFAULTS['input_rows'], TILED_CC_DEFAULTS['input_cols']),
+    'tiled_cc_direct_identity': (TILED_CC_DEFAULTS['input_rows'],
+                                 TILED_CC_DEFAULTS['input_cols']),
+    'tiled_cc_double_eor': (TILED_CC_DEFAULTS['input_rows'],
+                            TILED_CC_DEFAULTS['input_cols']),
+    'two_tower_composition': (TWO_TOWER_DEFAULTS['input_rows'],
+                              TWO_TOWER_DEFAULTS['input_cols']),
+}
+
+
+def tiled_preset_input_shape(name: str) -> tuple[int, int]:
+    """``(rows, cols)`` of one tiled preset's fixed input sheet. Raises for a name that is
+    not a tiled preset, so a new tiled preset cannot silently inherit 9x9."""
+    try:
+        return TILED_PRESET_INPUT_SHAPE[name]
+    except KeyError:
+        raise KeyError(f'{name!r} is not a tiled preset; expected one of {TILED_PRESETS}')
+
+
+def tiled_preset_input_size(name: str) -> int:
+    """Pixel count of one tiled preset's fixed input sheet (81 for the 9x9 family, 162 for
+    the two-tower 9x18 sheet)."""
+    rows, cols = tiled_preset_input_shape(name)
+    return rows * cols
 
 
 def _e_sensory(i, pixel):
@@ -243,7 +279,7 @@ def preset_spec(name: str, n_pix: int, n_out: int, cc_e_count: int = 8) -> dict:
     """Return a built-in NetworkSpec. Positions are omitted so the engine fills them from
     the seeded functional layout (bit-exact presets).
 
-    The public built-ins are exactly the six names in ``PRESETS``; any other name is
+    The public built-ins are exactly the seven names in ``PRESETS``; any other name is
     rejected. ``cc_e_count`` sizes the ordinary-E bank of every column in the configurable
     ``tiled_cc`` preset and is ignored by the fixed-shape variants. The obsolete
     pi/old/rg/rg_residual builders below are unreachable through this entry point (guarded
@@ -267,6 +303,10 @@ def preset_spec(name: str, n_pix: int, n_out: int, cc_e_count: int = 8) -> dict:
         # Direct 3x3 RGC -> four ordinary E + one central WTA I (dual FE/FES experiment).
         # Fixed 3x3/4-E shape (does not read n_out); n_pix sizes the RGC surface.
         return rg_direct_cc4_spec(n_pix=n_pix)
+    if name == 'two_tower_composition':
+        # Two 9x9 towers on one 9x18 sheet feeding one L3 composition column. Composes the
+        # same public column rules as tiled_cc; ``cc_e_count`` sizes every column bank.
+        return two_tower_composition_spec(cc_e_count=cc_e_count)
     if name == 'rg':
         return _rg_spec(n_pix, n_out)
     if name == 'rg_residual':
@@ -781,6 +821,218 @@ def tiled_cc_spec(*, cc_e_count: int = 8, l1_e_count: int | None = None,
         # ``cc_e_count`` names the L1 (sensory) bank size; equal to l2_n in the uniform
         # tiled_cc default, so existing consumers/tests are unchanged there.
         cc_e_count=l1_n,
+        columns=columns_meta)
+    return dict(name=name, topology=topology_meta, nodes=nodes, edges=edges)
+
+
+# =====================================================================================
+# Two-tower composition graph
+# =====================================================================================
+# Two independent 9x9 towers laid out side by side on ONE validated 9x18 input sheet, each
+# feeding its own L2 classic column, with both L2 columns feeding one L3 classic column::
+#
+#     Tower 0 (left):   9x9 RGC -> 9 L1 classic CC -> T0L2c00 -.
+#                                                               >-- L3c00
+#     Tower 1 (right):  9x9 RGC -> 9 L1 classic CC -> T1L2c00 -'
+#
+# It composes ONLY the existing public rules (``build_cortical_column`` /
+# ``connect_rgc_patch`` / ``connect_columns``): no feature relay, no direct identity, no new
+# archetype, no new edge kind, no gating. Because each tower L2 now declares L3 as its
+# parent, its C is no longer dormant; L3 has no parent, so L3's C is the dormant one.
+#
+# The scientific point of the graph is exactly the single-Eor bottleneck it inherits: L3
+# receives only TWO source identities in total (``T0L2c00Eor`` and ``T1L2c00Eor``), whatever
+# the towers below them are representing. See docs/TWO_TOWER_COMPOSITION.md.
+
+# --- whole-sheet stimuli -------------------------------------------------------------
+# The four canonical PATTERNS are 3x3 LOCAL stimuli: they name a receptive-field feature and
+# are embedded into one patch. A composition graph also needs stimuli that span the WHOLE
+# input sheet and cross the tower seam, which no per-patch pattern can express. These are
+# those: three deterministic one-pixel-wide glyphs on the 9x18 two-tower sheet.
+#
+# They are keyed by INPUT SHAPE, not by preset name -- any tiled graph whose surface is 9x18
+# can be driven by them, and a 9x9 graph simply has no whole-sheet bank. ``V`` and ``A``
+# deliberately share diagonal structure and differ by the crossbar; ``7`` is the requested
+# straight-legged form.
+SHEET_GLYPH_SHEETS = {
+    # (rows, cols) -> {glyph name: {stroke name: [(row, col), ...]}}
+    (9, 18): {
+        'V': {
+            'left_leg':  [(r, r) for r in range(9)],
+            'right_leg': [(r, 17 - r) for r in range(9)],
+        },
+        'A': {
+            'left_leg':  [(r, 8 - r) for r in range(9)],
+            'right_leg': [(r, 9 + r) for r in range(9)],
+            'crossbar':  [(4, c) for c in range(4, 14)],
+        },
+        '7': {
+            'top': [(0, c) for c in range(18)],
+            'leg': [(r, 17) for r in range(9)],
+        },
+    },
+}
+
+
+def sheet_glyph_names(input_rows: int, input_cols: int) -> tuple:
+    """Whole-sheet stimulus names defined for this input shape (empty when none are)."""
+    return tuple(SHEET_GLYPH_SHEETS.get((int(input_rows), int(input_cols)), {}))
+
+
+def sheet_glyph_coordinates(input_rows: int, input_cols: int, name: str) -> list:
+    """Sorted, de-duplicated ``(row, col)`` coordinates of one whole-sheet stimulus."""
+    bank = SHEET_GLYPH_SHEETS.get((int(input_rows), int(input_cols)), {})
+    if name not in bank:
+        raise KeyError(
+            f'no whole-sheet stimulus {name!r} for a {input_rows}x{input_cols} surface; '
+            f'expected one of {tuple(bank)}')
+    return sorted({c for stroke in bank[name].values() for c in stroke})
+
+
+def sheet_glyph_bank(input_rows: int, input_cols: int) -> dict:
+    """``{name: row-major binary vector}`` for every whole-sheet stimulus of this shape.
+
+    Returns a fresh dict of fresh vectors ({} when the shape declares none), sized
+    ``input_rows * input_cols`` so it can be handed straight to ``set_input``.
+    """
+    rows, cols = int(input_rows), int(input_cols)
+    out: dict = {}
+    for name in sheet_glyph_names(rows, cols):
+        vec = [0] * (rows * cols)
+        for r, c in sheet_glyph_coordinates(rows, cols, name):
+            if not (0 <= r < rows and 0 <= c < cols):
+                raise ValueError(f'stimulus {name!r} coordinate ({r},{c}) is off-sheet')
+            vec[r * cols + c] = 1
+        out[name] = vec
+    return out
+
+
+def two_tower_composition_spec(*, cc_e_count: int = 8,
+                               name: str = 'two_tower_composition') -> dict:
+    """Compose the experimental two-tower / one-L3 composition hierarchy.
+
+    ``cc_e_count`` sizes the ordinary-E bank of EVERY column uniformly (18 L1 + 2 L2 + 1
+    L3 = 21 columns). At the default 8 this is exactly 393 nodes and 2162 directed edges
+    (``21*(N+3)`` nodes and ``21*(3N+2) + 18*9N + 20*2N`` edges for ``N = cc_e_count``).
+
+    Deterministic id / coordinate contract (scientific code must still select by metadata,
+    never by parsing an id)::
+
+        input:    row-major RGC0..RGC161 on one 9x18 sheet
+        left L1:  T0L1c00..T0L1c22, global metadata col = local col       (0..2)
+        right L1: T1L1c00..T1L1c22, global metadata col = local col + 3   (3..5)
+        left L2:  T0L2c00 (layer L2, row 0, col 0)
+        right L2: T1L2c00 (layer L2, row 0, col 1)
+        top:      L3c00   (layer L3, row 0, col 0)
+
+    Returns a fresh JSON-serializable spec every call. The graph is registered in
+    ``PRESETS`` and can also be supplied through ``apply_topology`` like any other spec.
+    """
+    n_e = int(cc_e_count)
+    if n_e < 1:
+        raise ValueError(f'ordinary-E count must be >= 1, got {n_e}')
+    d = TWO_TOWER_DEFAULTS
+    input_rows, input_cols = d['input_rows'], d['input_cols']
+    patch_rows, patch_cols = d['patch_rows'], d['patch_cols']
+    if input_rows % patch_rows or input_cols % patch_cols:
+        raise ValueError('two-tower patch shape must tile the 9x18 sheet exactly')
+    grid_rows, grid_cols = input_rows // patch_rows, input_cols // patch_cols
+    tower_cols = grid_cols // TWO_TOWER_TOWER_COUNT          # 3 patch columns per tower
+
+    nodes: list = []
+    internal_edges: list = []
+    rg_edges: list = []
+    link_edges: list = []
+
+    # --- 1. the 162 RGC nodes, grouped by GLOBAL patch (identical arithmetic to
+    # ``tiled_cc_spec``, only the sheet is wider). Pixel ownership is disjoint by
+    # construction: one RGC per (row, col) of one 9x18 sheet.
+    rg_by_patch: dict[tuple[int, int], list[str]] = {}
+    for gr in range(input_rows):
+        for gc in range(input_cols):
+            pixel = gr * input_cols + gc
+            pr, pc = gr // patch_rows, gc // patch_cols
+            plr, plc = gr % patch_rows, gc % patch_cols
+            patch_id = pr * grid_cols + pc
+            rid = f'RGC{pixel}'
+            nodes.append(dict(id=rid, archetype='rg_source', layer='RGC', pixel=pixel,
+                              label=f'RGC[{gr},{gc}]', input_row=gr, input_col=gc,
+                              patch_id=patch_id, patch_row=pr, patch_col=pc,
+                              patch_local_row=plr, patch_local_col=plc))
+            rg_by_patch.setdefault((pr, pc), []).append(rid)
+
+    # --- 2/3. eighteen L1 columns (nine per tower), each wired to its OWN global patch.
+    l1: dict[tuple[int, int], ColumnHandles] = {}
+    for tower in range(TWO_TOWER_TOWER_COUNT):
+        for lr in range(grid_rows):
+            for lc in range(tower_cols):
+                gc = tower * tower_cols + lc                 # global metadata column
+                cid = f'T{tower}L1c{lr}{lc}'                 # id keeps the tower-LOCAL col
+                h, cn, ce = build_cortical_column(cid, 'L1', lr, gc, n_e=n_e,
+                                                  has_parent=True)
+                nodes += cn
+                internal_edges += ce
+                l1[(lr, gc)] = h
+                patch_id = lr * grid_cols + gc
+                for node in cn:
+                    if node.get('column_role') == 'E':
+                        node['patch'] = patch_id             # display tag only
+                rg_edges += connect_rgc_patch(rg_by_patch[(lr, gc)], h)
+
+    # --- 4. one L2 column per tower; each declares L3 as its parent, so its C is NOT
+    # dormant (the classic dormancy moves up to L3).
+    l2: list[ColumnHandles] = []
+    for tower in range(TWO_TOWER_TOWER_COUNT):
+        h, cn, ce = build_cortical_column(f'T{tower}L2c00', 'L2', 0, tower, n_e=n_e,
+                                          has_parent=True)
+        nodes += cn
+        internal_edges += ce
+        l2.append(h)
+
+    # --- 5. each L1 links ONLY to its own tower's L2 (no cross-tower edge is emitted).
+    for tower in range(TWO_TOWER_TOWER_COUNT):
+        for lr in range(grid_rows):
+            for lc in range(tower_cols):
+                link_edges += connect_columns(l1[(lr, tower * tower_cols + lc)], l2[tower])
+
+    # --- 6. the single L3 composition column: no parent, so ITS C is the dormant one.
+    l3, l3n, l3e = build_cortical_column('L3c00', 'L3', 0, 0, n_e=n_e, has_parent=False)
+    nodes += l3n
+    internal_edges += l3e
+
+    # --- 7. both tower L2 columns feed L3 through the SAME generic child->parent rule:
+    # child.L2.Eor -> every L3 ordinary E, and every L3 ordinary E -> child.L2.C apical.
+    for tower in range(TWO_TOWER_TOWER_COUNT):
+        link_edges += connect_columns(l2[tower], l3)
+
+    # --- 8/9. concatenate once and return a fresh spec with full tiled metadata.
+    edges = internal_edges + rg_edges + link_edges
+    columns_meta = [dict(id=l1[(lr, tower * tower_cols + lc)].column_id, layer='L1',
+                         row=lr, col=tower * tower_cols + lc, e_count=n_e,
+                         parent_ids=[l2[tower].column_id])
+                    for tower in range(TWO_TOWER_TOWER_COUNT)
+                    for lr in range(grid_rows) for lc in range(tower_cols)]
+    columns_meta += [dict(id=l2[t].column_id, layer='L2', row=0, col=t, e_count=n_e,
+                          parent_ids=['L3c00']) for t in range(TWO_TOWER_TOWER_COUNT)]
+    columns_meta.append(dict(id='L3c00', layer='L3', row=0, col=0, e_count=n_e,
+                             parent_ids=[]))
+    topology_meta = dict(
+        family=TILED_FAMILY,
+        input_shape=dict(rows=input_rows, cols=input_cols),
+        patch_shape=dict(rows=patch_rows, cols=patch_cols),
+        grid_shape=dict(rows=grid_rows, cols=grid_cols),
+        column_layers=[dict(layer='L1', rows=grid_rows, cols=grid_cols),
+                       dict(layer='L2', rows=1, cols=TWO_TOWER_TOWER_COUNT),
+                       dict(layer='L3', rows=1, cols=1)],
+        cc_e_count=n_e,
+        # Declared tower membership: experiment code resolves a column's tower from the
+        # parent chain / this map, never from the ``T0``/``T1`` id prefix.
+        towers=[dict(index=t, l2_column=l2[t].column_id,
+                     l1_columns=[l1[(lr, t * tower_cols + lc)].column_id
+                                 for lr in range(grid_rows) for lc in range(tower_cols)],
+                     input_col_range=[t * tower_cols * patch_cols,
+                                      (t + 1) * tower_cols * patch_cols - 1])
+                for t in range(TWO_TOWER_TOWER_COUNT)],
         columns=columns_meta)
     return dict(name=name, topology=topology_meta, nodes=nodes, edges=edges)
 

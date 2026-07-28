@@ -11,6 +11,10 @@ scientific model. Narrow technical notes remain useful evidence; this document r
 which questions still matter, what has actually been observed, and which work is worth
 finishing before handoff.
 
+For the complementary description of the system that exists now—supported operating
+conditions, intentional constraints, smallest known breaking cases, and untested
+robustness—see `docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md`.
+
 Status labels:
 
 - **Open:** the required behavior or mechanism has not been chosen.
@@ -468,10 +472,11 @@ recorded in `docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`.
 **Status:** Reconciled for the 2026-07-28 handoff
 
 The README, current methodology, dashboard boundary, and this problem register now describe
-the six built-in presets, fixed classic Eor relay, direct-identity hierarchy, automatic
+the seven built-in presets, fixed classic Eor relay, direct-identity hierarchy, automatic
 graph-derived pacing, `tau = 1.0` boundary drain, cap-free base rule, and the intentional
 dashboard detector ceiling. Historical reports remain as evidence and are labeled or
-framed by the current methodology rather than silently deleted.
+framed by the current methodology when they still describe a live mechanism; superseded
+implementation ledgers and abandoned-topology notes are available through git history.
 
 Machine-readable direct-identity results live in
 `experiments/direct_identity_results.json`; the remaining scaling protocol is specified in
@@ -481,13 +486,14 @@ standing question is resolved.
 
 ## Related evidence and design notes
 
+- `docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md`
+- `docs/ENCODER_DECODER_ARCHITECTURE_HYPOTHESIS.md`
 - `Current_Implementation_Methodology_Equations.md`
-- `docs/COINCIDENCE_PYRAMIDAL_CELL_TECHNICAL_SPEC.md`
-- `docs/COINCIDENCE_IMPLEMENTATION_STATUS.md`
-- `docs/COINCIDENCE_TURNOVER_TUNING.md`
+- `docs/ENGINE_VALIDATION_REPORT.md`
+- `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`
+- `docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md`
+- `docs/TWO_TOWER_COMPOSITION.md`
 - `docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`
-- `docs/BOOLEAN_COINCIDENCE_OPEN_PROBLEM.md` (historical)
-- `docs/LINEAR_WEIGHT_ABLATION_REPORT.md`
 - `experiments/predictive_inhibition/FINAL_REPORT.md`
 
 ## Maintenance rule

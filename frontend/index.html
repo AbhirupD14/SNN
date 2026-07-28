@@ -313,12 +313,14 @@
   <!-- ───────────────── Full-screen receptive fields ─────────────────── -->
   <div class="viz-overlay rf-overlay" id="rf-overlay" hidden>
     <div class="viz-bar">
-      <span class="viz-title">Receptive Fields · one feedforward grid per competitor</span>
+      <span class="viz-title">Receptive Fields · one card per learning target</span>
       <div class="rf-toggle" id="rf-mode-toggle" role="group" aria-label="cell display">
         <button type="button" class="rf-toggle-btn is-on" data-mode="weight">weight</button>
         <button type="button" class="rf-toggle-btn" data-mode="ratio">ratio</button>
       </div>
-      <span class="rf-edit-hint" id="rf-edit-hint">Pause to edit a cell — type a value, Enter to set that feedforward weight.</span>
+      <select id="rf-filter" class="rf-filter" aria-label="layer filter" hidden></select>
+      <span class="rf-summary" id="rf-summary"></span>
+      <span class="rf-edit-hint" id="rf-edit-hint">Pause to edit a cell — type a value, Enter to set that weight.</span>
       <span class="viz-transport" role="group" aria-label="playback">
         <button class="btn sm" id="rf-play" title="Play">▶</button>
         <button class="btn sm" id="rf-pause" title="Pause — hold, enables editing">⏸</button>
@@ -333,12 +335,19 @@
             <div class="rf-cells rf-input" id="rf-input"></div>
             <div class="rf-input-legend"><span class="pm plus">+1</span> active&nbsp;·&nbsp;<span class="pm minus">−1</span> inactive</div>
           </div>
-          <p class="rf-note">Signed-spike learning: on each competitor fire, its <b>active</b> pixels
-            (+1) potentiate and its <b>inactive</b> pixels (−1) depress —
-            <code>dw = η·p·(1−(w/w_cap)²)·signal</code>. Each 3×3 grid is one competitor's
-            feedforward receptive field, mapped by each sensory afferent's input pixel; a ring
-            marks the current winner and units that can no longer reach threshold are flagged
-            <b>dead</b>. Cells with no feedforward edge for that pixel are blank.</p>
+          <p class="rf-note">One card per <b>learning target</b>, grouped by layer and column.
+            A card whose afferents are all input-owning sources is a real <b>retinal map</b>,
+            laid out on that target's own patch (tiled) or the whole input sheet; cells with no
+            edge for that position are blank. A target fed by other neurons instead — an L2/L3
+            ordinary E seeing child-column <code>Eor</code> outputs, an <code>Eor</code> seeing
+            its local E bank, a coincidence <code>C</code> and its one learned basal — gets an
+            <b>afferent list</b> (source → weight) rather than a pretend pixel grid. Unweighted
+            apical permissions carry no weight and are not shown. <b>ratio</b> divides by the
+            ceiling that actually binds for that role (θ/2 for pattern detectors, θ for the
+            one-afferent Eor bank and C basal). A ring marks the current winner; a target whose
+            afferents cannot sum to threshold even together is flagged <b>sub-θ</b> — it is not
+            yet a one-volley integrator, which at <code>leak_rate=0</code> means it must still
+            accumulate across boundaries, not that it can never fire.</p>
         </div>
         <div class="rf-grid" id="rf-grid"></div>
       </div>

@@ -275,19 +275,29 @@ export class Controls {
     const box = document.getElementById('pattern-buttons');
     box.innerHTML = '';
     this.patBtns = {};
+    const sheet = this.sheetPatterns || new Set();
     for (const name of patterns) {
       const b = document.createElement('button');
-      b.className = 'pat-btn';
+      // A WHOLE-SHEET stimulus (e.g. the 9x18 two-tower glyphs) spans the entire surface
+      // and crosses patch boundaries, so it can never be embedded into one 3x3 patch.
+      // Mark it and drive it through the whole-input endpoint instead.
+      const isSheet = sheet.has(name);
+      b.className = isSheet ? 'pat-btn pat-btn-sheet' : 'pat-btn';
       b.textContent = name;
+      b.title = isSheet
+        ? `${name} — whole-sheet stimulus: drives the ENTIRE input surface and replaces any per-patch composition`
+        : (this.isTiled
+            ? `${name} — 3x3 local pattern: drives the selected patch, composing with the other patches`
+            : name);
       b.addEventListener('click', () => {
         this.activePattern = name;
-        if (this.isTiled && this.selectedPatch) {
+        if (this.isTiled && this.selectedPatch && !isSheet) {
           // Tiled: drive this pattern into the SELECTED 3x3 patch and compose it with the
           // other patches' patterns (different patterns per patch, changed independently).
           const [row, col] = this.selectedPatch;
           this.api.post('/api/patch_pattern', { row, col, name });
         } else {
-          this.api.post('/api/pattern', { name });   // whole input (non-tiled presets)
+          this.api.post('/api/pattern', { name });   // whole input surface
         }
       });
       box.appendChild(b);
@@ -345,6 +355,9 @@ export class Controls {
   // ------------------------------------------------------------ live updates
   onTopology(topology) {
     this._buildInputGrid(topology);         // topology-sized grid + patch controls
+    // Which named patterns are whole-sheet stimuli rather than 3x3 local features.
+    // Declared by the engine from the input shape; absent for every 9x9 preset.
+    this.sheetPatterns = new Set(topology.tiling?.sheet_patterns || []);
     this.buildPatternButtons(topology.patterns);
     this.populateNeurons(topology.neurons);
     this.selectedPatch = topology.tiling?.selected_patch || null;
