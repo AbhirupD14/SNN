@@ -533,6 +533,8 @@ the behavior and limits of the fabric that actually ran.
 
 - [`ENGINE_VALIDATION_REPORT.md`](ENGINE_VALIDATION_REPORT.md) — full numerical and causal
   methods/results and validated hybrid-engine claim boundary.
+- [`NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md`](NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md) — proposed
+  compatibility-first absolute-time scheduler, concurrency contract, and migration gates.
 - [`FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`](FEEDBACK_CADENCE_AND_LOOP_LATENCY.md) — loop law,
   pacing sweep, auto-pacing resolution, and certainty limitation.
 - [`TWO_TOWER_COMPOSITION.md`](TWO_TOWER_COMPOSITION.md) — lower-tower success and measured

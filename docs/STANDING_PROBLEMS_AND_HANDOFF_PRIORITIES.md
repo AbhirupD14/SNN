@@ -39,7 +39,7 @@ Status labels:
 | P1 | Reconcile cap-free base learning with the intentional detector ceiling | Keeps the general learning equation distinct from the explicit θ/2 evidence-integration constraint | Small |
 | P1 | Run a time-boxed NEST timing-validation prototype | Tests the circuit under a mature simulator before more scheduler-specific tuning | Small–Medium |
 | P1 | Make the handoff reproducible and reconcile documentation | Keeps the next researcher from relying on obsolete topology descriptions | Small |
-| Defer | Replace the hybrid scheduler with a full discrete-event simulator | Potentially valuable, but much larger than the immediate experiments | Large |
+| Specified; implementation deferred | Replace the hybrid scheduler with a full next-event simulator | The execution, concurrency, multiplicity, compatibility, migration, and acceptance contracts are now explicit in `docs/NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md`; implementation remains a large separate project. | Large |
 | Defer | Solve general multi-winner composition | Separate scientific problem requiring a new circuit contract | Large |
 
 The P0 items should be treated as experiments with explicit acceptance criteria,
@@ -225,9 +225,9 @@ topology or removing the intentional integration ceiling.
 
 ---
 
-## P0 — Continuous timing and simultaneous-event semantics are underspecified
+## P0 — Continuous timing and simultaneous-event semantics
 
-**Status:** Open; full rewrite deferred
+**Status:** Technical contract specified; implementation deferred
 
 ### Current implementation
 
@@ -245,26 +245,32 @@ The event-resolved engine is a hybrid system:
 These rules are deterministic, but some are numerical implementation choices rather than
 declared scientific semantics. The tiled timing race exposed this distinction.
 
-### Questions that must be settled
+### Specified replacement contract
 
-- Are equal-`tau` threshold crossings physically simultaneous, and if so are they batched
-  before any zero-latency consequence is applied?
-- Can zero-latency inhibition cancel a cell whose threshold crossing has the exact same
-  timestamp, or only later crossings?
-- Is event multiplicity conserved when two sources drive the same relay simultaneously?
-- Which edges have physical delay, and is delay a property of an edge rather than of an
-  outer-boundary implementation path?
-- What state, if any, may an inhibitory event carry across an input pause or boundary?
-- Which outcomes must be invariant to node list order and floating-point tolerance?
+`docs/NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md` now resolves the scheduler-level questions:
+
+- equal timestamps are concurrent batches, processed through explicit causal generations;
+- independent simultaneous crossings commit together, while a declared single-winner
+  domain performs explicit deterministic arbitration;
+- zero-delay reset cannot erase an already committed spike, but it can invalidate a
+  later-generation crossing at the same timestamp;
+- every edge event retains identity and multiplicity; any relay-level coalescing is an
+  observable neuron-model decision;
+- delay and expiry belong to edges/tokens in fixed-point absolute time;
+- canonical topology ordinals, rather than input list order or lexical ids, define the
+  compatibility tie rule;
+- the validated hybrid engine remains the oracle until the compatibility and migration
+  gates pass.
 
 ### Near-term recommendation
 
-Do not attempt a full priority-queue simulator before the consolidation experiments.
-First define and test the local simultaneous-event and multiplicity contract needed by
-predictive inhibition. A later simulator can change its data structures without changing
-those scientific semantics.
+Implement only through the phased compatibility path in
+`docs/NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md`: freeze the oracle, add causal identity in shadow
+mode, replace delay buffers, replace membrane scanning, then introduce concurrent timestamp
+batches. Do not combine the scheduler rewrite with a topology, learning-rule, or continuous
+synaptic-kernel change.
 
-The larger scheduler design and multi-winner interaction are documented in
+Multi-winner interaction remains a separate scientific problem documented in
 `docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`.
 
 ---
@@ -490,6 +496,7 @@ standing question is resolved.
 - `docs/ENCODER_DECODER_ARCHITECTURE_HYPOTHESIS.md`
 - `Current_Implementation_Methodology_Equations.md`
 - `docs/ENGINE_VALIDATION_REPORT.md`
+- `docs/NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md`
 - `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`
 - `docs/DIRECT_IDENTITY_TILED_TOPOLOGY.md`
 - `docs/TWO_TOWER_COMPOSITION.md`

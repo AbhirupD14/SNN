@@ -261,6 +261,8 @@ known failure boundaries, and unresolved work are in
 [`docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md`](docs/FABRIC_CONSTRAINTS_AND_OPERATING_ENVELOPE.md)
 and
 [`docs/STANDING_PROBLEMS_AND_HANDOFF_PRIORITIES.md`](docs/STANDING_PROBLEMS_AND_HANDOFF_PRIORITIES.md).
+The compatibility-first absolute-time scheduler design is specified in
+[`docs/NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md`](docs/NEXT_EVENT_ENGINE_TECHNICAL_SPEC.md).
 
 ## Editing the topology
 
