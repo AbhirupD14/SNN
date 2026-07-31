@@ -1,6 +1,12 @@
 # Custom Next-Event Engine Technical Specification
 
-**Status:** approved design direction; not implemented
+**Status:** SUPERSEDED on the NEST branches; not implemented and not to be implemented
+there. `prompts/Claude_NEST_Event_Driven_3x3_Engine_Prompt.md` is the current engine
+rework direction: NEST/NESTML owns the clock, delivery, delays, recording, threads and
+MPI, so the custom Python next-event scheduler described below is explicitly out of
+scope. This document is retained as the record of the analysis that motivated the rework
+(especially §1 on why boundary rescanning does not scale) and as the semantic reference
+for what the current engine does. Do not implement both.
 **Scope:** replace the boundary-scanning execution kernel without introducing a new
 topology or changing the current neural and learning contracts
 **Reference implementation:** `backend/simulation.py`, `snn/neurons.py`,

@@ -14,7 +14,11 @@ import {
   isCheckpointFrame, nearestCheckpointFrameIndexAt,
 } from './replay.js';
 
-const SPEED_OPTIONS = [1, 2, 4, 8, 16, 30];   // recorded frames applied per second
+// Recorded frames applied per second. The top of the range exists for full-resolution NEST
+// artifacts: at `--charge-interval = h` a 180 ms run is 18 000 frames, which at 30x is ten
+// minutes of watching. If a speed outpaces what `applyDynamic` can render the timer simply
+// falls behind -- it degrades, it does not break.
+const SPEED_OPTIONS = [1, 2, 4, 8, 16, 30, 60, 120, 250];
 const DEFAULT_SPEED = 8;
 
 // Live mutation controls disabled while replay owns the display (the api guard in
@@ -28,6 +32,14 @@ const GUARDED_IDS = [
   'raster-play', 'raster-pause', 'raster-stop', 'charge-play', 'charge-pause', 'charge-stop',
   'weights-play', 'weights-pause', 'weights-stop', 'rf-play', 'rf-pause',
 ];
+
+// The full-screen overlays cover the top bar, so each mirrors a transport into its own bar.
+// The mirrored LIVE transport is guarded above (it drives the engine), which on its own
+// would leave an open overlay with no working transport at all -- the chart could be opened
+// during a replay but not played, stepped or read, so charge/time was effectively
+// inaccessible without closing it. Each overlay therefore also carries a REPLAY transport,
+// swapped in for the live one exactly while replay owns the display.
+const MIRRORED_OVERLAYS = ['raster', 'charge', 'weights', 'rf'];
 
 const $ = id => document.getElementById(id);
 
@@ -60,6 +72,15 @@ export class ReplayPlayer {
     $('rp-play')?.addEventListener('click', () => this._togglePlay());
     $('rp-step-back')?.addEventListener('click', () => this._step(-1));
     $('rp-step-fwd')?.addEventListener('click', () => this._step(1));
+    $('rp-event-prev')?.addEventListener('click', () => this._eventJump(-1));
+    $('rp-event-next')?.addEventListener('click', () => this._eventJump(1));
+    for (const v of MIRRORED_OVERLAYS) {
+      $(`${v}-rp-play`)?.addEventListener('click', () => this._togglePlay());
+      $(`${v}-rp-back`)?.addEventListener('click', () => this._step(-1));
+      $(`${v}-rp-fwd`)?.addEventListener('click', () => this._step(1));
+      $(`${v}-rp-evt-prev`)?.addEventListener('click', () => this._eventJump(-1));
+      $(`${v}-rp-evt-next`)?.addEventListener('click', () => this._eventJump(1));
+    }
     $('rp-exit')?.addEventListener('click', () => this.exit());
     $('rp-marker-prev')?.addEventListener('click', () => this._markerJump(-1));
     $('rp-marker-next')?.addEventListener('click', () => this._markerJump(1));
@@ -255,6 +276,14 @@ export class ReplayPlayer {
     this.hooks.setReplayActive(true);
     this._guard(true);
 
+    // Is this a NEST artifact? Decided from the header's declared provenance, never by
+    // sniffing a filename. A NEST replay has different TIME semantics (milliseconds on a
+    // resolution grid, not engine boundaries) and different STATE availability, so the
+    // transport must label it as such rather than let it read as a legacy run.
+    this.isNest = replay.header?.nest?.engine === 'nest'
+      || replay.meta.conditions?.engine === 'nest';
+    this.nestProv = replay.header?.nest ?? null;
+
     // Header/run info (all text-safe).
     const m = replay.meta;
     $('rp-name').textContent =
@@ -262,6 +291,52 @@ export class ReplayPlayer {
     const fb = m.conditions?.hierarchical_feedback ?? 'n/a';
     $('rp-condition').textContent =
       `${m.preset ?? m.topologyName ?? 'topology'} · feedback: ${fb}`;
+
+    const badge = document.querySelector('#replay-bar .rp-badge');
+    const nestInfo = $('rp-nest');
+    if (this.isNest) {
+      if (badge) {
+        badge.textContent = 'NEST REPLAY';
+        badge.classList.add('nest');
+        badge.title = 'Native NEST event timing, frozen learning -- not the legacy engine';
+      }
+      if (nestInfo) {
+        const p = this.nestProv ?? {};
+        // Whether charge exists is a property of the RUN (was a multimeter attached?), not
+        // of NEST, so it is read from the artifact rather than asserted. Claiming charge is
+        // unavailable on a run that recorded it would send the reader looking for a missing
+        // panel that is in fact populated.
+        const rec = replay.header?.recording ?? {};
+        const interval = rec.charge_interval_ms;
+        nestInfo.hidden = false;
+        nestInfo.textContent =
+          `native event timing · frozen learning · h=${p.resolution_h_ms ?? '?'} ms`
+          + ` · threads ${p.threads ?? '?'}`
+          + ` · MPI ${p.mpi_available ? 'yes' : 'unavailable'}`
+          + ` · charge ${rec.charge_recorded ? `every ${interval} ms` : 'not sampled'}`;
+        nestInfo.title = rec.charge_recorded
+          ? 'NEST owns the clock, delivery order and delays. Membrane charge was sampled by '
+            + `a multimeter every ${interval} ms; ticks between samples carry no charge field `
+            + 'and are hatched as unknown rather than drawn as zero.'
+          : 'NEST owns the clock, delivery order and delays. Membrane charge was not '
+            + 'sampled in this run, so charge panels report it as not recorded.';
+      }
+      // Branching from a NEST replay has no defined semantics yet (the prompt defers it),
+      // so the control is disabled with the reason visible rather than silently routing
+      // NEST weights into the legacy Python engine.
+      const branch = $('rp-branch');
+      if (branch) {
+        branch.disabled = true;
+        branch.title = 'Not available for a NEST replay: NEST-specific branching semantics '
+          + 'are not defined or validated.';
+      }
+    } else {
+      if (badge) { badge.textContent = 'REPLAY'; badge.classList.remove('nest'); badge.title = ''; }
+      if (nestInfo) { nestInfo.hidden = true; nestInfo.textContent = ''; }
+      const branch = $('rp-branch');
+      if (branch) { branch.disabled = false; branch.title =
+        'Create a fresh live simulation using the learned weights at this frame (not an exact resume)'; }
+    }
 
     this._buildTimeline();
     this._buildMarkers();
@@ -361,6 +436,42 @@ export class ReplayPlayer {
     if (pos != null) this._seekTo(pos, false);
   }
 
+  // --------------------------------------------------------------- events
+  // Jump to the next/previous frame that actually CARRIES an event.
+  //
+  // At full resolution most frames are charge samples and nothing else: an 18 000-frame
+  // NEST artifact holds 120 frames with a spike or an input on them, so 99.3% of stepping
+  // -- and 99.3% of playback time -- lands on ticks where nothing happened. The RGC volley
+  // and the first cortical spike it causes are 362 frames apart, which at the default 8x
+  // is 45 seconds of watching an unchanging raster. The dead time is real (it is a 3.6 ms
+  // conduction delay) and playback keeps showing it truthfully; this navigates it.
+  _eventJump(dir) {
+    const positions = this._eventPositions();
+    if (!positions.length) return;
+    let target = null;
+    if (dir > 0) { for (const p of positions) if (p > this.pos) { target = p; break; } }
+    else { for (let i = positions.length - 1; i >= 0; i--) if (positions[i] < this.pos) { target = positions[i]; break; } }
+    if (target == null) return;
+    this._pause();
+    this._seekTo(target, false);
+  }
+
+  // Frame positions carrying a spike or an input, computed once per loaded replay.
+  // NEST frames declare them explicitly; a legacy frame is scanned for a spiked neuron.
+  _eventPositions() {
+    if (!this._eventPos) {
+      this._eventPos = [];
+      this.replay.frames.forEach((f, i) => {
+        const nest = f.dynamic?.nest;
+        const has = nest
+          ? (nest.spike_events?.length > 0 || nest.input_events?.length > 0)
+          : (f.dynamic?.neurons || []).some(n => n.spiked);
+        if (has) this._eventPos.push(i);
+      });
+    }
+    return this._eventPos;
+  }
+
   // Distinct, sorted marker frame indices that map onto a real frame position.
   _markerFrameIndices() {
     if (!this._markerFis) {
@@ -410,6 +521,7 @@ export class ReplayPlayer {
 
   _buildMarkers() {
     this._markerFis = null;   // recomputed lazily against the new replay
+    this._eventPos = null;    // ditto -- both are indexes INTO the replay being replaced
     const sel = this.markerSelect;
     if (!sel) return;
     sel.innerHTML = '';
@@ -432,9 +544,40 @@ export class ReplayPlayer {
     const f = this.replay.frames[this.pos];
     const n = this.replay.frames.length;
     if (this.slider && +this.slider.value !== this.pos) this.slider.value = String(this.pos);
-    $('rp-frame').textContent = `frame ${this.pos + 1}/${n} · t=${f.timestep}`;
+    // A NEST tick is NOT a legacy engine boundary, so it is never labelled `t=<int>`.
+    // The physical millisecond time carried on the frame is shown instead, with the tick
+    // alongside it for cross-referencing the raw artifact.
+    const nestFrame = f.dynamic?.nest ?? null;
+    const frameLabel = (this.isNest && nestFrame)
+      ? `frame ${this.pos + 1}/${n} · ${nestFrame.t_ms} ms (tick ${nestFrame.tick})`
+        + (nestFrame.window != null ? ` · window ${nestFrame.window}` : '')
+      : `frame ${this.pos + 1}/${n} · t=${f.timestep}`;
+    $('rp-frame').textContent = frameLabel;
+    // The overlays hide the bar above, so they carry the same readout -- without it a
+    // mirrored transport would advance time with no way to see where it landed. It is the
+    // SHORT form: the overlay bars are already crowded, and the raw tick is redundant next
+    // to a chart whose axis is time. The full label stays on the replay bar itself.
+    const short = (this.isNest && nestFrame)
+      ? `${this.pos + 1}/${n} · ${nestFrame.t_ms} ms`
+        + (nestFrame.window != null ? ` · w${nestFrame.window}` : '')
+      : `${this.pos + 1}/${n} · t=${f.timestep}`;
+    for (const v of MIRRORED_OVERLAYS) {
+      const e = $(`${v}-rp-frame`); if (e) e.textContent = short;
+    }
     const a = f.annotation || {};
-    $('rp-phase').textContent = `phase: ${a.phase ?? '—'} · pattern: ${a.pattern ?? '—'}`;
+    if (this.isNest && nestFrame) {
+      // Winner multiplicity is THE headline NEST observation; surfacing it on the
+      // transport keeps multi-winner behaviour visible rather than buried in a panel.
+      const mult = nestFrame.winner_multiplicity ?? {};
+      const cols = Object.keys(mult);
+      const worst = cols.length ? Math.max(...cols.map(c => mult[c])) : 0;
+      $('rp-phase').textContent = cols.length
+        ? `winners this tick: ${cols.map(c => `${c}×${mult[c]}`).join(' ')}`
+          + (worst > 1 ? ' · MULTI-WINNER' : '')
+        : `pattern: ${a.pattern ?? '—'}`;
+    } else {
+      $('rp-phase').textContent = `phase: ${a.phase ?? '—'} · pattern: ${a.pattern ?? '—'}`;
+    }
     if (this.markerSelect) this.markerSelect.value = '';   // reset the picker label
 
     const ts = $('st-timestep'); if (ts) ts.textContent = f.timestep;
@@ -443,13 +586,22 @@ export class ReplayPlayer {
   }
 
   _setPlayIcon() {
-    const b = $('rp-play');
-    if (b) { b.textContent = this.playing ? '⏸' : '▶'; b.title = this.playing ? 'Pause playback' : 'Play'; }
+    for (const id of ['rp-play', ...MIRRORED_OVERLAYS.map(v => `${v}-rp-play`)]) {
+      const b = $(id);
+      if (b) { b.textContent = this.playing ? '⏸' : '▶'; b.title = this.playing ? 'Pause playback' : 'Play'; }
+    }
   }
 
   _guard(on) {
     document.body.classList.toggle('replay-mode', on);
     for (const id of GUARDED_IDS) { const e = $(id); if (e) e.disabled = on; }
+    // Swap live transport for replay transport inside every overlay, so exactly one of
+    // them is present and none of them is a dead control.
+    for (const v of MIRRORED_OVERLAYS) {
+      const live = $(`${v}-transport`), rp = $(`${v}-rp-transport`);
+      if (live) live.hidden = on;
+      if (rp) rp.hidden = !on;
+    }
   }
 
   // -------------------------------------------------------------- errors

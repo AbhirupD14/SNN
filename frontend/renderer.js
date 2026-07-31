@@ -13,6 +13,25 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
+// Emissive intensity for one neuron body. Exported and pure so the NaN hazard it exists to
+// prevent is directly testable (tests/renderer.glow.test.mjs).
+//
+// `act` and `freq` may legitimately be absent: a source that never sampled membrane state
+// or firing rate omits them, which is the normal case for a NEST replay. An unknown value
+// contributes NOTHING to brightness. It must never be allowed to reach the arithmetic as
+// `undefined`, because `undefined * 0.9` is NaN, `Math.max` propagates NaN, and a NaN
+// emissiveIntensity renders the material BLACK -- which is what turned every node black.
+//
+// Coercing to 0 is honest here in a way it would not be in a panel: brightness is a
+// highlight, not a readout. Nobody reads a dim sphere as "charge = 0.000", whereas a
+// numeric label or a bar would be read exactly that way. Those stay unavailable.
+export function glowFor(act, freq, pulse) {
+  const a = Number.isFinite(act) ? act : 0;
+  const f = Number.isFinite(freq) ? freq : 0;
+  const p = Number.isFinite(pulse) ? pulse : 0;
+  return Math.max(a * 0.5, f * 0.9) + p * 1.6;
+}
+
 const COLORS = {
   // Per neuron-class body/emissive colour. 'S' is the exogenous retinal-ganglion
   // source: amber, deliberately unlike the teal cortical excitatory cells, because it
@@ -347,7 +366,11 @@ export class NeuronRenderer {
       if (layer === 'L1' && !F.l1) vis = false;
       if (layer === 'ERR' && !F.l1) vis = false;
       if (layer === 'L2' && !F.l2) vis = false;
-      if (F.active && e.act < 0.05 && !e.spiked) vis = false;
+      // "Active only": with no sampled charge there is no sub-threshold notion of active,
+      // so the recorded spike is the only honest criterion. Note `undefined < 0.05` is
+      // false, so without this the filter would silently keep every node.
+      const actKnown = Number.isFinite(e.act);
+      if (F.active && !e.spiked && (actKnown ? e.act < 0.05 : true)) vis = false;
       if (F.assembly && win && !assemblyNeurons.has(id)) vis = false;
       e.mesh.visible = vis;
       if (e.ring) e.ring.visible = vis;
@@ -400,14 +423,20 @@ export class NeuronRenderer {
     for (const [id, e] of this.neurons) {
       // Sphere glow
       e.pulse *= 0.86;
-      const glow = Math.max(e.act * 0.5, e.freq * 0.9) + e.pulse * 1.6;
+      const glow = glowFor(e.act, e.freq, e.pulse);
       e.mesh.material.emissive.setHex(neuronColor(e.meta));
       e.mesh.material.emissiveIntensity = THREE.MathUtils.clamp(0.08 + glow, 0.06, 2.2);
       const sel = id === this._selected ? 1.35 : 1;
       e.mesh.scale.setScalar((1 + e.pulse * 0.5) * sel);
 
       // Charge ring: scale = activation (0 → 1), blooms on spike via pulse.
-      if (e.ring && e.mesh.visible) {
+      //
+      // When the source never sampled membrane state (`activation: null`, as in a NEST
+      // replay) the ring is HIDDEN rather than drawn at zero. A zero-radius ring reads as
+      // "this cell has no charge", which is a claim the artifact does not support; absence
+      // of the ring reads as "no charge information", which is the truth. The spike pulse
+      // is unaffected -- spikes ARE recorded.
+      if (e.ring && e.mesh.visible && e.act != null && Number.isFinite(e.act)) {
         const charge = THREE.MathUtils.clamp(e.act, 0, 1.5);
         const ringScale = charge + e.pulse * 0.5;
         e.ring.scale.setScalar(ringScale);
@@ -421,6 +450,10 @@ export class NeuronRenderer {
         }
         // Billboard to camera so the ring always reads as a flat halo.
         e.ring.quaternion.copy(this.camera.quaternion);
+      } else if (e.ring) {
+        // Unknown (or hidden) charge: clear the ring outright so it cannot retain the
+        // previous frame's value and present stale state as current state.
+        e.ring.material.opacity = 0;
       }
     }
 

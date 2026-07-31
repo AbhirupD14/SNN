@@ -1,0 +1,62 @@
+# Authoritative dependency manifest for the NEST/NESTML event-driven prototype.
+#
+# This file is the SOURCE OF TRUTH for the environment. `requirements-nest.txt` is a
+# documentation-only fallback that is NOT expected to produce a working environment --
+# see the note in that file and docs/NEST_EVENT_DRIVEN_3X3_REPORT.md.
+#
+# Version pair resolution (prompt section 8.2): NESTML 8.3.0's NEST code-generation
+# templates carry version gates up to `nest_version_dict["minor"] >= 10`, so NEST 3.10 is
+# the newest release it explicitly targets.
+#
+# MPI: NOT AVAILABLE from this manifest. The conda-forge nest-simulator 3.10 package
+# depends on openmpi and ships `mpirun`, but the NEST library itself is NOT compiled with
+# MPI support -- launching it under a multi-rank launcher aborts with "NEST was not
+# compiled with MPI support". This was established by running it, after an earlier
+# inference from "openmpi is a dependency" proved wrong. Threaded execution (OpenMP) IS
+# available and is characterised in Phase 5; MPI is recorded as unreachable rather than
+# assumed. Building NEST from source with `-Dwith-mpi=ON` would be required.
+#
+# The conda-forge `cxx-compiler` pin is not optional: NESTML compiles a C++ module and
+# links it against the NEST headers/libraries at runtime via `nest.Install`. Building that
+# module with the system GCC against a conda-forge NEST risks an ABI mismatch, so the
+# toolchain must come from the same channel as NEST itself.
+#
+# Create with:
+#   ./scripts/setup_nest_env.sh
+# which resolves this file into a local prefix at .nest-env/ (gitignored).
+
+name: snn-nest
+channels:
+  - conda-forge
+dependencies:
+  - python=3.12
+  - nest-simulator=3.10
+  - openmpi
+  - mpi4py
+  - cxx-compiler
+  - cmake
+  - ninja
+  # NEST 3.10's installed `dictionary.h` includes <boost/type_index.hpp>, so any
+  # externally compiled module (which is exactly what NESTML produces) needs the Boost
+  # headers present. The nest-simulator conda package does not pull them in itself --
+  # found by building, per section 8.2.
+  - libboost-headers
+  # `nest-config --libs` hardcodes an ABSOLUTE path to the build machine's
+  # <prefix>/x86_64-conda-linux-gnu/sysroot/usr/lib/libpthread.so. glibc >= 2.34 merged
+  # libpthread into libc, so sysroot 2.39 ships only libpthread.a / libpthread.so.0 and
+  # the link of any NESTML-generated module fails with "cannot find libpthread.so".
+  # Pinning the conda-forge compatibility sysroot restores that file. Also found by
+  # building, per section 8.2.
+  - sysroot_linux-64=2.17
+  - numpy>=1.24
+  - pytest>=8
+  - pip
+  # Serving the read-only live NEST dashboard (nest_backend/dashboard_api.py). Added
+  # here rather than merged into the repository's ordinary .venv, which must stay free
+  # of NEST. Only what that one entry point genuinely needs.
+  - fastapi>=0.110
+  - uvicorn>=0.27
+  - websockets>=12
+  - httpx>=0.27
+  - pip:
+      - nestml==8.3.0

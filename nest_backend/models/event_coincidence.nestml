@@ -1,0 +1,184 @@
+# event_coincidence -- the coincidence pyramidal cell `C`.
+# ######################################################################################
+#
+# Port of `snn/neurons.py:CoincidencePyramidalNeuron` (reference sections 2.3, 4.2).
+# `C` is a strict temporal AND, NOT a summing unit:
+#
+#     deposit = w_basal * s   iff  (B AND A), once per window
+#             = 0             otherwise
+#
+# where B is basal availability and A is apical permission. A basal event ALONE deposits
+# no somatic charge. An apical event ALONE deposits nothing. The deposit is an
+# instantaneous charge impulse (C_m = 1, so delta_V = q), never a current integrated over
+# a window.
+#
+# The eligibility phase -- the landmine
+# +++++++++++++++++++++++++++++++++++++
+#
+# In the reference engine, apical permission is zero-latency (same tau) while basal
+# eligibility carries for EXACTLY one boundary and is settled once per boundary AFTER the
+# event loop. That ordering is deliberate: settling it at boundary start would expire a
+# carry before that boundary's apical could consume it, which is a real bug this
+# repository has already shipped and fixed (`settle_eligibility` in `snn/neurons.py`
+# carries the note).
+#
+# Under NEST there is no zero-latency apical -- it arrives at the minimum delay `h` -- so
+# the ordering becomes explicit NEST time and is handled as such here. Both windows are
+# TTLs, and the gate is tested on EVERY receipt of EITHER kind:
+#
+#   basal at t1, apical at t2 in (t1, t1 + tau_basal]  -> the apical handler deposits
+#   apical at t1, basal at t2 in (t1, t1 + tau_apical] -> the basal  handler deposits
+#
+# Both orderings deposit EXACTLY ONCE, and neither double-deposits. `n_deposit_basal_first`
+# and `n_deposit_apical_first` make the two paths independently observable, so a dead carry
+# path shows up in recordings instead of having to be inferred. That is the direct lesson
+# from the original bug, whose unit tests passed while the carry path was dead.
+#
+# Firing gate
+# +++++++++++
+#
+# `C` may only fire while its gate is open. In the reference engine that is expressed as
+# `crossing_time -> infinity` whenever the gate is closed, so a retained supra-threshold
+# membrane cannot fire on a non-coincident boundary. Here it is structural: the threshold
+# test lives INSIDE the deposit path and nowhere else, so `C` can only ever emit at the
+# instant of a valid coincidence. A retained supra-threshold `q` simply waits.
+#
+# Dormant top-column `C`
+# ++++++++++++++++++++++
+#
+# The L2 column's `C` has zero apical inputs by construction (no parent). Its gate never
+# opens, so it never deposits, never fires and never learns, however long it runs. That is
+# legal only because the column metadata declares `has_parent = False`; `topology.py`
+# selects it by metadata, never by an id special case.
+
+model event_coincidence:
+
+    state:
+        q real = 0.0                    # somatic charge; all of it comes from deposits
+        q_pre real = 0.0                # I_accq at the firing instant (basal learning)
+
+        basal_charge real = 0.0         # charge the CAUSAL pending basal event would deposit
+        basal_until ms = 0 ms           # basal eligibility expiry
+        basal_armed boolean = false
+
+        apical_until ms = 0 ms          # apical permission expiry
+        apical_armed boolean = false
+
+        deposit_lock_until ms = 0 ms    # once-per-window deposit idempotence
+        refr_until ms = 0 ms
+
+        n_basal_steps integer = 0       # timesteps on which basal input arrived
+        n_apical_steps integer = 0      # timesteps on which apical input arrived
+        n_basal_superseded integer = 0  # basal arrived while an earlier one was still causal
+        n_basal_expired integer = 0     # a pending basal lapsed unused (detected lazily)
+        n_deposits integer = 0
+        n_deposit_basal_first integer = 0
+        n_deposit_apical_first integer = 0
+        n_deposit_locked_out integer = 0
+        n_spikes integer = 0
+
+    parameters:
+        theta real = 1000.0
+        q_reset real = 0.0
+        t_ref ms = 0 ms
+
+        # NEST-time expression of "basal eligibility carries for exactly one boundary".
+        # Sized against the presentation interval by `topology.py`, never left implicit.
+        tau_basal ms = 10 ms
+
+        # Apical permission window. In the reference engine apical permission is available
+        # for the remainder of its boundary; this is its NEST-time analogue.
+        tau_apical ms = 10 ms
+
+        # "Deposits once per boundary": after a deposit, further coincidences are refused
+        # until this window lapses. The reference flag is
+        # `deposit_committed_this_boundary`.
+        tau_deposit_lock ms = 10 ms
+
+    input:
+        # Separate basal and apical ports (prompt section 6.3). The basal port is WEIGHTED
+        # -- NEST delivers `w_basal * s` as the port value, which is precisely the deposit
+        # magnitude, so the causal weight never has to be looked up from Python. The apical
+        # port is Boolean permission: its value is ignored entirely.
+        basal <- spike
+        apical <- spike
+
+    output:
+        spike
+
+    # Same-timestep basal + apical is resolved by declared priority, not by chance. Basal
+    # runs FIRST so that a simultaneous pair arms the eligibility before the apical handler
+    # tests the gate -- making a same-time coincidence deposit, which matches the reference
+    # engine's order-invariant same-tau behaviour in `resolve_dendrites`.
+    onReceive(basal, priority=2):
+        n_basal_steps += 1
+
+        # Earliest-wins causality: while a pending basal is still live it REMAINS the
+        # causal one, matching `basal_current_order[0]` in the reference implementation.
+        # A later distinct source is observed but does not displace it.
+        if basal_armed and t <= basal_until:
+            n_basal_superseded += 1
+        else:
+            if basal_armed:
+                # The previous pending basal lapsed without ever meeting an apical.
+                n_basal_expired += 1
+            basal_charge = basal * s
+            basal_armed = true
+            basal_until = t + tau_basal
+
+        # Try the gate: this is the apical-first ordering.
+        if apical_armed and t <= apical_until:
+            if t >= deposit_lock_until:
+                n_deposit_apical_first += 1
+                q += basal_charge
+                n_deposits += 1
+                basal_armed = false
+                basal_charge = 0.0
+                deposit_lock_until = t + tau_deposit_lock
+                if q >= theta and t >= refr_until:
+                    q_pre = q
+                    n_spikes += 1
+                    emit_spike()
+                    q = q_reset
+                    refr_until = t + t_ref
+            else:
+                n_deposit_locked_out += 1
+
+    onReceive(apical, priority=1):
+        n_apical_steps += 1
+
+        # Apical is unweighted Boolean permission: the delivered value is never read.
+        apical_armed = true
+        apical_until = t + tau_apical
+
+        # Try the gate: this is the basal-first (carried-eligibility) ordering -- the path
+        # that was dead in the reference engine before the settle-phase fix.
+        if basal_armed:
+            if t <= basal_until:
+                if t >= deposit_lock_until:
+                    n_deposit_basal_first += 1
+                    q += basal_charge
+                    n_deposits += 1
+                    basal_armed = false
+                    basal_charge = 0.0
+                    deposit_lock_until = t + tau_deposit_lock
+                    if q >= theta and t >= refr_until:
+                        q_pre = q
+                        n_spikes += 1
+                        emit_spike()
+                        q = q_reset
+                        refr_until = t + t_ref
+                else:
+                    n_deposit_locked_out += 1
+            else:
+                # Lazily observed expiry. NEST cannot deliver an event when a TTL lapses
+                # without a periodic scan, and this model refuses to add one, so expiry is
+                # detected at the next receipt. The count is exact; only its timestamp is
+                # deferred. Recorded as such rather than silently dropped.
+                n_basal_expired += 1
+                basal_armed = false
+                basal_charge = 0.0
+
+    update:
+        # Intentionally empty of scientific behaviour -- see event_accumulator.nestml.
+        dummy integer = 0

@@ -9,7 +9,11 @@
 //
 // Fit-to-width (no horizontal scroll): the whole history compresses into the viewport.
 
-const HISTORY = 1500;
+// Retained-timestep cap. A LIVE run has no end, so it needs a rolling window; a REPLAY is
+// a finite recorded file and is shown in full (see `setHistoryLimit`), because hiding
+// everything older than the last 1500 frames of a file the user deliberately loaded would
+// be a silent truncation of their own data.
+const LIVE_HISTORY = 1500;
 const PAD = { l: 44, r: 84, t: 22, b: 22 };
 // Roles that own plastic feedforward weights (mirrors ARCHETYPES[*]['plastic_ff']).
 const PLASTIC_ROLES = new Set(['competitor', 'encoder']);
@@ -24,6 +28,7 @@ export class WeightsChart {
     this.targetEl = document.getElementById('weights-target');
     this.target = null;
     this.edges = [];       // [{id, label}] incoming feedforward edges of the target
+    this.limit = LIVE_HISTORY;
     this.hist = [];        // Float32Array(edges.length) per sample
     this._raf = 0;
     this._cw = this._ch = 0;
@@ -60,6 +65,11 @@ export class WeightsChart {
       .map(s => ({ id: s.id, label: pixelByNode.has(s.source) ? 'p' + pixelByNode.get(s.source) : s.source }));
   }
 
+  // A replay is finite and is shown whole; a live run keeps the rolling window. Called by
+  // app.js on replay enter/exit. Shrinking takes effect on the next update, and any
+  // backward seek rebuilds the window from scratch anyway.
+  setHistoryLimit(n) { this.limit = n; }
+
   _reset() { this.hist = []; }
 
   // Public reset used by the replay player before rebuilding a bounded history
@@ -83,7 +93,7 @@ export class WeightsChart {
     const row = new Float32Array(this.edges.length);
     for (let i = 0; i < this.edges.length; i++) row[i] = w.get(this.edges[i].id) ?? 0;
     this.hist.push(row);
-    while (this.hist.length > HISTORY) this.hist.shift();
+    while (this.hist.length > this.limit) this.hist.shift();
     this._schedule();
   }
 

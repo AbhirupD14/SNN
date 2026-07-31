@@ -1,0 +1,112 @@
+# event_accumulator -- ordinary E competitor as a pure event accumulator.
+# ######################################################################################
+#
+# Port of the ordinary-E role from `snn/neurons.py:ExcitatoryNeuron` /
+# `ConductanceLIFNeuron` under the scoped configuration `leak_rate = 0` with no persistent
+# inhibitory conductance (see `Current_Implementation_Methodology_Equations.md` sections
+# 2.1, 7, 9).
+#
+# Why this is an exact port and not an approximation
+# ++++++++++++++++++++++++++++++++++++++++++++++++++
+#
+# With `g_L = 0` and no `g_inh`, the reference membrane equation
+#
+#     C_m dV/dt = -g_L (V - E_L) - g_inh (V - E_inh) + I_exc,    C_m = 1
+#
+# degenerates to `dV/dt = I_exc`, i.e. V is exactly the running sum of delivered charge.
+# There is therefore NO trajectory to integrate and NO information lost by handling
+# arrivals as discrete algebraic events. This model is valid ONLY under that scoping;
+# `nest_backend.topology` refuses to translate a spec with a non-zero leak.
+#
+# Contract (prompt section 6.1)
+# +++++++++++++++++++++++++++++
+#
+# - `q` is accumulated charge, a pure integrator; it persists across presentations until
+#   the cell fires or is hard-reset. There is no leak and no decay.
+# - Refractory gates FIRING, not accumulation. This matches the reference implementation,
+#   where `gather_exc` accumulates unconditionally and `can_fire` consults the refractory
+#   timer. At the reference `refractory_steps = 0` the distinction is inert, but it is
+#   declared here rather than left to chance.
+# - `q_pre` snapshots the pre-reset accumulated causal charge -- the `I_accq` the dual
+#   FE/FES rule reads. It is never clamped, so an overshoot by a strong incumbent is
+#   retained and reduces its own plasticity.
+# - A reset event clears `q` but deliberately leaves an already-emitted spike, the spike
+#   count, `q_pre`, and the refractory state untouched. NEST cannot un-send a spike and
+#   this model does not try; see the `reset cannot erase an already recorded spike` test.
+#
+# Same-timestep aggregation
+# +++++++++++++++++++++++++
+#
+# NEST delivers all spikes arriving on one port at one timestep as a single summed
+# weighted value, so `onReceive(exc)` runs once per timestep per port with the aggregate.
+# One incoming *event* is therefore counted once, but N simultaneous events are one
+# handler invocation carrying N-fold charge. `n_exc_steps` counts handler invocations;
+# multiplicity is recovered as `q_pre / w_afferent` where afferent weights are uniform.
+# This is a native NEST semantic, recorded rather than worked around.
+
+model event_accumulator:
+
+    state:
+        q real = 0.0                    # accumulated charge (pure integrator)
+        q_pre real = 0.0                # I_accq: pre-reset accumulated causal charge
+        refr_until ms = 0 ms            # firing is blocked while t < refr_until
+        n_spikes integer = 0
+        n_resets integer = 0
+        n_exc_steps integer = 0         # timesteps on which excitatory input arrived
+        n_blocked_by_refr integer = 0   # threshold reached but refractory blocked emission
+
+    parameters:
+        theta real = 1000.0             # firing threshold
+        q_reset real = 0.0              # V_rest; reset value after a spike or hard reset
+        t_ref ms = 0 ms                 # refractory duration (reference config: 0)
+        # Post-reset suppression: how long a hard reset blocks THIS cell from firing.
+        #
+        # The reference `I` does two things at once: it clears the whole local E bank AND
+        # "cancels every later prospective crossing in that column", because the frozen
+        # drive packet is discarded along with the charge. NEST has no packet -- charge
+        # arrives as a stream -- so clearing `q` alone leaves the REST of the volley free to
+        # re-accumulate and push a second competitor over. That is not a tie; it is a
+        # crossing the reference structurally forbids.
+        #
+        # Setting this to the volley width reproduces the cancellation exactly: after the
+        # winner fires, no competitor in the bank can cross again until the next volley.
+        # 0 ms keeps the old behaviour, so the effect is measurable rather than assumed.
+        t_ref_reset ms = 0 ms
+
+    input:
+        exc <- spike
+        reset <- spike
+
+    output:
+        spike
+
+    onReceive(exc):
+        n_exc_steps += 1
+        # Accumulation is unconditional: refractory gates firing, not input.
+        q += exc * s
+        if q >= theta:
+            if t >= refr_until:
+                q_pre = q
+                n_spikes += 1
+                emit_spike()
+                q = q_reset
+                refr_until = t + t_ref
+            else:
+                n_blocked_by_refr += 1
+
+    onReceive(reset):
+        # Hard reset: clears accumulated charge only. An already-emitted spike, the spike
+        # count, q_pre and the refractory state all survive, exactly as in the reference
+        # engine's `hard_reset`.
+        n_resets += 1
+        q = q_reset
+        # Suppress the remainder of this volley (see `t_ref_reset`). Guarded so the
+        # zero-length default cannot extend an in-progress refractory backwards.
+        if t + t_ref_reset > refr_until:
+            refr_until = t + t_ref_reset
+
+    update:
+        # Intentionally empty of scientific behaviour. NEST requires the node to be
+        # steppable; this model performs NO integration and NO periodic state transition
+        # here. Every state change happens in an event handler above.
+        dummy integer = 0

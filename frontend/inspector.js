@@ -80,7 +80,28 @@ export class Inspector {
     const col = meta.type === 'E' ? 'var(--exc)' : meta.type === 'S' ? 'var(--rg)' : 'var(--inh)';
     const typeLabel = meta.type === 'E' ? 'excitatory'
       : meta.type === 'S' ? 'retinal source' : 'inhibitory';
-    const chargeBarPct = Math.max(0, Math.min(1, state.activation)) * 100;
+    // A value the source never sampled arrives as null. It is UNKNOWN, not zero, and must
+    // never be rendered as a number, a 0% bar, or a stale carry-over. `avail()` reports the
+    // declared provenance of a field so the card can say so plainly.
+    const availability = (s.dynamic && s.dynamic.nest && s.dynamic.nest.state_availability) || null;
+    const known = (v) => v != null && Number.isFinite(v);
+    // Variable names come from a loaded artifact, so they reach innerHTML escaped -- the
+    // rest of this panel interpolates ids the topology validated, these are free text.
+    const esc = (s) => String(s).replace(/[&<>"']/g,
+      c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    const unknownCard = (why) =>
+      `<span style="color:var(--txt-2);font-size:11px">Not recorded for this NEST run</span>` +
+      (why ? `<span class="tag" style="margin-left:6px;color:var(--txt-2)">${why}</span>` : '');
+    const sourceBadge = (field) => {
+      if (!availability) return '';
+      const kind = availability[field];
+      if (!kind) return '';
+      const colour = kind === 'recorded' ? 'var(--exc)'
+        : kind === 'derived' ? 'var(--ff)' : 'var(--txt-2)';
+      return `<span class="tag" style="color:${colour}" title="provenance of this value">${kind}</span>`;
+    };
+    const chargeBarPct = known(state.activation)
+      ? Math.max(0, Math.min(1, state.activation)) * 100 : 0;
 
     // Preserve scroll position across the full innerHTML rebuild so a scrolled-down
     // inspector doesn't snap to the top (and visibly flicker) on every frame.
@@ -116,17 +137,17 @@ export class Inspector {
               <div style="height:100%;width:${Math.max(0, Math.min(1, state.budget_used / state.budget)) * 100}%;background:var(--ff);border-radius:3px;transition:width .1s"></div>
             </div>
           </div>`) : ''}
-        ${card('Charge', `
+        ${card('Charge', known(state.potential) ? `
           <div style="display:flex;align-items:center;gap:8px">
             <span style="font-variant-numeric:tabular-nums">${state.potential.toFixed(3)}</span>
             <div style="flex:1;height:6px;background:var(--bg-3);border-radius:3px;overflow:hidden">
               <div style="height:100%;width:${chargeBarPct}%;background:${col};border-radius:3px;transition:width .1s"></div>
             </div>
-            <span style="color:var(--txt-2);font-size:11px">${(state.activation * 100).toFixed(0)}%</span>
-          </div>`)}
-        ${card('Spike', `<span class="firing-badge ${state.spiked ? 'yes' : 'no'}">${state.spiked ? 'SPIKE' : 'idle'}</span>`, '', true)}
-        ${card('Firing freq', (state.freq * 100).toFixed(1) + '%', bar(state.freq))}
-        ${card('Refractory', state.refractory + ' steps')}
+            <span style="color:var(--txt-2);font-size:11px">${known(state.activation) ? (state.activation * 100).toFixed(0) + '%' : ''}</span>
+          </div>` : unknownCard(sourceBadge('potential')))}
+        ${card('Spike', `<span class="firing-badge ${state.spiked ? 'yes' : 'no'}">${state.spiked ? 'SPIKE' : 'idle'}</span> ${sourceBadge('spiked')}`, '', true)}
+        ${card('Firing freq', known(state.freq) ? (state.freq * 100).toFixed(1) + '%' : unknownCard(sourceBadge('freq')), known(state.freq) ? bar(state.freq) : '')}
+        ${card('Refractory', state.refractory != null ? state.refractory + ' steps' : unknownCard(sourceBadge('refractory')))}
         ${state.basal_weights ? card(`Learned basal weights (${state.basal_weights.length})`, `
           <div class="basal-list">
             ${state.basal_weights.map((w, i) => {
@@ -158,6 +179,14 @@ export class Inspector {
             <span class="firing-badge ${state.coincidence_active ? 'yes' : 'no'}">${state.coincidence_active ? 'COINCIDENCE' : 'no gate'}</span>
             <span style="font-size:11px;color:var(--txt-2);font-variant-numeric:tabular-nums">charge ${(state.coincidence_charge ?? 0).toFixed(1)}</span>
           </div>`, '', false, true) : ''}
+        ${state.nest_state ? card(`NEST model state (${Object.keys(state.nest_state).length})`, `
+          <div class="basal-list">
+            ${Object.entries(state.nest_state).map(([k, v]) => `<div class="syn-row">
+                <span class="name" title="${esc(k)}">${esc(k)}</span>
+                <span class="wv" style="width:auto">${Number.isFinite(v) ? v.toFixed(4) : '—'}</span></div>`).join('')}
+          </div>
+          <div style="font-size:11px;color:var(--txt-2);margin-top:6px">every declared NESTML recordable, sampled by the multimeter under its model name</div>`,
+          '', true, true) : ''}
         ${'spike_tau' in state ? card('Spike sub-boundary τ',
           `<span style="font-variant-numeric:tabular-nums">${state.spike_tau != null ? state.spike_tau.toFixed(4) : '—'}</span>
            <div style="font-size:11px;color:var(--txt-2);margin-top:2px">analytic within-boundary crossing time</div>`) : ''}

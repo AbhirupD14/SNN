@@ -1,0 +1,21 @@
+# FALLBACK / DOCUMENTATION ONLY -- NOT a supported path.
+#
+# `environment-nest.yml` is the authoritative manifest. This file records the pip-installable
+# subset for reference, but a pip-only environment is NOT expected to produce a working
+# prototype, and the prompt (section 8.1) permits attempting it only as a documented
+# negative result.
+#
+# Why it is expected to fail: NESTML does not merely import `nest` -- it GENERATES C++,
+# compiles it with CMake against the NEST headers, and loads the resulting shared object
+# via `nest.Install()`. That requires NEST's development headers, its CMake package config
+# and a working `nest-config`, which the released `nest-simulator` PyPI wheels have not
+# reliably shipped. A pip environment also typically lacks MPI, which would additionally
+# make Phase 5 unreachable.
+#
+# Run `scripts/setup_nest_env.sh --probe-pip-fallback` to reproduce the failure and record
+# the exact error in the report. Do not present this path as supported unless it built.
+
+nestml==8.3.0
+nest-simulator==3.10
+numpy>=1.24
+pytest>=8

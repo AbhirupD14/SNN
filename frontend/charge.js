@@ -8,9 +8,20 @@
 
 const MARGIN = 66;
 const AXIS = 16;
-const HISTORY = 1500;
+// Retained-timestep cap. A LIVE run has no end, so it needs a rolling window; a REPLAY is
+// a finite recorded file and is shown in full (see `setHistoryLimit`), because hiding
+// everything older than the last 1500 frames of a file the user deliberately loaded would
+// be a silent truncation of their own data.
+const LIVE_HISTORY = 1500;
 const CHARGE_CAP = 2.0;   // V/θ at the top of a lane's charge zone (overshoot visible up to 2x)
-const INH_REF = 6.0;      // conductance increment mapped to a full-height violet inhibition marker
+const INH_REF = 6.0;      // conductance increment mapped to the tallest violet inhibition marker
+// The violet L1 inhibition marker is an ANNOTATION on the lane, not the lane's content:
+// it must stay readable without hiding the charge bar or spike drawn at the same
+// timestep. These cap its top-anchored tick to a fraction of the lane height and hold it
+// translucent, so a weak pulse is still distinguishable from a strong one (both scale
+// between the MIN and MAX of each pair) without any of them dominating the column.
+const INH_MARK_H_MIN = 0.10, INH_MARK_H_MAX = 0.32;   // fraction of lane height
+const INH_MARK_A_MIN = 0.35, INH_MARK_A_MAX = 0.70;   // alpha
 
 export class ChargeChart {
   constructor(store) {
@@ -22,6 +33,7 @@ export class ChargeChart {
     this.ctx = this.canvas.getContext('2d');
     this.order = [];
     this.charge = [];      // Float32Array per timestep: activation (V/θ)
+    this.available = [];   // Uint8Array per timestep: 1 = charge was actually sampled
     this.spike = [];       // Uint8Array per timestep
     this.inhibited = [];   // Uint8Array: L2I competitive reset reached this L2E lane
     // Applied paired L1I->L1E inhibition (distinct from the L2 reset above): the
@@ -32,6 +44,7 @@ export class ChargeChart {
     this.l1inh = [];       // Float32Array: removed / v_pre in [0,1]
     this.l1rest = [];      // Uint8Array: 1 if the gate floored the pixel to rest
     this.times = [];
+    this.limit = LIVE_HISTORY;
     this.showL1 = true;
     this.column = 'all';   // 'all' or a tiled column_id; filters rendered lanes only
     this.colW = 8;
@@ -63,6 +76,11 @@ export class ChargeChart {
     window.addEventListener('keydown', (e) => { if (e.key === 'Escape' && this._open()) this.close(); });
   }
 
+  // A replay is finite and is shown whole; a live run keeps the rolling window. Called by
+  // app.js on replay enter/exit. Shrinking takes effect on the next update, and any
+  // backward seek rebuilds the window from scratch anyway.
+  setHistoryLimit(n) { this.limit = n; }
+
   _open() { return this.overlay && !this.overlay.hidden; }
   _schedule() {
     if (this._raf || !this._open()) return;
@@ -78,6 +96,7 @@ export class ChargeChart {
     this.index = new Map(this.order.map((n, i) => [n.id, i]));
     this.charge = []; this.spike = []; this.inhibited = [];
     this.l1inh = []; this.l1rest = []; this.times = [];
+    this.available = [];
     this.built = true;
     this._buildColumnSelector(topo);
   }
@@ -135,12 +154,22 @@ export class ChargeChart {
     const nN = this.order.length;
     const chg = new Float32Array(nN), spk = new Uint8Array(nN), inh = new Uint8Array(nN);
     const linh = new Float32Array(nN), lrest = new Uint8Array(nN);
+    // Charge availability, per neuron per timestep. A source that never sampled membrane
+    // state (the NEST prototype records spikes only) sends `activation: null`, which is
+    // UNKNOWN and must not be drawn as an empty bar -- an empty bar reads as "no charge",
+    // which is a different and false claim. `have[i] = 0` suppresses the bar entirely and
+    // the lane is hatched instead.
+    const have = new Uint8Array(nN);
     for (const n of dyn.neurons) {
       const i = this.index.get(n.id);
       if (i == null) continue;
-      chg[i] = n.activation ?? 0;
+      if (n.activation != null && Number.isFinite(n.activation)) {
+        chg[i] = n.activation;
+        have[i] = 1;
+      }
       if (n.spiked) spk[i] = 1;
     }
+    this.available.push(have);
     // Each inhibitory pulse this step is a persistent-conductance increment (NOT a
     // charge removal). An L2E target is the L2I_WTA global pulse (red tick); an L1E
     // target is a predictive PI (or legacy L1I) conductance pulse (violet marker,
@@ -156,11 +185,23 @@ export class ChargeChart {
         lrest[i] = frac >= 0.8 ? 1 : lrest[i];   // 1 = strong (near-shunting) pulse
       }
     }
+    // A HARD RESET is a different mechanism from the conductance pulse above: the target's
+    // accumulated charge is cleared outright, with nothing persisting. It is drawn at full
+    // strength because that is what it is -- there is no partial hard reset. NEST's models
+    // have only this form of inhibition (no `g_inh` exists to increment), and the live
+    // engine reports its own immediate resets in the same field, so both now render.
+    for (const ev of dyn.hard_reset_events || []) {
+      const i = this.index.get(ev.target);
+      if (i == null) continue;
+      if (ev.target.startsWith('L2E')) inh[i] = 1;
+      else { linh[i] = 1; lrest[i] = 1; }
+    }
     this.charge.push(chg); this.spike.push(spk); this.inhibited.push(inh);
     this.l1inh.push(linh); this.l1rest.push(lrest); this.times.push(dyn.timestep);
-    while (this.charge.length > HISTORY) {
+    while (this.charge.length > this.limit) {
       this.charge.shift(); this.spike.shift(); this.inhibited.shift();
       this.l1inh.shift(); this.l1rest.shift(); this.times.shift();
+      this.available.shift();
     }
     this._schedule();
   }
@@ -170,6 +211,7 @@ export class ChargeChart {
   reset() {
     this.charge = []; this.spike = []; this.inhibited = [];
     this.l1inh = []; this.l1rest = []; this.times = [];
+    this.available = [];
     this._schedule();
   }
 
@@ -274,6 +316,11 @@ export class ChargeChart {
     }
 
     // Charge bars (dim), then full-height spike peaks and inhibition markers.
+    //
+    // A timestep whose charge was never SAMPLED is drawn as a faint hatch rather than as
+    // an empty lane. An empty lane means "charge was zero"; a hatch means "charge is
+    // unknown for this run". Conflating them is exactly the failure mode the NEST replay
+    // must not have -- its artifact records spikes only, so every charge value is unknown.
     ctx.globalAlpha = 0.30;
     for (let i = 0; i < n; i++) {
       const idx = this.index.get(lanes[i].id);
@@ -281,9 +328,26 @@ export class ChargeChart {
       const baseY = y0 + (i + 1) * laneH - 1;
       for (let c = cFrom; c < cTo; c++) {
         if (this.spike[c][idx]) continue;
+        const sampled = !this.available[c] || this.available[c][idx];
+        if (!sampled) continue;
         const a = this.charge[c][idx];
         if (a <= 0.02) continue;
         ctx.fillRect(xOf(c), baseY - Math.min(a / CHARGE_CAP, 1) * zone, barW, Math.min(a / CHARGE_CAP, 1) * zone);
+      }
+    }
+    // Unsampled hatch: one thin mid-lane dash per unknown timestep.
+    ctx.globalAlpha = 0.16;
+    // Canvas does not resolve CSS custom properties -- assigning `var(--txt-2)` to
+    // fillStyle is silently ignored and the previous lane colour is kept, so the hatch
+    // rendered as a faint copy of whatever was drawn last. `cMut` is the resolved value.
+    ctx.fillStyle = cMut;
+    for (let i = 0; i < n; i++) {
+      const idx = this.index.get(lanes[i].id);
+      const midY = y0 + i * laneH + laneH * 0.62;
+      for (let c = cFrom; c < cTo; c++) {
+        if (this.spike[c][idx]) continue;
+        if (this.available[c] && !this.available[c][idx] && ((c + i) & 1) === 0)
+          ctx.fillRect(xOf(c), midY, barW, 1);
       }
     }
     ctx.globalAlpha = 1;
@@ -302,15 +366,16 @@ export class ChargeChart {
         }
         // Predictive/legacy inhibitory conductance pulse (L1E lanes): a top-anchored
         // violet marker whose height/opacity grow with the conductance increment;
-        // a strong (near-shunting) pulse draws taller and fully opaque, so weak
+        // a strong (near-shunting) pulse draws taller and more opaque, so weak
         // partial inhibition is visually distinct from strong predictive inhibition.
         const li = this.l1inh[c][idx];
         if (li > 0.001) {
           const rest = this.l1rest[c][idx];
-          const h = (0.30 + 0.55 * li) * (laneH - 2);
-          ctx.globalAlpha = rest ? 1 : 0.45 + 0.5 * li;
+          const s = rest ? 1 : li;   // strong pulses sit at the top of both ramps
+          const h = (INH_MARK_H_MIN + (INH_MARK_H_MAX - INH_MARK_H_MIN) * s) * (laneH - 2);
+          ctx.globalAlpha = INH_MARK_A_MIN + (INH_MARK_A_MAX - INH_MARK_A_MIN) * s;
           ctx.fillStyle = cL1inh;
-          ctx.fillRect(xOf(c), laneTop, barW, h);
+          ctx.fillRect(xOf(c), laneTop, barW, Math.max(2, h));
           ctx.globalAlpha = 1;
         }
       }

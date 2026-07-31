@@ -368,7 +368,17 @@ canvas.chart, #histogram { width: 100%; display: block; }
 /* ── Full-screen visualization overlays (raster / charge / weights) ────── */
 .viz-overlay { position: fixed; inset: 0; z-index: 60; background: var(--bg-1); display: flex; flex-direction: column; }
 .viz-overlay[hidden] { display: none; }
-.viz-bar { flex: none; height: 46px; display: flex; align-items: center; gap: 16px; padding: 0 14px; background: var(--bg-2); border-bottom: 1px solid var(--line); }
+/* Wraps rather than squashing. These bars carry a lot -- title, filters, zoom, legend,
+   hint, a transport and a close button -- and the replay transport adds five more items on
+   top. At a fixed height with no wrap the children overflow, and the close button (pushed
+   right by `margin-left: auto`) leaves the viewport entirely: the panel opens and cannot be
+   closed, and hover lands on the wrong target. Same treatment `.editor-bar` already uses. */
+.viz-bar { flex: none; min-height: 46px; display: flex; flex-wrap: wrap; row-gap: 6px;
+           align-items: center; gap: 16px; padding: 5px 14px; background: var(--bg-2);
+           border-bottom: 1px solid var(--line); }
+/* Prose yields first; controls keep their size so they stay clickable at any width. */
+.viz-bar .viz-hint, .viz-bar .viz-legend { flex: 1 1 auto; min-width: 0; }
+.viz-bar .btn, .viz-bar .viz-transport, .viz-bar .viz-zoom { flex: none; }
 .viz-title { font-weight: 600; color: var(--txt-0); }
 .viz-bar .check { margin: 0; }
 .viz-column { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--txt-1); }
@@ -382,7 +392,13 @@ canvas.chart, #histogram { width: 100%; display: block; }
 /* Playback transport mirrored inside the full-screen chart overlays (the overlay
    covers the top bar, so these give play/pause/stop without closing the chart). */
 .viz-transport { display: flex; align-items: center; gap: 6px; }
+/* `display: flex` above beats the UA `[hidden] { display: none }`, so the attribute has to
+   be honoured explicitly -- otherwise the live and replay transports both render. */
+.viz-transport[hidden] { display: none; }
 .viz-transport .btn { flex: 0 0 auto; margin: 0; min-width: 34px; }
+/* The replay mirror carries a frame readout as well as buttons; keep it from stretching the
+   46px bar and let the digits stay stable while playback runs. */
+.viz-replay-transport .rp-info { font-size: 11px; color: var(--txt-1); white-space: nowrap; }
 .viz-scroll { flex: 1; overflow-x: auto; overflow-y: hidden; position: relative; background: var(--bg-2); }
 .viz-spacer { position: absolute; top: 0; left: 0; height: 1px; pointer-events: none; }
 /* Raster & charge canvases are viewport-sized and pinned; only the visible time
@@ -519,3 +535,8 @@ body.replay-mode #patch-select,
 body.replay-mode #pattern-buttons,
 body.replay-mode #config-controls,
 body.replay-mode .rf-grid { pointer-events: none; opacity: .5; }
+
+/* NEST replay: a distinct badge colour so a NEST artifact can never be mistaken for a
+   legacy engine recording at a glance. Native event timing and frozen learning are
+   stated in the adjacent #rp-nest info span. */
+.rp-badge.nest { background: var(--ff, #6366f1); color: #fff; letter-spacing: .04em; }

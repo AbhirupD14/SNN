@@ -11,10 +11,112 @@ Equations render as LaTeX. Authority order when they disagree: the code
 (`snn/neurons.py`, `backend/simulation.py`, `backend/network_spec.py`) is the source of
 truth, then this document.
 
-Notation used throughout: $\theta$ is the excitatory firing threshold
-(`e_threshold`, 1000 in every current run), $N$ the ordinary-E count per column
-(`cc_e_count`, default 8), $\tau \in [0,1]$ the analytic sub-boundary time within one outer
-boundary, and $t$ the integer outer boundary.
+## 0. How to read the equations
+
+This document uses one symbol for one concept. In particular, $t$ always means an outer
+engine boundary, $\tau$ always means time *within* that boundary, $\mathcal A$ and
+$\mathcal B$ are Boolean coincidence-gate states, and $B$ is reserved for the FE/FES bell
+sharpness. These distinctions matter: the symbols are not interchangeable.
+
+The implementation uses normalized units. One outer boundary has duration $1$; membrane
+capacitance is $C_m=1$; and voltage, accumulated charge, and a synaptic weight's delivered
+charge therefore have the same numerical scale. Conductances are inverse-boundary
+quantities. Distances are measured in the topology's layout coordinates and affect
+learning only, never signal delivery.
+
+### 0.1 Indices, time, and cell roles
+
+| Symbol | Definition |
+|---|---|
+| $t\in\{0,1,2,\ldots\}$ | Integer outer-boundary index. An edge with delay one that is emitted in boundary $t$ is delivered in boundary $t+1$. |
+| $\tau\in[0,1]$ | Analytic time coordinate inside the current outer boundary. It resets to $0$ at the start of every boundary. |
+| $\Delta\tau$ | Candidate elapsed sub-boundary time from the current $\tau$ to a threshold crossing, or the length of a membrane-advance segment. |
+| $i$ | Index of an incoming afferent/synapse. For $E_i$, it indexes an ordinary excitatory competitor in a column. |
+| $k$ | Index of an ordinary excitatory cell in a parent column. |
+| $N$ | Number of ordinary-E competitors per column (`cc_e_count`; normally $8$). |
+| $E_i$ | Ordinary excitatory pattern detector/latency competitor $i$, $i\in\{1,\ldots,N\}$. |
+| $\mathrm{Eor}$ | Frozen pooled output relay for one column. It is excitatory but is not an ordinary-E competitor. |
+| $C$ | Coincidence pyramidal cell with learned basal input and structural apical permission inputs. |
+| $I$ | Stateless inhibitory relay used for WTA and confirmation resets. |
+| RGC | Exogenous retinal-ganglion-cell-style binary source; it has no membrane or learned weight. |
+| WTA | Winner-take-all competition: the earliest eligible ordinary E wins and recruits a local reset. |
+
+### 0.2 Membrane and event state
+
+| Symbol | Definition |
+|---|---|
+| $V$ | Current membrane potential, measured relative to the implementation's zero-valued resting potential. |
+| $V_{\mathrm{rest}}$ | Reset/resting membrane potential; $0$ in the current implementation. |
+| $\theta$ | Excitatory firing threshold (`e_threshold`; $1000$ in current runs). |
+| $\theta_I$ | Inhibitory-relay threshold; $\theta_I=\theta/3$. |
+| $C_m$ | Membrane capacitance; fixed to $1$. Thus an impulse charge $q$ changes voltage by $\Delta V=q/C_m=q$. |
+| $E_L$ | Leak reversal potential; equal to $V_{\mathrm{rest}}=0$. |
+| $E_{\mathrm{inh}}$ | Inhibitory reversal potential. |
+| $g_L$ | Baseline leak conductance derived from `leak_rate`. |
+| $g_{\mathrm{inh}}$ | Persistent inhibitory conductance. It exists for historical/custom graphs but is not the `tiled_cc` WTA mechanism. |
+| $g$ | Total membrane conductance, $g=g_L+g_{\mathrm{inh}}$. |
+| $I_{\mathrm{exc}}$ | Frozen excitatory drive rate during the current boundary. Because the boundary duration and $C_m$ are both $1$, its numerical value also equals the packet's full-boundary charge. |
+| $V_\infty$ | Steady-state membrane potential under the current frozen drive and conductances. |
+| $q_{\mathrm{dep}}$ | Instantaneous somatic charge deposited by a valid basal/apical coincidence. |
+| $I_{\mathrm{accq}}$ | Pre-reset accumulated causal charge used by FE. It is a recorded learning value, not the ongoing drive $I_{\mathrm{exc}}$. |
+| $\mathcal A\in\{0,1\}$ | Whether an apical permission event is available to the coincidence gate. |
+| $\mathcal B\in\{0,1\}$ | Whether a current or one-boundary-carried basal event is available to the coincidence gate. |
+| $x_{\mathrm b}$ | Scalar signal carried by the causal basal event. The basal weight scales this value; apical input is Boolean and unweighted. |
+
+### 0.3 Learning variables
+
+| Symbol | Definition |
+|---|---|
+| $w_i$ | Current weight of afferent $i$ into an ordinary-E detector. It is also the charge delivered by one unit presynaptic event on that connection. |
+| $w$ | The single causal basal weight being updated on a $C$ cell. |
+| $w_{\mathrm{basal}}$ | A $C$ cell's learned basal weight; $w$ denotes this same quantity inside the $C$ learning equation. |
+| $w_i^{(0)}$ | Initial value of $w_i$ before learning. |
+| $\Delta w_i$, $\Delta w$ | Weight change computed for one postsynaptic firing event. |
+| $w_{te}$ | FE/FES tail floor (`dual_fe_wte`, $0.001$). The same configured scalar is also used as the numerical lower weight bound in the normalized implementation. |
+| $w_{\mathrm{cap}}$ | Binding structural per-synapse ceiling applied after an update. |
+| $w_{\max}$ | Secondary/manual-edit bound. Under the active dual rule it is non-binding for $C$ because $w_{\mathrm{cap}}$ is lower. |
+| $\mathrm{FE}$, $\mathrm{FE}_C$ | Node free-energy factor computed from $I_{\mathrm{accq}}$ for an ordinary E or a $C$ cell; shared by all afferents updated in the same firing event. |
+| $\mathrm{FES}$, $\mathrm{FES}_C$ | Synapse free-energy factor computed separately from a synapse's pre-update weight for an ordinary E or a $C$ basal connection. |
+| $e$ | Lower tail value of FE (`dual_fe_e`, $0.001$). |
+| $B$ | Nonnegative inverse-quadratic bell sharpness (`dual_fe_B`, normally $5$). This is unrelated to basal availability $\mathcal B$. |
+| $\eta$ | Ordinary-E learning-rate scale (`eta`, normally $4$), in weight units per firing update before modulation. |
+| $\eta_C$ | Coincidence-basal learning-rate scale (`c_eta`, normally $16$). |
+| $s_i\in\{-1,+1\}$ | Participation sign for ordinary-E afferent $i$: $+1$ if its event was in this target's causal volley, otherwise $-1$. |
+| $\varphi_i$, $\varphi$ | Dimensionless distance influence in $(0,1]$ for an ordinary-E afferent or a $C$ basal connection. |
+| $d_i$ | Geometric source-to-target distance for afferent $i$. |
+| $d_{\mathrm{ref}}$ | Per-target reference distance: that target's closest incoming plastic feedforward distance. |
+
+### 0.4 Feedback and pacing variables
+
+| Symbol | Definition |
+|---|---|
+| $h_{\mathrm{ff}}$ | Number of delay-one feedforward hops from a child ordinary-E spike to a parent ordinary-E spike. The subscript distinguishes it from NEST's commonly used resolution symbol $h$. |
+| $L$ | Feedback-loop latency, in outer boundaries, from an ordinary-E spike to its confirmation reset landing back on the same bank. |
+| $P_{\mathrm{in}}$ | Effective positive input-presentation interval, in boundaries. The configuration value `input_period = 0` means “derive $P_{\mathrm{in}}=L$,” not a literal zero interval. |
+| $P_{\mathrm{fire}}$ | Repeating firing period produced by the feedback loop when an input volley is presented every boundary. |
+
+### 0.5 Operators and conventions
+
+| Notation | Meaning |
+|---|---|
+| $\wedge$ | Boolean AND. |
+| $\ln(\cdot)$, $\exp(x)$ | Natural logarithm and natural exponential. Writing the exponential as $\exp$ avoids confusing Euler's number with the FE floor parameter $e$. |
+| $\min$, $\max$ | Ordinary scalar minimum and maximum; nested use implements clipping. |
+| $\infty$ | No valid threshold crossing within the remaining boundary interval. |
+| $U(a,b)$ | Independent draw from the continuous uniform distribution on $[a,b]$. |
+| $\lceil x\rceil$ | Smallest integer greater than or equal to $x$. |
+| $a\bmod b$ | Remainder after integer division of $a$ by positive $b$. |
+| $i\in\mathrm{active}$ | Sum only over afferents whose presynaptic events are active in the presented pattern. |
+
+Documentation convention: every equation-bearing CIPP document should define a symbol
+before or immediately after its first use and state its units or normalization. A symbol
+defined here must retain this meaning when reused elsewhere.
+
+Terminology used below: an **afferent** is an incoming connection to a target; a **causal
+volley** is the set of events delivered to one target in the boundary that causes its
+firing; a **bank** is a role-specific collection of cells or aligned incoming weights; and
+an **owner** is a detector that has specialized toward, and repeatedly wins for, a
+particular input pattern.
 
 ---
 
@@ -61,6 +163,11 @@ $$
 \underbrace{81N}_{\text{RGC}\to E} + \underbrace{18N}_{\text{L1}\to\text{L2 links}} + \underbrace{10(3N{+}2)}_{\text{intra-column}} \ \text{edges}
 $$
 
+There are $10$ cortical columns total: nine L1 columns and one L2 column. Each contributes
+$N$ ordinary E plus one `Eor`, one `C`, and one `I`, hence $10(N+3)$ cortical nodes. The
+$18N$ inter-layer edges are $9N$ child-`Eor` feedforward edges plus $9N$ parent-E apical
+edges. Within each column, the five rules above contribute $3N+2$ edges.
+
 There are no lateral or cross-column edges, so the nine L1 columns are independent: each
 may produce its own winner in the same boundary, and one column's reset never touches
 another.
@@ -72,15 +179,18 @@ another.
 ### 2.1 Conductance LIF membrane
 
 Every excitatory cell (ordinary E, `Eor`, `C`) is the same conductance leaky integrator
-with unit capacitance:
+with unit capacitance. The derivative is with respect to normalized within-boundary time
+$\tau$, not the integer boundary index $t$:
 
 $$
-C_m \frac{dV}{dt} = -g_L\,(V - E_L)\;-\;g_{\mathrm{inh}}\,(V - E_{\mathrm{inh}})\;+\;I_{\mathrm{exc}},
+C_m \frac{dV}{d\tau} = -g_L\,(V - E_L)\;-\;g_{\mathrm{inh}}\,(V - E_{\mathrm{inh}})\;+\;I_{\mathrm{exc}},
 \qquad C_m = 1,\quad E_L = V_{\mathrm{rest}} = 0
 $$
 
-The per-step leak fraction maps to a baseline conductance so the no-inhibition,
-no-input case reduces exactly to the historical geometric decay:
+The dimensionless parameter `leak_rate` is the fraction of voltage lost over one complete
+boundary in the leak-only case and must satisfy $0\le\texttt{leak\_rate}<1$. It maps to a
+baseline conductance so the no-inhibition, no-input case reduces exactly to the historical
+geometric decay:
 
 $$
 g_L = -\ln(1 - \texttt{leak\_rate})
@@ -112,11 +222,24 @@ g = g_L + g_{\mathrm{inh}},
 V_\infty = \frac{g_L E_L + g_{\mathrm{inh}} E_{\mathrm{inh}} + I_{\mathrm{exc}}}{g}
 $$
 
+Here $\Delta\tau$ is measured from the scheduler's current position to the candidate
+crossing. A finite candidate is valid only if it fits inside the remaining interval
+$1-\tau$. The combined conductance $g$ and its associated $V_\infty$ are local to each
+cell; $\infty$ means that cell cannot cross before the boundary ends.
+
 The scheduler repeatedly takes the earliest finite $\Delta\tau$ across all membranes,
-advances **every** membrane to that $\tau$ along its own exact trajectory, fires that cell,
-applies same-$\tau$ consequences (apical delivery, hard resets), and recomputes. Exact ties
-fall back to stable node order and are recorded as `latency_ties`. Selection is pure
-first-spike latency — never a comparison of end-of-boundary voltages.
+advances **every** membrane to that new $\tau$ along its own exact trajectory, fires that
+cell, applies same-$\tau$ consequences (apical delivery, hard resets), and recomputes.
+Exact ties fall back to stable node order and are recorded as `latency_ties`. Selection is
+pure first-spike latency — never a comparison of end-of-boundary voltages.
+
+> [!CAUTION]
+> **WTA TIE-BREAKING IS AN INTENTIONAL PART OF THE CUSTOM-ENGINE CONTRACT.**
+>
+> Within one WTA competition, crossings satisfying
+> $\lvert\tau_i-\tau_{\min}\rvert \le 10^{-12}$ in normalized outer-cycle time are tied. The custom engine deterministically chooses the first neuron in stable repository node order, fires it, clears its competitors through the WTA reset, and records the arbitration in `latency_ties`. The `1e-6` precision seen in some reports and tests is display/assertion precision; it is **not** the scheduler's tie threshold.
+>
+> The seeded ±4% initial-weight jitter normally makes accidental ties rare, but exact symmetry and clipped/capped states can still produce them. A port must never let NEST GID allocation, connection order, or delay jitter silently choose the winner. If the NEST profile has no explicit implementation of this local arbitration rule, it must report the outcome as an unresolved tie and declare that semantic difference.
 
 Advance over a segment:
 
@@ -124,7 +247,7 @@ $$
 V \leftarrow
 \begin{cases}
 V + I_{\mathrm{exc}}\,\Delta\tau, & g = 0\\
-V_\infty + (V - V_\infty)\,e^{-g\,\Delta\tau}, & g > 0
+V_\infty + (V - V_\infty)\,\exp(-g\,\Delta\tau), & g > 0
 \end{cases}
 $$
 
@@ -136,22 +259,26 @@ state and an already-emitted spike untouched.
 ### 2.3 Coincidence pyramidal cell (`C`)
 
 `C` owns one **learned basal** weight and $\ge 1$ **unweighted apical** permission inputs.
-It is a strict temporal AND, not a summing unit. With $B$ = basal availability (a basal
-event this boundary, or one carried from the previous boundary) and $A$ = any apical event
-this boundary:
+It is a strict temporal AND, not a summing unit. Let $\mathcal B$ denote basal
+availability (an event in this boundary or one carried from the previous boundary), let
+$\mathcal A$ denote apical permission in this boundary, and let $x_{\mathrm b}$ be the
+causal basal event's scalar signal:
 
 $$
-\text{deposit} \;=\;
+q_{\mathrm{dep}} \;=\;
 \begin{cases}
-w_{\mathrm{basal}} \cdot s, & B \wedge A \ \text{(once per boundary)}\\
+w_{\mathrm{basal}} \cdot x_{\mathrm b}, & \mathcal B \wedge \mathcal A
+  \ \text{(once per boundary)}\\
 0, & \text{otherwise}
 \end{cases}
 $$
 
-The deposit is an **instantaneous charge impulse** at the current $\tau$ ($\Delta V = q$,
-since $C_m = 1$), not a current integrated over the boundary. `C` may only fire while its
-gate is open — its `crossing_time` returns $\infty$ whenever the gate is closed — so a
-retained supra-threshold membrane cannot fire on a non-coincident boundary.
+The basal weight $w_{\mathrm{basal}}$ belongs to the $C$ cell; the apical edge has no
+weight. The resulting $q_{\mathrm{dep}}$ is an **instantaneous charge impulse** at the
+current $\tau$ ($\Delta V=q_{\mathrm{dep}}$, since $C_m=1$), not a current integrated over
+the boundary. `C` may only fire while its gate is open — its `crossing_time` returns
+$\infty$ whenever the gate is closed — so a retained supra-threshold membrane cannot fire
+on a non-coincident boundary.
 
 Basal eligibility carries for **exactly one** boundary and is settled once per boundary
 *after* the event loop, so a basal event that arrives before this boundary's apical still
@@ -204,7 +331,11 @@ the sub-boundary event loop, then settles eligibility, traces, conductance and r
 One flag (`dual_fe_fes`) switches **both** plastic families to the inverse-quadratic dual
 node/synapse free-energy rule. It is the rule used in every current run.
 
-### 4.1 Ordinary E and `Eor` (pattern detectors)
+### 4.1 Ordinary-E detector rule (`Eor` shares the cell family but is frozen)
+
+The equation is implemented by the shared excitatory plastic-cell family. In the current
+reference topology ordinary E uses it, while `Eor` has `learn=False` and a frozen incoming
+bank; therefore `Eor` does not execute the update even when it fires.
 
 $$
 \mathrm{FE}(I_{\mathrm{accq}}) \;=\; e + \frac{1-e}{1 + B\left(\dfrac{I_{\mathrm{accq}}}{\theta} - \tfrac12\right)^{2}}
@@ -222,15 +353,26 @@ $$
 w_i \leftarrow \min\!\big(\max(w_i + \Delta w_i,\; w_{te}),\; w_{\mathrm{cap}}\big)
 $$
 
+- $e$ is the dimensionless lower tail of the node factor, and $w_{te}$ is the
+  dimensionless lower tail of the synapse factor. Both are $0.001$ in current runs. The
+  implementation also uses the numeric value $w_{te}$ as the minimum allowed weight.
+- $B\ge 0$ controls bell sharpness. $B=5$ is the current setting; larger values narrow the
+  high-plasticity region. This $B$ is unrelated to the coincidence state $\mathcal B$.
 - $I_{\mathrm{accq}}$ is this cell's **pre-reset accumulated causal charge** — the frozen
   drive packet captured before the event loop can zero it. It is never clamped, so an
   overshoot by a strong incumbent is retained and *reduces* its own plasticity.
+- $\eta$ is the ordinary-E learning-rate scale, while $\varphi_i$ is afferent $i$'s
+  dimensionless distance multiplier. Their product sets the largest possible magnitude
+  before the FE/FES factors are applied.
 - $s_i = +1$ if afferent $i$ spiked in the causal volley delivered to **this** target on
   **this** boundary, else $-1$. Absence never becomes a positive update; participation is
   read per-target, so one hop's volley can never leak into another target's update.
+- $w_{\mathrm{cap}}$ is the role-dependent structural ceiling: $\theta/2$ for a pattern
+  detector and $\theta$ for a one-afferent relay/basal association.
 - The update runs only when the cell itself fires.
 - $\mathrm{FES}$ is evaluated from each synapse's own **pre-update** weight, so a vector
-  update still moves every synapse by its own factor.
+  update still moves every synapse by its own factor. All $w_i$ values in that firing event
+  are conceptually updated from the same pre-update snapshot.
 
 ### 4.2 Coincidence basal
 
@@ -245,12 +387,17 @@ $$
 $$
 
 $$
-\boxed{\;\Delta w \;=\; \eta_C \cdot \mathrm{FE}_C \cdot \mathrm{FES}_C(w) \cdot A \cdot s \cdot \varphi\;}
+\boxed{\;\Delta w \;=\; \eta_C \cdot \mathrm{FE}_C \cdot \mathrm{FES}_C(w)
+\cdot \mathcal A \cdot x_{\mathrm b} \cdot \varphi\;}
 $$
 
-with $A \in \{0,1\}$ the Boolean apical gate at the causal spike, $s$ the causal basal
-signal, and $\varphi$ the basal distance influence. Here $I_{\mathrm{accq}}$ is the somatic
-membrane immediately before the firing boundary's reset (all `C` charge is basal deposits).
+Here $w$ is the causal basal source's weight, $\eta_C$ is the `C`-specific learning rate,
+$\mathcal A\in\{0,1\}$ is apical permission at the causal spike, $x_{\mathrm b}$ is the
+causal basal signal, and $\varphi$ is that basal connection's distance influence. For the
+standard column-local `Eor → C` edge, $\varphi=1$. Here $I_{\mathrm{accq}}$ is the somatic
+membrane immediately before the firing boundary's reset; all `C` somatic charge comes from
+basal deposits. The update is evaluated only on a valid gated `C` firing, so
+$\mathcal A=1$ whenever this equation actually runs.
 
 There is no apical weight, no negative-participation term, and on a multi-basal cell only
 the causal source's weight moves — so an owner that matured its own association is never
@@ -271,10 +418,13 @@ $$
 \varphi_i \;=\; \left(\frac{d_{\mathrm{ref}}}{\max(d_i,\, d_{\mathrm{ref}})}\right)^{2}
 $$
 
-$d_{\mathrm{ref}}$ is taken **per plastic target** in the tiled family: each target's own
-closest incoming feedforward distance scores $1.0$. That keeps a short within-column edge
-from rescaling a long inter-layer projection's learning rate. Column-local basal edges
-(`Eor → C`) carry no distance penalty at all: $\varphi = 1$.
+$d_i$ is the geometric source-to-target distance of afferent $i$, measured in topology
+layout coordinates. $d_{\mathrm{ref}}$ is taken **per plastic target** in the tiled family:
+it is that target's closest incoming plastic feedforward distance, so the closest
+afferent(s) score $\varphi_i=1$. The `max` prevents a distance shorter than the reference
+from producing a multiplier above $1$. This per-target reference keeps a short
+within-column edge from rescaling a long inter-layer projection's learning rate.
+Column-local basal edges (`Eor → C`) carry no distance penalty at all: $\varphi=1$.
 
 ### 4.4 Why this rule — the bell curve
 
@@ -358,6 +508,10 @@ w^{(0)}_i \;=\; \max\!\Big(\tfrac{\theta}{4}\cdot U(0.96,\,1.04),\ w_{te}\Big)
 \qquad\text{(ordinary E, per afferent)}
 $$
 
+$w_i^{(0)}$ denotes afferent $i$'s value before any learning. Each afferent receives an
+independent continuous-uniform draw $U(0.96,1.04)$; multiplying by $\theta/4$ produces the
+stated $\pm4\%$ jitter, and the outer `max` enforces the lower weight floor $w_{te}$.
+
 ### 5.1 Why $\theta/4$ for pattern detectors
 
 $\mathrm{FES}$ peaks exactly where $2w/\theta = 1/2$, i.e. at $w = \theta/4$. So the
@@ -374,6 +528,11 @@ an earned property, not an initial condition, and it is directly measurable:
 $$
 \text{mature} \iff \sum_{i \in \text{active}} w_i \;\ge\; \theta
 $$
+
+The set `active` contains exactly those afferents whose presynaptic events participate in
+the presented pattern at this target. This is a one-volley maturity test; because the
+membrane is a pure integrator, an immature detector may still reach threshold by retaining
+charge across multiple presentations.
 
 The $\pm4\%$ jitter exists only to break exact ties between the eight identical
 competitors so the first-spike race has a definite winner. It is narrow enough that it
@@ -469,34 +628,39 @@ graphs, but it is not the tiled column's mechanism.
 ## 8. Feedback cadence and input pacing
 
 Each hop costs a boundary, and the confirmation is always downstream of the spike it would
-suppress. Define loop latency $L$ = boundaries from an ordinary-E spike to the feedback
-reset landing on its own bank:
+suppress. Let $h_{\mathrm{ff}}$ be the number of delay-one feedforward hops from a child
+ordinary-E spike to a parent ordinary-E spike. Define loop latency $L$ as the number of
+outer boundaries from that child spike to the confirmation reset landing on its own bank:
 
 $$
-L \;=\; h + 1
+L \;=\; h_{\mathrm{ff}} + 1
 $$
 
-where $h$ is the number of feedforward hops from a child ordinary E to a parent ordinary E.
-For `tiled_cc` that path is $E \to \mathrm{Eor} \to \mathrm{parent}\,E$, so $h = 2$ and
-$L = 3$. The engine derives $L$ from the graph, never from a preset name.
+For `tiled_cc` that path is $E \to \mathrm{Eor} \to \mathrm{parent}\,E$, so
+$h_{\mathrm{ff}}=2$ and $L=3$. The hop count is not NEST's time-grid resolution $h$. The
+engine derives $L$ from the graph, never from a preset name.
 
 Two measured laws, confirmed by construction with the diagnostic `tiled_cc_double_eor`
 preset ($L: 3 \to 4$):
 
 $$
-\text{period} = 2L \quad\text{(at a volley every boundary)},
+P_{\mathrm{fire}} = 2L \quad\text{(at a volley every boundary)},
 \qquad
-\text{suppression bites} \iff L \bmod \texttt{input\_period} = 0
+\text{suppression bites} \iff L \bmod P_{\mathrm{in}} = 0
 $$
 
-Setting $\texttt{input\_period} = L$ makes each volley's confirmation land exactly on its
-successor's drive packet and cancel it, forcing exact fire/silent alternation independent of
-loop depth (strict `1010` on 12/12 seeds at $L = 2, 3, 4$). The condition is sharp:
-$\texttt{input\_period} = L+1$ gives no suppression at all.
+$P_{\mathrm{fire}}$ is the resulting repeating firing period, and $P_{\mathrm{in}}>0$ is
+the effective interval between presented input volleys. Setting $P_{\mathrm{in}}=L$ makes
+each volley's confirmation land exactly on its successor's drive packet and cancel it,
+forcing exact fire/silent alternation independent of loop depth (strict `1010` on 12/12
+seeds at $L=2,3,4$). The condition is sharp: $P_{\mathrm{in}}=L+1$ gives no suppression at
+all.
 
-**`input_period = 0` (the default) derives $L$ from the graph**, so pacing re-tracks on any
-topology change. Physically this is one presentation per *resolved causal chain*: a real
-cortical loop settles far faster than the input changes, so the overlapping-wave regime at
+The configuration key `input_period` maps to $P_{\mathrm{in}}$. **`input_period = 0` (the
+default) is a sentinel that derives $P_{\mathrm{in}}=L$ from the graph**; it is never used
+as the divisor in the modulo equation. Pacing therefore re-tracks on any topology change.
+Physically this is one presentation per *resolved causal chain*: a real cortical loop
+settles far faster than the input changes, so the overlapping-wave regime at
 `input_period = 1` is an artifact of the unit-delay discretization. Full record:
 `docs/FEEDBACK_CADENCE_AND_LOOP_LATENCY.md`.
 
@@ -515,18 +679,18 @@ plus the engine defaults it relies on):
 | `eta` | $4.0$ | ordinary-E / `Eor` rate |
 | `c_eta` | $16.0$ | `C` basal rate (matures shortly after the E pool) |
 | `leak_rate` | $0.0$ | pure integrator, $g_L = 0$ |
-| `refractory_steps` | $0$ | — |
-| `input_period` | $0$ | auto: one volley per resolved chain ($L=3$) |
-| `e_weight_cap_frac` | $0.5$ | detector ceiling $\theta/2$ |
-| `relay_weight_cap_frac` | $1.0$ | one-afferent ceiling $\theta$ |
-| `eor_w_init_frac` | $1.0$ | `Eor` bank at $\theta$ |
+| `refractory_steps` | $0$ | completed outer boundaries for which firing remains blocked after a spike |
+| `input_period` | $0$ | sentinel for auto pacing: derive the effective $P_{\mathrm{in}}=L$ |
+| `e_weight_cap_frac` | $0.5$ | detector ceiling as a fraction of $\theta$: $w_{\mathrm{cap}}=\theta/2$ |
+| `relay_weight_cap_frac` | $1.0$ | one-afferent ceiling as a fraction of $\theta$: $w_{\mathrm{cap}}=\theta$ |
+| `eor_w_init_frac` | $1.0$ | initial `Eor` weight as a fraction of $\theta$ |
 | `eor_plasticity_enabled` | `False` | `Eor` bank frozen |
 | `c_feedback_reset` | `True` | delay-one `C → I` confirmation reset |
 | `e_threshold` | $1000$ | $\theta$ (and $\theta_I = \theta/3$) |
 | `cc_e_count` | $8$ | competitors per column |
 
 Optimistic per-update bound, useful for sanity-checking acquisition counts: since
-$\mathrm{FE} \le 1$, $\mathrm{FES} \le 1$, $|s| = 1$ and $\varphi \le 1$,
+$\mathrm{FE}\le 1$, $\mathrm{FES}\le 1$, $|s_i|=1$ and $\varphi_i\le 1$,
 
 $$
 |\Delta w_i| \;\le\; \eta \cdot \varphi_i \;\le\; \eta
@@ -558,8 +722,8 @@ only as noted:
 
 Stated plainly, because they bound what any result here can mean:
 
-- **One winner per column per boundary.** Multi-winner composition, $k$-WTA, `delta_tau`
-  co-winner admission and lateral inhibition are out of scope; see
+- **One winner per column per boundary.** Multi-winner composition, fixed-count WTA,
+  `delta_tau` co-winner admission and lateral inhibition are out of scope; see
   `docs/EVENT_DRIVEN_MULTIWINNER_COMPOSITION_PROBLEM.md`.
 - **Boundary-synchronous propagation.** Causal timing is analytic *within* a boundary, but
   every projection still costs a whole boundary. Network-level `dt` refinement is

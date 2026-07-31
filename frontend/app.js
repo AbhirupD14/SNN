@@ -19,16 +19,26 @@ import { Editor } from './editor.js';
 import { ReplayPlayer } from './replay_player.js';
 import { weightsBeforePos, advanceWeights } from './replay.js';
 
-// History window shared with the raster/charge/weights views (their own HISTORY
-// caps). A replay backward-seek rebuilds at most this many frames, never from zero.
-const HISTORY = 1500;
+// History window shared with the raster/charge/weights views. A LIVE run has no end, so a
+// backward-seek rebuilds at most this many frames. A REPLAY is a finite file the user chose
+// to load, and is shown WHOLE -- `historyLimit` goes unbounded on entry, so no part of a
+// loaded artifact is silently dropped off the back of the window.
+const LIVE_HISTORY = 1500;
+let historyLimit = LIVE_HISTORY;
 
 // True while the read-only replay player owns the display. Guards two things:
 // (1) live WebSocket topology/dynamic messages are ignored for display, and
 // (2) every UI-driven mutation POST is refused, so replay can never mutate the
 // live engine even via a control that was missed by the visual disable pass.
 let replayActive = false;
-function setReplayActive(b) { replayActive = b; api.replayActive = b; }
+function setReplayActive(b) {
+  replayActive = b;
+  api.replayActive = b;
+  historyLimit = b ? Infinity : LIVE_HISTORY;
+  raster.setHistoryLimit(historyLimit);
+  chargeChart.setHistoryLimit(historyLimit);
+  weightsChart.setHistoryLimit(historyLimit);
+}
 
 const api = {
   replayActive: false,
@@ -119,7 +129,7 @@ function applyDynamic(dyn) {
 // update() schedules a single animation-frame draw regardless of window size.
 function replayBulkSeek(replay, pos) {
   const frames = replay.frames;
-  const w0 = Math.max(0, pos - HISTORY + 1);
+  const w0 = Number.isFinite(historyLimit) ? Math.max(0, pos - historyLimit + 1) : 0;
 
   // Seed with the canonical weights just before the window, then advance frame by
   // frame -- applying changed_synapses and snapping to any recorded checkpoint --

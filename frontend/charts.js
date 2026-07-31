@@ -29,9 +29,12 @@ export class Charts {
       const byId = new Map(dyn.neurons.map(n => [n.id, n]));
       for (const cell of this.heatmap.children) {
         const n = byId.get(cell.dataset.id);
-        const f = n ? n.freq : 0;
-        cell.querySelector('b').textContent = (f * 100).toFixed(0);
-        cell.style.background = heat(f);
+        // A source that never sampled firing rate (the NEST replay) sends no `freq`. Show
+        // an em dash and a neutral cell rather than "0" -- unknown is not zero -- and keep
+        // NaN out of `heat()`, which would otherwise produce an invalid colour.
+        const f = n && Number.isFinite(n.freq) ? n.freq : null;
+        cell.querySelector('b').textContent = f == null ? '—' : (f * 100).toFixed(0);
+        cell.style.background = f == null ? 'var(--bg-3)' : heat(f);
         cell.classList.toggle('win', dyn.winner === cell.dataset.id);
       }
     }

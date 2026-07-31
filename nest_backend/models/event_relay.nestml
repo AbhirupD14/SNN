@@ -1,0 +1,91 @@
+# event_relay -- the fixed `Eor` relay and the inhibitory `I` relay.
+# ######################################################################################
+#
+# One model covers both non-plastic relay roles, which differ only in threshold and in
+# whether they are rate-limited:
+#
+#   Eor  -- `theta` = theta, `t_lockout` = 0 ms.  Frozen at theta with afferent weights at
+#           theta, so ONE upstream event produces ONE output spike (reference sections 5.2,
+#           6.2). It does not learn and has no Python callback.
+#
+#   I    -- `theta` = theta/3, `t_lockout` = one presentation window. The reference `I` is
+#           stateless and emits AT MOST ONE WTA volley per boundary: a second same-boundary
+#           input creates no burst and no second reset
+#           (`Current_Implementation_Methodology_Equations.md` section 2.4, section 7).
+#           `t_lockout` is the NEST-time expression of that once-per-boundary guard.
+#
+# `q_pre` is the pre-reset accumulated charge at the moment of emission. For `Eor`, whose
+# afferent weights are uniformly theta, `q_pre / theta` IS the input multiplicity of that
+# firing -- the direct observable for whether single-winner WTA survived. An `Eor` firing
+# on more than one afferent still fires (it is not plastic, so nothing breaks numerically),
+# but it proves the column produced multiple winners. This is why the metric is recorded
+# per firing rather than inferred.
+#
+# The two `I` pathways and why they need separate ports
+# +++++++++++++++++++++++++++++++++++++++++++++++++++++
+#
+# The reference `C -> I` confirmation volley is deliberately NOT swallowed by the
+# once-per-boundary WTA guard (reference section 7): "`I` may already have fired its
+# immediate lateral reset this boundary, and the top-down volley is a distinct, deferred
+# event."
+#
+# A single rate-limited port cannot express that -- the confirmation would be suppressed by
+# the lateral volley's own lockout, silently disabling top-down feedback. It is therefore
+# given its OWN port, which bypasses the lockout and does not consume it. This was found by
+# measurement, not by review: with one shared port, feedback-on and feedback-off runs were
+# bit-identical while `n_suppressed` quietly absorbed every confirmation.
+
+model event_relay:
+
+    state:
+        q real = 0.0                    # accumulated charge on the rate-limited pathway
+        q_confirm real = 0.0            # accumulated charge on the confirmation pathway
+        q_pre real = 0.0                # pre-reset charge at the last emission
+        lock_until ms = 0 ms            # rate limit: no lateral emission while t < lock_until
+        n_spikes integer = 0            # emissions on the lateral (rate-limited) pathway
+        n_confirm_spikes integer = 0    # emissions on the confirmation pathway
+        n_suppressed integer = 0        # lateral threshold reached during the lockout window
+        n_exc_steps integer = 0
+        n_confirm_steps integer = 0
+
+    parameters:
+        theta real = 1000.0             # firing threshold (theta for Eor, theta/3 for I)
+        q_reset real = 0.0
+        t_lockout ms = 0 ms             # minimum interval between LATERAL emissions (0 = none)
+
+    input:
+        exc <- spike
+        confirm <- spike
+
+    output:
+        spike
+
+    onReceive(exc, priority=2):
+        n_exc_steps += 1
+        q += exc * s
+        if q >= theta:
+            if t >= lock_until:
+                q_pre = q
+                n_spikes += 1
+                emit_spike()
+                lock_until = t + t_lockout
+            else:
+                n_suppressed += 1
+            # The relay consumes its drive whether or not it was allowed to emit, so a
+            # suppressed volley does not accumulate into the next window.
+            q = q_reset
+
+    onReceive(confirm, priority=1):
+        # The deferred top-down volley: never rate limited, and it neither consults nor
+        # extends `lock_until`, so it can follow a lateral volley within the same window.
+        n_confirm_steps += 1
+        q_confirm += confirm * s
+        if q_confirm >= theta:
+            q_pre = q_confirm
+            n_confirm_spikes += 1
+            emit_spike()
+            q_confirm = q_reset
+
+    update:
+        # Intentionally empty of scientific behaviour -- see event_accumulator.nestml.
+        dummy integer = 0

@@ -19,3 +19,10 @@ sweep_results/
 
 # Experiment run artifacts (durable on the cluster, not in git)
 experiments/runs/
+
+# NEST/NESTML prototype: isolated env, bootstrapped tooling, generated C++ and build
+# artifacts. Only the .nestml sources, manifests, scripts, tests and reports are committed.
+.nest-env/
+.nest-tools/
+.nest-build/
+experiments/runs/nest_3x3/

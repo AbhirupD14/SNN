@@ -1,0 +1,173 @@
+# plastic_feedforward_synapse -- dual FE/FES for ordinary E / `Eor` feedforward synapses.
+# ######################################################################################
+#
+# Reference: `Current_Implementation_Methodology_Equations.md` section 4.1.
+#
+#     FE(I_accq) = e + (1 - e) / (1 + B * (I_accq/theta - 1/2)^2)      node factor, shared
+#     FES(w_i)   = w_te + (1 - w_te) / (1 + B * (2 w_i/theta - 1/2)^2) per-synapse factor
+#     dw_i       = eta * FE * FES(w_i) * s_i * phi_i
+#     w_i        <- min(max(w_i + dw_i, w_te), w_cap)
+#
+# with:
+#   I_accq  the postsynaptic cell's PRE-RESET accumulated causal charge, never clamped;
+#   s_i     +1 if afferent i spiked in the causal volley delivered to THIS target on THIS
+#           boundary, else -1 -- absence never becomes a positive update;
+#   phi_i   the per-synapse distance influence, a build-time constant.
+#
+# The update runs only when the postsynaptic cell itself fires, and FES is evaluated from
+# each synapse's own PRE-UPDATE weight so a vector update still moves every synapse by its
+# own factor.
+#
+# THIS IS NOT STDP, and must never become STDP
+# +++++++++++++++++++++++++++++++++++++++++++++
+#
+# The distinction is NOT "this rule ignores time". It does consult presynaptic arrival
+# timing: `s_i` is evaluated AT THE RECEIVING END when the target fires, and answers "did
+# afferent i arrive in the volley that caused THIS firing?". The reference is explicit that
+# the scope is exactly one boundary -- `backend/simulation.py::_participation` says an
+# update "can never see a source that fired into a different target, NOR ONE FROM THE
+# PRECEDING/FOLLOWING BOUNDARY".
+#
+# The distinction is BINARY MEMBERSHIP in a structurally-derived window versus GRADED
+# dependence on the interval:
+#
+#                        STDP                          dual FE/FES
+#   magnitude            f(t_post - t_pre), continuous  FLAT: s_i is exactly +1 or -1
+#   outside the window   decays smoothly toward 0       snaps to -1, never 0
+#   window origin        a fitted time constant tau     the volley/boundary structure
+#   shape                exponential kernel             rectangular, not tunable for effect
+#
+# So a flat one-volley participation window is legitimate and NECESSARY. It is the same kind
+# of object as `tau_basal` on the coincidence cell: the NEST-time expression of "one
+# boundary", not a fitted kernel. What would make this STDP is grading the magnitude by the
+# interval, or letting the window decay.
+#
+# NEST's post-spike archive is used purely as a SCHEDULING mechanism -- it defers when a
+# handler runs and supplies the archived post-spike times. Stock STDP uses the same archive
+# to compute `exp(-dt/tau)`; nothing obliges a rule to. Using the mechanism does not adopt
+# the rule.
+#
+# Guardrail: no exponential, no decaying state, no time constant shaping the magnitude, and
+# `s_i` must remain exactly +/-1. `tests/nest/test_nest_environment.py` enforces that
+# mechanically, and deliberately PERMITS the flat window.
+#
+# The name is load-bearing
+# ++++++++++++++++++++++++
+#
+# NESTML classifies a model as a SYNAPSE by its NAME. A model that is otherwise a perfectly
+# valid synapse but is not named `*synapse` is generated and registered as a NEURON, and
+# `nest.Connect(..., synapse_model=...)` then fails with `UnknownSynapseType`. This was
+# established by bisection against NESTML's own `stdp_synapse`, and it is why this file is
+# `plastic_feedforward_synapse` rather than `plastic_feedforward`. Do not rename it.
+#
+# The `equations` block below is required for the same reason: without an `equations` block
+# and an `integrate_odes()` in `update`, the NEST synapse target does not generate a usable
+# synapse.
+#
+# It integrates a variable whose derivative is EXACTLY ZERO. That is deliberate and it
+# matters: an earlier version used a decaying trace (`unused_trace' = -unused_trace / tau`),
+# which was inert but was cosmetically indistinguishable from an STDP eligibility trace --
+# an invitation for someone to later wire it into the rule. A zero derivative cannot decay,
+# carries no time constant, and cannot be mistaken for a temporal kernel.
+#
+# KNOWN LIMITATIONS -- read `docs/NEST_EVENT_DRIVEN_3X3_REPORT.md` before relying on this
+# ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+#
+# NEST visits a synapse only when a PRESYNAPTIC spike traverses it; postsynaptic spikes are
+# recorded in the target's archive and replayed lazily at the next presynaptic spike. A
+# synapse whose presynaptic cell is silent is therefore never visited at post-spike time.
+#
+# That is exactly what the `s_i = -1` branch requires: at the moment the target fires, EVERY
+# afferent must be updated, including the silent ones. This model can express the `s_i = +1`
+# branch exactly, but the `-1` branch can only be applied retroactively, at the afferent's
+# next presynaptic spike, using the archived post history.
+#
+# Measured by `nest_backend/phase4_reproducer.py` (do not take this on trust):
+#
+#   * both the s=+1 and s=-1 branches compute the declared equation EXACTLY, and each
+#     synapse uses its OWN pre-update `w_i` -- the risk the prompt singled out is resolved;
+#   * `I_accq` as a continuous post port WORKS (tier A reports available: true). An earlier
+#     note here claimed it failed on an `__I_accq was not declared` error; that was a
+#     downstream symptom of this model once being named `plastic_feedforward`, which made
+#     NESTML generate it as a NEURON so the post-port wiring never ran. See gotcha 1 in
+#     `nest_backend/README.md`;
+#   * the remaining gap is WHEN the update is applied, not what it computes: no afferent is
+#     updated at the instant the target fires. Each is updated at its own next presynaptic
+#     spike, via NEST's archived post history.
+#
+# That deferral is NEST's normal lazy-evaluation contract, and it is not automatically a
+# divergence: `send()` catches a synapse up BEFORE it delivers, so the charge a synapse
+# delivers uses its up-to-date weight. The open questions are (a) whether the trajectory
+# stays exact across MULTIPLE post-spikes between two pre-spikes, and (b) that a
+# permanently-silent afferent never receives its `s = -1` updates at all, so a mid-run
+# weight read-out is stale for recently-quiet synapses.
+#
+# This model is therefore NOT a completed port of the learning rule. It is committed as the
+# reproducer's subject and as the record of exactly how far the port gets.
+
+model plastic_feedforward_synapse:
+
+    state:
+        w real = 250.0            # synaptic weight; engine initializes at ~theta/4
+        # End of THIS afferent's participation window: set on each presynaptic arrival to
+        # `t + tau_volley`. At a post-spike, participation is the flat test
+        # `t <= participate_until` -- membership in the causal volley, nothing graded.
+        #
+        # An earlier version used a sticky flag cleared at the post-spike, i.e. "did I spike
+        # since this cell last fired". That was WRONG: an ordinary E cell needs three or four
+        # volleys to reach threshold, so the flag spanned several volleys and awarded +1 to
+        # afferents the reference excludes as "from the preceding boundary".
+        participate_until ms = -1 ms
+        codegen_placeholder real = 0.0   # inert; see the note above. Derivative is zero.
+
+    equations:
+        codegen_placeholder' = 0.0 / ms
+
+    parameters:
+        eta real = 4.0            # learning rate
+        theta real = 1000.0
+        B real = 5.0              # bell sharpness
+        e_floor real = 0.001      # FE tail floor
+        w_te real = 0.001         # FES tail floor AND the lower weight bound
+        w_cap real = 500.0        # per-synapse ceiling (theta/2 for detectors)
+        phi real = 1.0            # distance influence: a build-time constant
+        # Width of one delivery volley -- the NEST-time expression of the reference's "THIS
+        # boundary". Must be set from the realized arrival spread S of the feedforward
+        # pathway, and must be smaller than the presentation interval D so the previous
+        # volley is excluded. It is a STRUCTURAL quantity read off the translated graph, not
+        # a free parameter fitted to produce an outcome.
+        tau_volley ms = 3 ms
+
+    input:
+        pre_spikes <- spike
+        post_spikes <- spike
+        I_accq real <- continuous   # the target's pre-reset accumulated charge
+
+    output:
+        spike
+
+    onReceive(post_spikes):
+        # The postsynaptic cell fired: apply the update using ITS causal charge and THIS
+        # synapse's own pre-update weight.
+        fe real = e_floor + (1.0 - e_floor) / (1.0 + B * (I_accq / theta - 0.5) ** 2)
+        fes real = w_te + (1.0 - w_te) / (1.0 + B * (2.0 * w / theta - 0.5) ** 2)
+        # Flat membership test. Inside the causal volley -> exactly +1; outside -> exactly
+        # -1. The magnitude never varies with how long ago the arrival was, which is the
+        # property that separates this from STDP.
+        sgn real = -1.0
+        if t <= participate_until:
+            sgn = 1.0
+        w_new real = w + eta * fe * fes * sgn * phi
+        w = min(max(w_new, w_te), w_cap)
+        # Consume the window: one arrival may not count toward two firings.
+        participate_until = -1 ms
+
+    onReceive(pre_spikes):
+        participate_until = t + tau_volley
+        emit_spike(w)
+
+    update:
+        # Required by the NEST synapse target. It integrates ONLY `codegen_placeholder`,
+        # whose derivative is zero and which no scientific state reads -- every meaningful
+        # transition is in the event handlers above.
+        integrate_odes()

@@ -10,7 +10,11 @@
 
 const MARGIN = 66;        // pinned left gutter: id label + rate bar
 const AXIS = 16;          // top axis strip
-const HISTORY = 1500;     // timesteps retained
+// Retained-timestep cap. A LIVE run has no end, so it needs a rolling window; a REPLAY is
+// a finite recorded file and is shown in full (see `setHistoryLimit`), because hiding
+// everything older than the last 1500 frames of a file the user deliberately loaded would
+// be a silent truncation of their own data.
+const LIVE_HISTORY = 1500;
 
 // Lane colour by neuron class: 'E' cortical excitatory, 'S' exogenous RG source,
 // anything else inhibitory.
@@ -27,6 +31,7 @@ export class Raster {
     this.canvas = document.getElementById('raster-canvas');
     this.ctx = this.canvas.getContext('2d');
     this.order = [];
+    this.limit = LIVE_HISTORY;
     this.spike = [];       // Uint8Array per timestep: 1 = spiked
     this.times = [];
     this.rate = new Map();
@@ -135,10 +140,15 @@ export class Raster {
       if (i != null && n.spiked) spk[i] = 1;
     }
     this.spike.push(spk); this.times.push(dyn.timestep);
-    while (this.spike.length > HISTORY) { this.spike.shift(); this.times.shift(); }
+    while (this.spike.length > this.limit) { this.spike.shift(); this.times.shift(); }
     this.rate = new Map(dyn.neurons.map(n => [n.id, n.freq ?? 0]));
     this._schedule();
   }
+
+  // A replay is finite and is shown whole; a live run keeps the rolling window. Called by
+  // app.js on replay enter/exit. Shrinking takes effect on the next update, and any
+  // backward seek rebuilds the window from scratch anyway.
+  setHistoryLimit(n) { this.limit = n; }
 
   // Discard accumulated spike history so a replay backward-seek can rebuild only
   // the bounded window ending at the target frame (truthful, not carried over).

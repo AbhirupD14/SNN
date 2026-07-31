@@ -1,0 +1,77 @@
+# plastic_basal_synapse -- dual FE/FES for the coincidence cell's basal afferent.
+# ######################################################################################
+#
+# Reference: `Current_Implementation_Methodology_Equations.md` section 4.2.
+#
+# `C` is a different kind of cell from a pattern detector -- one weight, an impulse
+# deposit, and it always fires at I_accq ~= theta -- so it gets its OWN operating centres
+# rather than the detector's:
+#
+#     FE_C(I_accq) = e    + (1 - e)    / (1 + B * (I_accq/theta - 1)^2)
+#     FES_C(w)     = w_te + (1 - w_te) / (1 + B * (w/theta - 1/2)^2)
+#     dw           = eta_C * FE_C * FES_C(w) * A * s * phi
+#
+# Note the centres differ from `plastic_feedforward_synapse`: the FE centre is at
+# I_accq = theta (not theta/2) and the FES argument is w/theta (not 2w/theta). Applying the
+# detector's references here would pin C at FE = 0.445 and pull its weight toward theta/4 --
+# permanently below the theta it needs for one-shot recognition. These centres instead put
+# peak plasticity at C's real operating point: maximal at the firing charge theta, and
+# maximal for a weight climbing through theta/2 toward the one-shot target.
+#
+# `A` is the Boolean apical gate at the causal spike. It is structurally always 1 here: `C`
+# can only fire inside a deposit, and a deposit only happens when the gate is open. It is
+# kept as an explicit factor so the equation reads as the reference writes it.
+#
+# There is no negative-participation term. On a multi-basal cell only the CAUSAL source's
+# weight moves, so an owner that matured its own association is never depressed by a
+# different owner's coincidence. In canonical `tiled_cc` every C has exactly one basal
+# afferent, so the causal source is the only source.
+#
+# Everything in `plastic_feedforward_synapse` about NOT being STDP applies here verbatim:
+# no interval grades the magnitude, no trace decays, and the `equations` block integrates a
+# variable whose derivative is exactly zero purely to satisfy NESTML's synapse codegen.
+# The name must end in `synapse` or NESTML generates it as a neuron.
+
+model plastic_basal_synapse:
+
+    state:
+        w real = 250.0                   # basal weight; engine initializes at ~theta/4
+        codegen_placeholder real = 0.0   # inert; derivative is exactly zero
+
+    equations:
+        codegen_placeholder' = 0.0 / ms
+
+    parameters:
+        eta_c real = 16.0         # C basal rate: matures shortly AFTER the E pool
+        theta real = 1000.0
+        B real = 5.0
+        e_floor real = 0.001
+        w_te real = 0.001
+        # C's ceiling is theta, NOT theta/2: it must reach the one-shot recognition
+        # condition w_basal >= theta, which a detector ceiling would forbid.
+        w_cap real = 1000.0
+        phi real = 1.0            # column-local basal edges carry NO distance penalty
+
+    input:
+        pre_spikes <- spike
+        post_spikes <- spike
+        I_accq real <- continuous   # C's somatic charge immediately before its reset
+
+    output:
+        spike
+
+    onReceive(post_spikes):
+        # `C` fired, which means a valid coincidence deposited. Both the apical gate A and
+        # the causal basal signal s are therefore 1 by construction.
+        fe real = e_floor + (1.0 - e_floor) / (1.0 + B * (I_accq / theta - 1.0) ** 2)
+        fes real = w_te + (1.0 - w_te) / (1.0 + B * (w / theta - 0.5) ** 2)
+        w_new real = w + eta_c * fe * fes * phi
+        w = min(max(w_new, w_te), w_cap)
+
+    onReceive(pre_spikes):
+        emit_spike(w)
+
+    update:
+        # Required by the NEST synapse target; integrates only the zero-derivative
+        # placeholder. Every meaningful transition is in the handlers above.
+        integrate_odes()

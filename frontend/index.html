@@ -54,6 +54,9 @@
     <span class="rp-badge">REPLAY</span>
     <span class="rp-info" id="rp-name">—</span>
     <span class="rp-info dim" id="rp-condition">—</span>
+    <!-- Shown only for a NEST artifact: native event timing, frozen learning, resolution,
+         threads and MPI availability. Hidden entirely for a legacy replay. -->
+    <span class="rp-info dim" id="rp-nest" hidden></span>
     <span class="rp-info" id="rp-frame">—</span>
     <span class="rp-info dim" id="rp-phase">—</span>
     <span class="rp-transport" role="group" aria-label="replay playback">
@@ -67,6 +70,8 @@
       <input type="range" id="rp-slider" class="rp-slider" min="0" max="0" value="0" step="1" />
     </span>
     <span class="rp-markers">
+      <button class="btn sm" id="rp-event-prev" title="Previous frame carrying a spike or input — skips ticks where nothing happened">◀ event</button>
+      <button class="btn sm" id="rp-event-next" title="Next frame carrying a spike or input — skips ticks where nothing happened">event ▶</button>
       <button class="btn sm" id="rp-marker-prev" title="Previous marker">◀ mark</button>
       <select id="rp-marker-select" class="rp-marker-select" title="Jump to a recorded marker"></select>
       <button class="btn sm" id="rp-marker-next" title="Next marker">mark ▶</button>
@@ -254,10 +259,18 @@
       </span>
       <span class="viz-legend"><span class="sw exc"></span>excitatory <span class="sw inh"></span>inhibitory · left bar = firing rate</span>
       <span class="viz-hint">wheel = zoom · shift+wheel ↔ pan · pause to hold · Esc to close</span>
-      <span class="viz-transport" role="group" aria-label="playback">
+      <span class="viz-transport" id="raster-transport" role="group" aria-label="playback">
         <button class="btn sm" id="raster-play" title="Play — run the simulation">▶</button>
         <button class="btn sm" id="raster-pause" title="Pause — hold, keep state">⏸</button>
         <button class="btn sm danger" id="raster-stop" title="Stop — reset the simulation (wipes learned weights)">⏹</button>
+      </span>
+      <span class="viz-transport viz-replay-transport" id="raster-rp-transport" role="group" aria-label="replay playback" hidden>
+        <button class="btn sm" id="raster-rp-back" title="Step one frame back">⏮</button>
+        <button class="btn sm primary" id="raster-rp-play" title="Play">▶</button>
+        <button class="btn sm" id="raster-rp-fwd" title="Step one frame forward">⏭</button>
+        <button class="btn sm" id="raster-rp-evt-prev" title="Previous frame carrying a spike or input">◀evt</button>
+        <button class="btn sm" id="raster-rp-evt-next" title="Next frame carrying a spike or input">evt▶</button>
+        <span class="rp-info" id="raster-rp-frame">—</span>
       </span>
       <button class="btn sm danger" id="raster-close">✕ Close</button>
     </div>
@@ -281,10 +294,18 @@
       </span>
       <span class="viz-legend">bar = charge · dashed line = threshold · full-height = spike</span>
       <span class="viz-hint">wheel = zoom · shift+wheel ↔ pan · pause to hold · Esc to close</span>
-      <span class="viz-transport" role="group" aria-label="playback">
+      <span class="viz-transport" id="charge-transport" role="group" aria-label="playback">
         <button class="btn sm" id="charge-play" title="Play — run the simulation">▶</button>
         <button class="btn sm" id="charge-pause" title="Pause — hold, keep state">⏸</button>
         <button class="btn sm danger" id="charge-stop" title="Stop — reset the simulation (wipes learned weights)">⏹</button>
+      </span>
+      <span class="viz-transport viz-replay-transport" id="charge-rp-transport" role="group" aria-label="replay playback" hidden>
+        <button class="btn sm" id="charge-rp-back" title="Step one frame back">⏮</button>
+        <button class="btn sm primary" id="charge-rp-play" title="Play">▶</button>
+        <button class="btn sm" id="charge-rp-fwd" title="Step one frame forward">⏭</button>
+        <button class="btn sm" id="charge-rp-evt-prev" title="Previous frame carrying a spike or input">◀evt</button>
+        <button class="btn sm" id="charge-rp-evt-next" title="Next frame carrying a spike or input">evt▶</button>
+        <span class="rp-info" id="charge-rp-frame">—</span>
       </span>
       <button class="btn sm danger" id="charge-close">✕ Close</button>
     </div>
@@ -300,10 +321,18 @@
       <span class="viz-title">Weights over time · <b id="weights-target">L2E0</b></span>
       <span class="viz-legend">L1E→L2E feedforward (green) ÷ cap · dashed = cap</span>
       <span class="viz-hint">pick a neuron: click an L2E in the 3D view · full training history, newest right · Esc to close</span>
-      <span class="viz-transport" role="group" aria-label="playback">
+      <span class="viz-transport" id="weights-transport" role="group" aria-label="playback">
         <button class="btn sm" id="weights-play" title="Play — run the simulation">▶</button>
         <button class="btn sm" id="weights-pause" title="Pause — hold, keep state">⏸</button>
         <button class="btn sm danger" id="weights-stop" title="Stop — reset the simulation (wipes learned weights)">⏹</button>
+      </span>
+      <span class="viz-transport viz-replay-transport" id="weights-rp-transport" role="group" aria-label="replay playback" hidden>
+        <button class="btn sm" id="weights-rp-back" title="Step one frame back">⏮</button>
+        <button class="btn sm primary" id="weights-rp-play" title="Play">▶</button>
+        <button class="btn sm" id="weights-rp-fwd" title="Step one frame forward">⏭</button>
+        <button class="btn sm" id="weights-rp-evt-prev" title="Previous frame carrying a spike or input">◀evt</button>
+        <button class="btn sm" id="weights-rp-evt-next" title="Next frame carrying a spike or input">evt▶</button>
+        <span class="rp-info" id="weights-rp-frame">—</span>
       </span>
       <button class="btn sm danger" id="weights-close">✕ Close</button>
     </div>
@@ -321,9 +350,17 @@
       <select id="rf-filter" class="rf-filter" aria-label="layer filter" hidden></select>
       <span class="rf-summary" id="rf-summary"></span>
       <span class="rf-edit-hint" id="rf-edit-hint">Pause to edit a cell — type a value, Enter to set that weight.</span>
-      <span class="viz-transport" role="group" aria-label="playback">
+      <span class="viz-transport" id="rf-transport" role="group" aria-label="playback">
         <button class="btn sm" id="rf-play" title="Play">▶</button>
         <button class="btn sm" id="rf-pause" title="Pause — hold, enables editing">⏸</button>
+      </span>
+      <span class="viz-transport viz-replay-transport" id="rf-rp-transport" role="group" aria-label="replay playback" hidden>
+        <button class="btn sm" id="rf-rp-back" title="Step one frame back">⏮</button>
+        <button class="btn sm primary" id="rf-rp-play" title="Play">▶</button>
+        <button class="btn sm" id="rf-rp-fwd" title="Step one frame forward">⏭</button>
+        <button class="btn sm" id="rf-rp-evt-prev" title="Previous frame carrying a spike or input">◀evt</button>
+        <button class="btn sm" id="rf-rp-evt-next" title="Next frame carrying a spike or input">evt▶</button>
+        <span class="rp-info" id="rf-rp-frame">—</span>
       </span>
       <button class="btn sm danger" id="rf-close">✕ Close</button>
     </div>
