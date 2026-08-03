@@ -143,6 +143,11 @@ class MembranePolicy:
     regula-falsi root finding.
     """
 
+    # `applicable=False` marks a profile that has NO continuous membrane group at all --
+    # the impulse prototype runs an event accumulator in charge units, so attaching mV/pF
+    # values to it and naming `iaf_psc_exp_ps` as its model states something untrue. Such a
+    # profile serialises the group as `{"applicable": false, ...}` and nothing else.
+    applicable: bool = True
     model: str = "iaf_psc_exp_ps"
     v_threshold_mv: float = -55.0
     v_rest_mv: float = -70.0
@@ -152,10 +157,32 @@ class MembranePolicy:
     tau_syn_ex_ms: float = 2.0        # excitatory synaptic-current time constant
     tau_syn_in_ms: float = 2.0
     t_ref_ms: float = 2.0             # firing refractory; gates FIRING, not accumulation
+    # PROVISIONAL. These are `iaf_psc_exp_ps` defaults carried over from the Phase 1
+    # feasibility spike, where they were chosen to make a two-competitor race legible --
+    # NOT measured CIPP physiology. In particular the mV/pF units and the 15 mV threshold
+    # gap have no declared mapping to the repository's `theta = 1000` charge units, and
+    # Phase 1's report says so explicitly. Phase 3 must derive these from the drive
+    # envelope before any of them may be called CIPP constants.
+    provisional: bool = True
+    provenance: str = (
+        "provisional: iaf_psc_exp_ps defaults used in the Phase 1 feasibility spike. "
+        "Units (mV/pF) are NOT mapped to the repository's charge units. Phase 3 derives "
+        "these from the continuous drive envelope."
+    )
 
     @property
     def threshold_gap_mv(self) -> float:
         return self.v_threshold_mv - self.v_rest_mv
+
+    def describe(self) -> dict:
+        """Serialised form. A non-applicable group reports that, not fabricated values."""
+        if not self.applicable:
+            return {
+                "applicable": False,
+                "reason": ("this profile has no continuous membrane group; its competitors "
+                           "are event accumulators in charge units"),
+            }
+        return asdict(self)
 
 
 @dataclass(frozen=True)
@@ -181,6 +208,17 @@ class CoincidencePolicy:
     basal_window_ms: float = 5.0
     apical_window_ms: float = 5.0
     deposit_dead_time_ms: float = 1.0
+    # The C cell's OWN firing refractory. Zero is the C contract's justified value, not a
+    # placeholder: the reference implementation runs C at `t_ref = 0` because the deposit
+    # dead time already bounds how often a valid coincidence may re-trigger, and a second
+    # refractory would silence confirmations the gate legitimately admits. Borrowing the
+    # competitor's `MembranePolicy.t_ref_ms` gave that field two roles across two cell
+    # types, which is exactly what Phase 2 exists to stop.
+    c_refractory_ms: float = 0.0
+    c_refractory_rationale: str = (
+        "C contract: deposit dead time bounds re-triggering; a second refractory would "
+        "suppress admissible confirmations. Matches the reference implementation's t_ref=0."
+    )
 
     # PROVISIONAL, and marked as such. 5 ms is not a measured CIPP physiological constant;
     # it is a placeholder wide enough for the canonical graph's causal skew. The binding
@@ -188,6 +226,58 @@ class CoincidencePolicy:
     # inferring one, and a minimum inter-volley interval so a window cannot pair across
     # volleys. Phase 1's convenient model defaults must not silently become CIPP physiology.
     provisional: bool = True
+
+    def validate_structure(self) -> None:
+        """Every field check that needs NO graph or schedule input.
+
+        Split out so the bare `EngineProfile.validate()` path can run it. Previously the
+        whole of `CoincidencePolicy` was skipped unless a caller supplied a causal skew, so
+        a profile carrying `c_refractory_ms = NaN` validated cleanly.
+
+        This deliberately does NOT include the causal-skew comparison, which is genuinely
+        deferred: Phase 2 cannot measure the parent's processing latency, and pretending
+        the full window check had run would be the opposite error.
+        """
+        for name, value in (("basal_window_ms", self.basal_window_ms),
+                            ("apical_window_ms", self.apical_window_ms),
+                            ("deposit_dead_time_ms", self.deposit_dead_time_ms)):
+            if not math.isfinite(value) or value <= 0:
+                raise ValueError(f"{name} must be finite and positive, got {value!r}")
+        if not math.isfinite(self.c_refractory_ms) or self.c_refractory_ms < 0:
+            raise ValueError(
+                f"c_refractory_ms must be finite and non-negative, got "
+                f"{self.c_refractory_ms!r}"
+            )
+        # Structural whatever the graph looks like: a dead time at least as long as the
+        # eligibility window makes the window unreachable.
+        if self.deposit_dead_time_ms >= min(self.basal_window_ms, self.apical_window_ms):
+            raise ValueError(
+                f"deposit dead time {self.deposit_dead_time_ms} ms is not shorter than the "
+                f"eligibility window; the window would be unreachable"
+            )
+
+    def validate_cross_volley_only(self, *, min_inter_volley_interval_ms: float) -> None:
+        """The half of the window contract that does NOT need the missing latency term.
+
+        Phase 2 can measure conduction but not the parent competitor's membrane crossing
+        latency, so the true basal/apical skew is unknown and validating a window against a
+        conduction-only lower bound would produce a pass that means nothing. This checks
+        only the bound that is independent of that term: a window at least as long as the
+        gap between volleys can pair evidence across presentations.
+        """
+        self.validate_structure()
+        if (not math.isfinite(min_inter_volley_interval_ms)
+                or min_inter_volley_interval_ms <= 0):
+            raise ValueError(
+                f"min_inter_volley_interval_ms must be finite and positive, got "
+                f"{min_inter_volley_interval_ms!r}")
+        widest = max(self.basal_window_ms, self.apical_window_ms)
+        if widest >= min_inter_volley_interval_ms:
+            raise ValueError(
+                f"coincidence window {widest} ms is not shorter than the minimum "
+                f"inter-volley interval {min_inter_volley_interval_ms} ms; it could "
+                f"pair evidence across volleys"
+            )
 
     def validate(self, *, causal_skew_ms: float,
                  min_inter_volley_interval_ms: float | None = None) -> None:
@@ -202,21 +292,12 @@ class CoincidencePolicy:
         """
         if not math.isfinite(causal_skew_ms) or causal_skew_ms < 0:
             raise ValueError(f"causal skew must be finite and non-negative, got {causal_skew_ms!r}")
-        for name, value in (("basal_window_ms", self.basal_window_ms),
-                            ("apical_window_ms", self.apical_window_ms),
-                            ("deposit_dead_time_ms", self.deposit_dead_time_ms)):
-            if not math.isfinite(value) or value <= 0:
-                raise ValueError(f"{name} must be finite and positive, got {value!r}")
+        self.validate_structure()
 
         if min(self.basal_window_ms, self.apical_window_ms) <= causal_skew_ms:
             raise ValueError(
                 f"coincidence windows ({self.basal_window_ms}, {self.apical_window_ms} ms) "
                 f"cannot span the measured causal arrival skew of {causal_skew_ms} ms"
-            )
-        if self.deposit_dead_time_ms >= min(self.basal_window_ms, self.apical_window_ms):
-            raise ValueError(
-                f"deposit dead time {self.deposit_dead_time_ms} ms is not shorter than the "
-                f"eligibility window; the window would be unreachable"
             )
         if min_inter_volley_interval_ms is not None:
             # A window at least as long as the gap between volleys can pair an apical from
@@ -229,6 +310,40 @@ class CoincidencePolicy:
                     f"inter-volley interval {min_inter_volley_interval_ms} ms; it could "
                     f"pair evidence across volleys"
                 )
+
+
+@dataclass(frozen=True)
+class RelayPolicy:
+    """The inhibitory WTA relay. Its own group, because its lockout is its own quantity.
+
+    `wta_lockout_ms` had been taken from `CoincidencePolicy.deposit_dead_time_ms`, giving
+    that field two roles in two different cell types: how often a C SOMA may deposit, and
+    how often an I RELAY may re-fire. They are unrelated mechanisms that happened to want a
+    similar number.
+
+    PROVISIONAL. The binding constraint is that a relay must not re-fire inside the WTA loop
+    it is closing, so the lockout has to exceed the loop latency; that is validated against
+    the profile's own delays rather than assumed.
+    """
+
+    wta_lockout_ms: float = 1.0
+    provisional: bool = True
+    provenance: str = (
+        "provisional: chosen to exceed the E->I->E loop latency by a wide margin. Not a "
+        "measured CIPP constant; Phase 3 sets it from the continuous drive envelope."
+    )
+
+    def validate(self, delays: "DelayPolicy") -> None:
+        if not math.isfinite(self.wta_lockout_ms) or self.wta_lockout_ms <= 0:
+            raise ValueError(
+                f"wta_lockout_ms must be finite and positive, got {self.wta_lockout_ms!r}"
+            )
+        loop = delays.loop_latency_ms()
+        if self.wta_lockout_ms <= loop:
+            raise ValueError(
+                f"WTA relay lockout {self.wta_lockout_ms} ms does not exceed the E->I->E "
+                f"loop latency {loop} ms; the relay could re-fire inside its own loop"
+            )
 
 
 @dataclass(frozen=True)
@@ -254,6 +369,15 @@ class CausalVolleyPolicy:
 
     separation_ms: float = 0.5
     require_arrival_before_firing: bool = True   # the missing lower bound
+    # PROVISIONAL. 0.5 ms is a placeholder: with uniform delays the within-volley spread is
+    # exactly zero, so any positive value satisfies the lower bound, and the upper bound
+    # depends on the schedule a run actually uses. `validate_schedule` checks both against
+    # measured quantities rather than letting this number stand as physiology.
+    provisional: bool = True
+    provenance: str = (
+        "provisional: placeholder bounded by within_volley_spread < separation < "
+        "minimum inter-volley interval, both validated at run construction."
+    )
 
 
 @dataclass(frozen=True)
@@ -363,6 +487,90 @@ class WtaPolicy:
 
 
 @dataclass(frozen=True)
+class ImplementationDisposition:
+    """What this profile's configuration DESCRIBES versus what the network actually RUNS.
+
+    Phase 2 defines the target physical-time profile; Phase 3 implements the continuous
+    competitor. Between those points the profile serialises `membrane.model =
+    iaf_psc_exp_ps` with mV/pF parameters while the live ordinary competitors are still
+    `event_accumulator` cells with `theta = 1000` charge units. Without this block a
+    manifest reads as though the continuous model were active, which it is not.
+
+    So the disposition travels with every artifact: target versus active model, the units
+    actually in force, which components Phase 2 implemented, which are deferred, and an
+    explicit `mechanical_profile_promoted = False`. The configuration keeps its name --
+    `cipp_continuous` is the right name for the target -- and its implementation status is
+    made honest instead.
+    """
+
+    target_membrane_model: str = "iaf_psc_exp_ps"
+    active_competitor_model: str = "event_accumulator"
+    active_units: str = "charge units (theta = 1000); NOT the profile's mV/pF"
+    scaffold: bool = True
+    mechanical_profile_promoted: bool = False
+    implemented_in_phase_2: tuple = (
+        "profile object with one semantic role per parameter",
+        "ceiling-to-grid delay quantization",
+        "uniform per-projection conduction delay, jitter rejected",
+        "coincidence windows, relay lockout and C refractory sourced from the profile",
+        "causal-volley membership sourced from the profile",
+        "conduction-only causal path envelope",
+        "declared unresolved exact-tie policy",
+    )
+    deferred_to_phase_3_or_later: tuple = (
+        "continuous competitor model (profile.membrane is a TARGET, not active physics)",
+        "causal-volley q_causal_volley state at firing (Contract 1)",
+        "separate wta_reset and prediction_credit ports (Contract 7)",
+        "participate_from lower bound and post-triggered flush (Contracts 4 and 6)",
+        "parent membrane/processing latency in the causal envelope",
+        "mapping between the profile's mV/pF units and repository charge units",
+    )
+    known_defects: tuple = ()
+    summary: str = (
+        "Phase 2 SCAFFOLD: the target profile is defined and is the source of the "
+        "parameters it owns, but ordinary competitors still run the impulse "
+        "event_accumulator. This is not yet a runnable continuous CIPP engine."
+    )
+
+    def validate_against_membrane(self, membrane: "MembranePolicy") -> None:
+        """The disposition and the membrane group must tell the same story.
+
+        A scaffold names a continuous TARGET, so its membrane group must be applicable and
+        must name that same model. A non-scaffold profile has no continuous target, so its
+        membrane group must be marked not applicable rather than carrying mV/pF values that
+        describe nothing the profile runs.
+        """
+        if self.scaffold:
+            if not membrane.applicable:
+                raise ValueError(
+                    "a scaffold declares a continuous membrane target, so its membrane "
+                    "group must be applicable"
+                )
+            if membrane.model != self.target_membrane_model:
+                raise ValueError(
+                    f"disposition target_membrane_model={self.target_membrane_model!r} "
+                    f"contradicts membrane.model={membrane.model!r}"
+                )
+        elif membrane.applicable:
+            raise ValueError(
+                f"{self.active_competitor_model!r} has no continuous membrane group; "
+                f"marking it applicable attaches mV/pF values to an accumulator"
+            )
+
+    def validate(self) -> None:
+        if self.mechanical_profile_promoted:
+            raise ValueError(
+                "mechanical_profile_promoted may not be set until the full mechanical "
+                "acceptance suite passes; Phase 2 does not promote a profile"
+            )
+        if self.scaffold and self.active_competitor_model == self.target_membrane_model:
+            raise ValueError(
+                "a scaffold must not report the target membrane model as the active "
+                "competitor model"
+            )
+
+
+@dataclass(frozen=True)
 class EngineProfile:
     """One immutable physical-time configuration. Frozen: a run's physics is fixed."""
 
@@ -374,7 +582,10 @@ class EngineProfile:
     coincidence: CoincidencePolicy = field(default_factory=CoincidencePolicy)
     causal_volley: CausalVolleyPolicy = field(default_factory=CausalVolleyPolicy)
     prediction: PredictionCreditPolicy = field(default_factory=PredictionCreditPolicy)
+    relay: RelayPolicy = field(default_factory=RelayPolicy)
     wta: WtaPolicy = field(default_factory=WtaPolicy)
+    disposition: ImplementationDisposition = field(
+        default_factory=ImplementationDisposition)
     # Declared, not implied: no neuron parameter in this profile is derived from the
     # stimulus schedule. The experiment controller may schedule presentations; it may not
     # set dendritic TTLs, relay lockout, or coincidence physiology.
@@ -415,6 +626,20 @@ class EngineProfile:
             raise ValueError(f"jitter must be finite and non-negative, got {self.delays.jitter_ms!r}")
 
         membrane = self.membrane
+        # A non-applicable membrane group carries no meaningful values, so validating its
+        # ordering and time constants would be checking numbers nothing reads.
+        if not membrane.applicable:
+            self.prediction.validate()
+            self.wta.validate()
+            self.relay.validate(self.delays)
+            self.disposition.validate()
+            self.coincidence.validate_structure()
+            self.disposition.validate_against_membrane(membrane)
+            if causal_skew_ms is not None:
+                self.coincidence.validate(
+                    causal_skew_ms=causal_skew_ms,
+                    min_inter_volley_interval_ms=min_inter_volley_interval_ms)
+            return
         if not membrane.v_threshold_mv > membrane.v_rest_mv:
             raise ValueError(
                 f"threshold {membrane.v_threshold_mv} mV must exceed rest "
@@ -437,6 +662,13 @@ class EngineProfile:
 
         self.prediction.validate()
         self.wta.validate()
+        self.relay.validate(self.delays)
+        self.disposition.validate()
+        # Structural coincidence checks ALWAYS run. Only the causal-skew comparison needs a
+        # measured graph, and that one stays deferred rather than being silently skipped
+        # along with every other coincidence field.
+        self.coincidence.validate_structure()
+        self.disposition.validate_against_membrane(self.membrane)
         if causal_skew_ms is not None:
             self.coincidence.validate(
                 causal_skew_ms=causal_skew_ms,
@@ -449,6 +681,18 @@ class EngineProfile:
         Consumes schedule information for VALIDATION ONLY. Nothing here mutates or derives
         neuron physiology from the schedule -- that separation is the whole point of Phase 2.
         """
+        for name, value in (("within_volley_spread_ms", within_volley_spread_ms),
+                            ("min_inter_volley_interval_ms", min_inter_volley_interval_ms)):
+            if not math.isfinite(value):
+                raise ValueError(f"{name} must be finite, got {value!r}")
+        if within_volley_spread_ms < 0:
+            raise ValueError(
+                f"within_volley_spread_ms must be non-negative, got {within_volley_spread_ms!r}")
+        if min_inter_volley_interval_ms <= 0:
+            raise ValueError(
+                f"min_inter_volley_interval_ms must be positive, got "
+                f"{min_inter_volley_interval_ms!r}")
+
         separation = self.causal_volley.separation_ms
         if not within_volley_spread_ms < separation:
             raise ValueError(
@@ -466,6 +710,9 @@ class EngineProfile:
     def describe(self) -> dict:
         """Flat, serialisable, unit-bearing -- for the run manifest and replay header."""
         out = asdict(self)
+        # The membrane group serialises itself, so a profile with no continuous membrane
+        # reports that fact rather than a full set of values it does not use.
+        out["membrane"] = self.membrane.describe()
         out["loop_latency_ms_floor"] = self.delays.loop_latency_ms()
         return out
 
@@ -502,6 +749,42 @@ IMPULSE_CHARACTERIZATION = EngineProfile(
         jitter_ms=0.0,                          # the DEFAULT; A/B runs override it to 3.0
     ),
     neuron_physics_independent_of_pacing=False,  # DEFECT: windows are set from D
+    # No continuous membrane group. The prototype's competitors are event accumulators in
+    # charge units; carrying `iaf_psc_exp_ps` with mV/pF here contradicted its own
+    # disposition in every manifest it produced.
+    membrane=MembranePolicy(applicable=False),
+    relay=RelayPolicy(
+        # Historical: the prototype's relay lockout IS the presentation interval, so there
+        # is no profile-owned value. Recorded as the default with the coupling declared on
+        # the profile itself; the live impulse branch does not read this field.
+        wta_lockout_ms=1.0,
+        provisional=False,
+        provenance=("historical: the impulse branch sets t_lockout from the presentation "
+                    "interval and does not read this field"),
+    ),
+    disposition=ImplementationDisposition(
+        # The prototype has no continuous TARGET -- what it runs is what it is. Inheriting
+        # the continuous default made every impulse manifest advertise an iaf_psc_exp_ps
+        # target the profile has never had.
+        target_membrane_model="event_accumulator",
+        active_competitor_model="event_accumulator",
+        active_units="charge units (theta = 1000)",
+        scaffold=False,
+        mechanical_profile_promoted=False,
+        implemented_in_phase_2=(
+            "named as a profile with its parameters and defects declared",
+        ),
+        deferred_to_phase_3_or_later=(),
+        known_defects=(
+            "delay quantization uses round(), shortening 88 of 254 canonical edges",
+            "tau_basal/tau_apical/tau_deposit_lock/t_lockout are set from the "
+            "presentation interval, so physiology tracks the stimulus schedule",
+            "geometry sets conduction delay; A/B runs add up to 3 ms of jitter",
+        ),
+        summary=("preserved characterization prototype. NOT a CIPP engine: its recorded "
+                 "negative findings depend on the defects listed here, which is why they "
+                 "are retained rather than repaired."),
+    ),
 )
 
 PROFILES = {p.name: p for p in (CIPP_CONTINUOUS, IMPULSE_CHARACTERIZATION)}

@@ -467,7 +467,15 @@ class NestTiledNetwork:
             # The profile owns the kernel resolution; `Timescales.h` is the impulse
             # profile's knob and must not silently override it.
             self.ts = replace(self.ts, h=self.profile.resolution_h_ms)
-        self.ts.validate()
+            # `Timescales.validate` enforces `presentation > spread` and `base_ff >= h`.
+            # Those are IMPULSE constraints on geometric dispersion and the flat base hop,
+            # neither of which exists here: the continuous profile has uniform delays and
+            # takes no spread at all. Applying them would make an impulse-only rule part of
+            # continuous physiology. Only the resolution is checked.
+            if self.ts.h <= 0:
+                raise ValueError(f"resolution h must be positive, got {self.ts.h}")
+        else:
+            self.ts.validate()
         self.seed = int(seed)
         self.dispersion_enabled = bool(dispersion_enabled)
         self.feedback_enabled = bool(feedback_enabled)
@@ -518,10 +526,19 @@ class NestTiledNetwork:
         # boundary" for the participation test. Taken from the REALIZED per-target arrival
         # spread plus a margin, and clamped below the presentation interval so the previous
         # volley can never be counted as participating.
-        realized = self.delays.realized_spread.get("rg_to_column", {})
-        spread = float(realized.get("per_target_max_ms", self.ts.spread) or self.ts.spread)
-        self.tau_volley_ms = min(spread * 1.5 + self.ts.base_ff,
-                                 self.ts.presentation * 0.5)
+        if self.is_continuous:
+            # Learning membership comes from the PROFILE and nothing else. The impulse
+            # formula below reads `ts.spread`, `ts.base_ff` and `ts.presentation`, so it
+            # carries the stimulus schedule straight into plastic `tau_volley` -- measured
+            # at presentation 3.0 ms -> 1.5 ms and 5.0 ms -> 2.5 ms. A test pair that
+            # happens to sit on the same side of the `presentation * 0.5` clamp does not
+            # see it, which is how it survived the first pass.
+            self.tau_volley_ms = float(self.profile.causal_volley.separation_ms)
+        else:
+            realized = self.delays.realized_spread.get("rg_to_column", {})
+            spread = float(realized.get("per_target_max_ms", self.ts.spread) or self.ts.spread)
+            self.tau_volley_ms = min(spread * 1.5 + self.ts.base_ff,
+                                     self.ts.presentation * 0.5)
 
         self.node_meta = {n["id"]: n for n in self.spec["nodes"]}
         self.edge_meta = {e["id"]: e for e in self.spec["edges"]}
@@ -644,14 +661,17 @@ class NestTiledNetwork:
         if archetype == "rg_source":
             return "spike_generator", {}
         if archetype == "i_relay":
-            # Lockout is a CELL property here, not a presentation interval. The deposit
-            # dead time is the profile's declared minimum re-trigger interval.
+            # The relay's OWN lockout. It had been taken from the C soma's deposit dead
+            # time, which gave that field two roles in two unrelated cell types.
             return "event_relay", {"theta": theta * I_THRESHOLD_FRAC,
-                                   "t_lockout": float(coincidence.deposit_dead_time_ms)}
+                                   "t_lockout": float(self.profile.relay.wta_lockout_ms)}
         if archetype == "e_coincidence":
             params = {
                 "theta": theta,
-                "t_ref": float(membrane.t_ref_ms),
+                # The C cell's own refractory, not the competitor's. Borrowing
+                # `MembranePolicy.t_ref_ms` spread continuous-competitor physiology onto a
+                # different cell type.
+                "t_ref": float(coincidence.c_refractory_ms),
                 "tau_basal": float(coincidence.basal_window_ms),
                 "tau_apical": float(coincidence.apical_window_ms),
                 "tau_deposit_lock": float(coincidence.deposit_dead_time_ms),
@@ -668,6 +688,9 @@ class NestTiledNetwork:
             # timer-based stand-in for the counted prediction credit Phase 4 introduces.
             model = ("event_accumulator__with_plastic_feedforward_synapse"
                      if self.learning else "event_accumulator")
+            # `membrane.t_ref_ms` is the TARGET continuous competitor's refractory and is
+            # applied here because the accumulator scaffold stands in for that cell. It is
+            # not reused for any other cell type.
             return model, {"theta": theta, "t_ref": float(membrane.t_ref_ms),
                            "t_ref_reset": 0.0}
         raise ValueError(f"unhandled archetype {archetype!r}")
@@ -865,9 +888,11 @@ class NestTiledNetwork:
             # can never be read as a CIPP-engine claim when it came from the prototype.
             "engine_profile": self.profile.name,
             "profile": self.profile.describe(),
-            # Traversed causal paths, so a window claim can be checked against the graph
-            # rather than against a projection mean.
+            # Matched causal path pairs, so a window claim can be checked against the
+            # graph rather than against independently combined projection extrema.
             "causal_arrival_envelope": self.causal_arrival_envelope(),
+            # The differences a reader must not mistake for results.
+            "accepted_differences": self.accepted_differences(),
             "topology": self.spec["name"],
             "spec_hash": spec_hash(self.spec),
             "seed": self.seed,
@@ -1076,7 +1101,21 @@ class NestTiledNetwork:
                 ),
             },
             "learning": "frozen",
+            # The profile's implementation status travels with the DASHBOARD payload too,
+            # not only the manifest and replay provenance: someone reading the topology
+            # panel must not conclude that a continuous CIPP engine produced this.
+            "engine_profile": self.profile.name,
+            "implementation_disposition": asdict(self.profile.disposition),
             "known_differences": [
+                self.profile.disposition.summary,
+                f"Active competitor model: {self.profile.disposition.active_competitor_model} "
+                f"in {self.profile.disposition.active_units}. Profile membrane model "
+                f"{self.profile.disposition.target_membrane_model} is a TARGET, not active "
+                f"physics.",
+                "mechanical_profile_promoted = "
+                f"{self.profile.disposition.mechanical_profile_promoted}: the mechanical "
+                "acceptance suite has not passed.",
+                *self.profile.disposition.known_defects,
                 "Native NEST delivery produces MULTIPLE ordinary-E winners in many "
                 "column/presentation windows; the reference engine guarantees one.",
                 "The strict 1010 feedback cadence law does not reproduce.",
@@ -1086,72 +1125,151 @@ class NestTiledNetwork:
         }
         return topo
 
-    def causal_arrival_envelope(self) -> dict:
-        """Measured basal and apical arrival paths at the C cell, from traversed edges.
+    def _walk_paths(self, start_ids, projection_sequence):
+        """Every CONNECTED path from `start_ids` following `projection_sequence` in order.
 
-        The audit's correction: `abs(column_to_column_apical_ms - column_eor_to_c_basal_ms)`
-        subtracts two TERMINAL edges and is not the graph's causal skew. Basal and apical
-        evidence reach a C cell along different routes:
-
-            basal:   RGC -> L1 E -> L1 Eor -> C          (local)
-            apical:  RGC -> L1 E -> L1 Eor -> L2 E -> C  (via the parent column)
-
-        so the skew is dominated by the parent hop the apical path takes and the local one
-        it does not. This walks the ACTUAL translated edges and reports the traversed
-        delays, never a sum of projection means -- a mean cannot schedule or validate a
-        sharp causal event, and with geometry enabled there is no single mean path at all.
+        Connectivity is checked on real edge endpoints: an edge only extends a path if its
+        `source` is the node the path currently sits on. The superseded implementation
+        grouped edges by projection, took projection-wide extrema and summed them, which
+        can combine a delay from one column with a delay from another and never verifies
+        that the hops meet at all.
         """
-        by_projection: dict = {}
+        by_source: dict = {}
         for edge in self.spec["edges"]:
-            delay = self.delays.by_edge.get(edge["id"])
-            if delay is None:
-                continue
-            by_projection.setdefault(edge.get("projection"), []).append(float(delay))
+            if edge["id"] in self.delays.by_edge:
+                by_source.setdefault(edge["source"], []).append(edge)
 
-        def span(projection):
-            values = by_projection.get(projection) or []
-            if not values:
-                return None
-            return {"min_ms": min(values), "max_ms": max(values), "n_edges": len(values)}
+        paths = [{"nodes": [nid], "edges": [], "delays": []} for nid in start_ids]
+        for projection in projection_sequence:
+            extended = []
+            for path in paths:
+                for edge in by_source.get(path["nodes"][-1], ()):
+                    if edge.get("projection") != projection:
+                        continue
+                    extended.append({
+                        "nodes": path["nodes"] + [edge["target"]],
+                        "edges": path["edges"] + [edge["id"]],
+                        "delays": path["delays"] + [float(self.delays.by_edge[edge["id"]])],
+                    })
+            paths = extended
+            if not paths:
+                break
+        for path in paths:
+            path["path_delay_ms"] = sum(path["delays"])
+        return paths
 
-        rg = span("rg_to_column")
-        e_eor = span("column_e_to_eor")
-        ff = span("column_to_column_ff")
-        basal_edge = span("column_eor_to_c_basal")
-        apical_edge = span("column_to_column_apical")
+    def accepted_differences(self) -> list:
+        """Declared divergences that travel with every artifact from this network.
 
-        def total(parts, key):
-            if any(p is None for p in parts):
-                return None
-            return sum(p[key] for p in parts)
+        A reader opening a replay months later has only the artifact. These are the claims
+        it must not make on the artifact's behalf.
+        """
+        disposition = self.profile.disposition
+        out = [
+            {"area": "implementation status", "difference": disposition.summary,
+             "mechanical_profile_promoted": disposition.mechanical_profile_promoted},
+            {"area": "exact ties",
+             "difference": (f"exact_tie_policy={self.profile.wta.exact_tie_policy}; "
+                            "implicit GID/creation-order arbitration is forbidden")},
+            {"area": "causal envelope",
+             "difference": ("conduction only; parent membrane/processing latency is not "
+                            "included, so the reported skew is a lower bound")},
+        ]
+        for defect in disposition.known_defects:
+            out.append({"area": "known defect", "difference": defect})
+        if disposition.deferred_to_phase_3_or_later:
+            out.append({"area": "deferred",
+                        "difference": list(disposition.deferred_to_phase_3_or_later)})
+        return out
 
-        basal_path = [rg, e_eor, basal_edge]
-        apical_path = [rg, e_eor, ff, apical_edge]
-        basal_min, basal_max = total(basal_path, "min_ms"), total(basal_path, "max_ms")
-        apical_min, apical_max = total(apical_path, "min_ms"), total(apical_path, "max_ms")
+    def causal_arrival_envelope(self, *, max_pairs_recorded: int = 8) -> dict:
+        """CONDUCTION-ONLY arrival envelope, over MATCHED basal/apical evidence pairs.
 
-        skew = None
-        if None not in (basal_min, basal_max, apical_min, apical_max):
-            # Worst case in either direction: the widest separation the graph can produce
-            # between the two arms of one coincidence.
-            skew = max(apical_max - basal_min, basal_max - apical_min)
+        A coincidence is a claim about ONE C cell receiving both arms of ONE causal branch.
+        Basal and apical evidence reach it along different routes::
 
+            basal:   RGC -> L1 E -> L1 Eor -> C
+            apical:  RGC -> L1 E -> L1 Eor -> L2 E -> C
+
+        Summarising the two families independently -- 144 basal paths against 2304 apical
+        paths, taking extrema of each -- can pair a basal arrival at one C with an apical
+        arrival at a DIFFERENT C, or one driven by a different RGC entirely. Those are not
+        coincidences and their difference is not a skew. So pairs are matched here on both
+        the target C and the shared causal prefix `RGC -> E -> Eor`, and the skew is
+        computed per matched pair.
+
+        WHAT THIS IS NOT. Conduction only. It omits the parent competitor's membrane
+        crossing latency on the apical arm -- the time L2 E takes to reach threshold before
+        emitting the apical event -- which is unknown until the Phase 3 continuous model and
+        its drive envelope exist. Phase 1's pA weights cannot supply it: that report states
+        explicitly that those units are not mapped to repository charge units. The reported
+        skew is therefore a LOWER BOUND, and full window validation is deferred, not done.
+        """
+        rgc_ids = [n["id"] for n in self.spec["nodes"] if n["archetype"] == "rg_source"]
+        basal = self._walk_paths(rgc_ids, ("rg_to_column", "column_e_to_eor",
+                                           "column_eor_to_c_basal"))
+        apical = self._walk_paths(rgc_ids, ("rg_to_column", "column_e_to_eor",
+                                            "column_to_column_ff",
+                                            "column_to_column_apical"))
+
+        # Key on the shared causal prefix AND the target C: same source, same competitor,
+        # same local relay, same coincidence cell.
+        def key(path):
+            return (tuple(path["nodes"][:3]), path["nodes"][-1])
+
+        basal_by_key: dict = {}
+        for path in basal:
+            basal_by_key.setdefault(key(path), []).append(path)
+
+        pairs = []
+        for apical_path in apical:
+            for basal_path in basal_by_key.get(key(apical_path), ()):
+                pairs.append({
+                    "source_rgc": apical_path["nodes"][0],
+                    "competitor": apical_path["nodes"][1],
+                    "relay": apical_path["nodes"][2],
+                    "target_c": apical_path["nodes"][-1],
+                    "shared_prefix_nodes": apical_path["nodes"][:3],
+                    "basal": basal_path,
+                    "apical": apical_path,
+                    "conduction_skew_ms": (apical_path["path_delay_ms"]
+                                           - basal_path["path_delay_ms"]),
+                })
+
+        skews = [pair["conduction_skew_ms"] for pair in pairs]
+        totals_basal = [pair["basal"]["path_delay_ms"] for pair in pairs]
+        totals_apical = [pair["apical"]["path_delay_ms"] for pair in pairs]
+
+        first_hop = [float(self.delays.by_edge[e["id"]]) for e in self.spec["edges"]
+                     if e.get("projection") == "rg_to_column" and e["id"] in self.delays.by_edge]
         return {
-            "basal_path_projections": ["rg_to_column", "column_e_to_eor",
-                                       "column_eor_to_c_basal"],
-            "apical_path_projections": ["rg_to_column", "column_e_to_eor",
-                                        "column_to_column_ff", "column_to_column_apical"],
-            "traversed_delays_ms": {k: v for k, v in
-                                    (("rg_to_column", rg), ("column_e_to_eor", e_eor),
-                                     ("column_to_column_ff", ff),
-                                     ("column_eor_to_c_basal", basal_edge),
-                                     ("column_to_column_apical", apical_edge))
-                                    if v is not None},
-            "basal_arrival_ms": {"min": basal_min, "max": basal_max},
-            "apical_arrival_ms": {"min": apical_min, "max": apical_max},
-            "causal_skew_ms": skew,
-            "within_volley_spread_ms": (0.0 if rg is None else rg["max_ms"] - rg["min_ms"]),
-            "method": "traversed edge delays; never a sum of projection means",
+            "kind": "conduction_only",
+            "matched_pairs": len(pairs),
+            # A basal path with no apical partner at the same C from the same branch is not
+            # evidence of a coincidence and is excluded from the envelope; the count is
+            # reported so an unexpected structure is visible rather than silently dropped.
+            "unmatched_basal_paths": len(basal) - len({id(pair["basal"]) for pair in pairs}),
+            "basal_paths_total": len(basal),
+            "apical_paths_total": len(apical),
+            "pairs_recorded": pairs[:max_pairs_recorded],
+            "basal_arrival_ms": ({"min_ms": min(totals_basal), "max_ms": max(totals_basal)}
+                                 if pairs else None),
+            "apical_arrival_ms": ({"min_ms": min(totals_apical), "max_ms": max(totals_apical)}
+                                  if pairs else None),
+            "conduction_skew_ms": (max(skews) if pairs else None),
+            "conduction_skew_range_ms": ({"min": min(skews), "max": max(skews)}
+                                         if pairs else None),
+            "within_volley_spread_ms": (max(first_hop) - min(first_hop)) if first_hop else 0.0,
+            "processing_latency_included": False,
+            "deferred": (
+                "parent competitor membrane/processing latency on the apical arm is NOT "
+                "included and is unverified until the Phase 3 continuous model and drive "
+                "envelope exist; the reported skew is a LOWER BOUND"
+            ),
+            "window_validation_status": "provisional_deferred_to_phase_3",
+            "method": ("connected edge sequences walked from RGC sources, then MATCHED on "
+                       "shared causal prefix and target C; per-path node ids, edge ids and "
+                       "delays recorded"),
         }
 
     def validate_against_schedule(self, *, min_inter_volley_interval_ms: float) -> dict:
@@ -1161,11 +1279,19 @@ class NestTiledNetwork:
         derives neuron physiology from it -- that separation is the point of Phase 2.
         """
         envelope = self.causal_arrival_envelope()
-        self.profile.validate(
-            causal_skew_ms=envelope["causal_skew_ms"],
-            min_inter_volley_interval_ms=min_inter_volley_interval_ms)
+        # Structural profile checks always run.
+        self.profile.validate()
+        # The causal-volley separation check is legitimate on conduction alone: it bounds
+        # learning membership against arrival spread and the schedule, neither of which
+        # involves the parent's membrane latency.
         self.profile.validate_schedule(
             within_volley_spread_ms=envelope["within_volley_spread_ms"],
+            min_inter_volley_interval_ms=min_inter_volley_interval_ms)
+        # The coincidence WINDOW check is NOT run against conduction alone. The true skew
+        # includes the parent's membrane crossing latency, which Phase 2 cannot measure, so
+        # validating against a lower bound would produce a pass that means nothing. Only
+        # the cross-volley bound -- which does not depend on the missing term -- is checked.
+        self.profile.coincidence.validate_cross_volley_only(
             min_inter_volley_interval_ms=min_inter_volley_interval_ms)
         return envelope
 
@@ -1275,10 +1401,40 @@ class NestTiledNetwork:
         loop latency) is almost never a whole number of steps. Snapping here keeps that a
         property of the stimulus rather than a trap every caller has to remember.
         """
+        # ATOMIC: snap, then validate, then install. Mutating the generators first left a
+        # rejected schedule installed when validation raised -- the caller saw an exception
+        # and the kernel silently held the bad times.
+        snapped = {}
+        for nid in self.generators:
+            snapped[nid] = sorted({round(round(float(t) / self.ts.h) * self.ts.h, 10)
+                                   for t in schedule.get(nid, ())})
+
+        # Validation happens on the REAL run path, not in a helper a test has to remember
+        # to call. It reads the schedule and checks it against the profile's windows and
+        # causal-volley separation; it never derives or mutates physiology from it. The
+        # interval is measured from the ACTUAL scheduled times, so an irregular schedule is
+        # checked on its smallest gap rather than on a nominal period.
+        if self.is_continuous:
+            interval = self._minimum_inter_volley_interval(snapped)
+            if interval is not None:
+                self.validate_against_schedule(min_inter_volley_interval_ms=interval)
+
+        # Only now is anything installed.
         for nid, gen in self.generators.items():
-            times = sorted({round(round(float(t) / self.ts.h) * self.ts.h, 10)
-                            for t in schedule.get(nid, ())})
-            gen.set({"spike_times": times})
+            gen.set({"spike_times": snapped[nid]})
+
+    @staticmethod
+    def _minimum_inter_volley_interval(schedule: dict) -> float | None:
+        """Smallest gap between DISTINCT volley times across the whole schedule.
+
+        Times shared by several generators are one volley, so the set is collapsed first.
+        Returns None when fewer than two volleys exist and there is nothing to check.
+        """
+        moments = sorted({t for times in schedule.values() for t in times})
+        if len(moments) < 2:
+            return None
+        return min(b - a for a, b in zip(moments, moments[1:]))
+
 
     def simulate(self, duration_ms: float) -> None:
         self.nest.Simulate(float(duration_ms))

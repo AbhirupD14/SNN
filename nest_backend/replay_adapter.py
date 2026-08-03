@@ -126,7 +126,15 @@ def provenance(result) -> dict:
         # left in the manifest only. A replay outlives the process that made it, and
         # `impulse_characterization` results must never be readable as CIPP-engine claims
         # once a second profile exists.
+        #
+        # The NAME alone is not enough. Without the parameters, the implementation
+        # disposition and the conduction envelope, a reader cannot tell a Phase 2 scaffold
+        # from a promoted engine, nor which values were provisional. All of it travels.
         "engine_profile": manifest.get("engine_profile"),
+        "profile": manifest.get("profile"),
+        "implementation_disposition": (manifest.get("profile") or {}).get("disposition"),
+        "causal_arrival_envelope": manifest.get("causal_arrival_envelope"),
+        "accepted_differences": manifest.get("accepted_differences"),
         "case": result.name,
         "nest_version": versions.get("nest"),
         "nestml_version": versions.get("nestml"),

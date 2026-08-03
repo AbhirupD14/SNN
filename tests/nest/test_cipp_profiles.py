@@ -41,7 +41,10 @@ def test_ceiling_quantization_never_shortens_a_requested_delay(requested):
     **88 of 254** edge delays on the canonical 3x6 graph -- not an edge case.
     """
     got = QuantizationPolicy.apply(QuantizationPolicy.CEIL, requested, 0.1)
-    assert got >= requested - 1e-12, f"{requested} -> {got} is shorter than requested"
+    # EXACT. A contract that says "never shorter" may not be checked with a tolerance that
+    # would accept a strictly smaller float.
+    assert got >= requested, f"{requested} -> {got} is shorter than requested"
+    assert got >= 0.1
 
 
 @pytest.mark.parametrize("h", [0.1, 0.05, 0.01, 0.001])
@@ -62,6 +65,55 @@ def test_a_delay_already_on_the_grid_is_not_pushed_up_a_step(h):
     for steps in (1, 2, 7, 13, 100):
         exact = round(steps * h, 10)
         assert QuantizationPolicy.apply(QuantizationPolicy.CEIL, exact, h) == pytest.approx(exact)
+
+
+@pytest.mark.parametrize("h", [0.1, 0.05, 0.01, 0.001])
+def test_ceiling_is_exact_at_float_boundaries(h):
+    """`nextafter(k*h, -inf)`, `k*h`, `nextafter(k*h, +inf)` across tick magnitudes.
+
+    Exact comparisons, no tolerance. The superseded implementation subtracted a fixed
+    `1e-9` in tick units and rounded to ten decimals, so it returned values strictly below
+    the request -- including for `k*h` itself at k=3 and k=7, where `3*0.1` is
+    `0.30000000000000004` but `round(..., 10)` gives `0.3`.
+    """
+    for k in (1, 2, 3, 7, 13, 40):
+        exact = k * h
+        for value in (math.nextafter(exact, -math.inf), exact,
+                      math.nextafter(exact, math.inf)):
+            got = QuantizationPolicy.apply(QuantizationPolicy.CEIL, value, h)
+            assert got >= value, f"h={h} k={k}: {value!r} -> {got!r} is shorter"
+            assert got >= h
+            steps = got / h
+            assert abs(steps - round(steps)) < 1e-6, f"{got!r} is off the {h} grid"
+            # Idempotent: quantizing a quantized value must be a fixed point.
+            assert QuantizationPolicy.apply(QuantizationPolicy.CEIL, got, h) == got
+
+
+@pytest.mark.parametrize("h", [0.1, 0.01])
+def test_ceiling_is_monotonic(h):
+    """A larger request may never yield a smaller delay."""
+    previous = 0.0
+    for step in range(1, 400):
+        got = QuantizationPolicy.apply(QuantizationPolicy.CEIL, step * h / 3.0, h)
+        assert got >= previous
+        previous = got
+
+
+def test_quantization_rejects_non_finite_and_negative_delays():
+    for bad in (float("nan"), float("inf"), -float("inf"), -0.5):
+        with pytest.raises(ValueError):
+            QuantizationPolicy.apply(QuantizationPolicy.CEIL, bad, 0.1)
+    for bad_h in (0.0, -0.1, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            QuantizationPolicy.apply(QuantizationPolicy.CEIL, 1.0, bad_h)
+
+
+def test_round_policy_results_are_unchanged_for_the_impulse_profile():
+    """Preserved behaviour, pinned by value so a future edit cannot drift it."""
+    expected = {0.15: 0.1, 0.14: 0.1, 0.24: 0.2, 0.25: 0.2, 0.26: 0.3,
+                1.049: 1.0, 1.05: 1.0, 1.06: 1.1, 3.6224864935184176: 3.6}
+    for requested, want in expected.items():
+        assert IMPULSE_CHARACTERIZATION.quantize(requested) == pytest.approx(want)
 
 
 def test_quantization_never_returns_below_one_resolution_step():
@@ -287,3 +339,194 @@ def test_every_parameter_group_required_by_phase_2_is_present():
     assert profile.coincidence.deposit_dead_time_ms > 0             # deposit dead time
     assert profile.causal_volley.separation_ms > 0                  # causal-volley rule
     assert profile.prediction.capacity >= 1                         # credit capacity
+
+
+# --------------------------------------------- new Phase 2 fields (audit corrections)
+def test_relay_policy_is_its_own_group_with_its_own_validation():
+    """The WTA relay lockout is not the C soma's deposit dead time."""
+    relay = CIPP_CONTINUOUS.relay
+    relay.validate(CIPP_CONTINUOUS.delays)
+    from nest_backend.profiles import RelayPolicy
+    relay_fields = {field.name for field in dataclasses.fields(RelayPolicy)}
+    coincidence_fields = {field.name for field in dataclasses.fields(CoincidencePolicy)}
+    assert "wta_lockout_ms" in relay_fields
+    assert "wta_lockout_ms" not in coincidence_fields
+    assert "deposit_dead_time_ms" in coincidence_fields
+    assert "deposit_dead_time_ms" not in relay_fields
+    # Non-aliasing, proved by moving one and reading the other. Equal numeric defaults are
+    # allowed and establish nothing either way; what matters is that the two values live on
+    # separate policy objects, so changing one cannot move the other.
+    moved = dataclasses.replace(
+        CIPP_CONTINUOUS, relay=RelayPolicy(wta_lockout_ms=relay.wta_lockout_ms + 3.0))
+    assert moved.relay.wta_lockout_ms == relay.wta_lockout_ms + 3.0
+    assert (moved.coincidence.deposit_dead_time_ms
+            == CIPP_CONTINUOUS.coincidence.deposit_dead_time_ms), (
+        "changing the relay lockout must not move the C deposit dead time"
+    )
+    # The binding constraint: a relay must not re-fire inside the loop it is closing.
+    assert relay.wta_lockout_ms > CIPP_CONTINUOUS.delays.loop_latency_ms()
+    assert relay.provisional is True and relay.provenance
+
+    with pytest.raises(ValueError, match="finite and positive"):
+        RelayPolicy(wta_lockout_ms=0.0).validate(CIPP_CONTINUOUS.delays)
+    with pytest.raises(ValueError, match="re-fire inside its own loop"):
+        RelayPolicy(wta_lockout_ms=0.001).validate(CIPP_CONTINUOUS.delays)
+
+
+def test_c_refractory_is_its_own_field_with_a_stated_rationale():
+    """Zero is the C contract's justified value, not a borrowed competitor refractory."""
+    coincidence = CIPP_CONTINUOUS.coincidence
+    assert coincidence.c_refractory_ms == 0.0
+    assert coincidence.c_refractory_rationale
+    assert coincidence.c_refractory_ms != CIPP_CONTINUOUS.membrane.t_ref_ms
+
+    for bad in (-1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError, match="c_refractory_ms must be finite"):
+            CoincidencePolicy(c_refractory_ms=bad).validate(causal_skew_ms=1.0)
+
+
+def test_membrane_and_causal_volley_defaults_are_marked_provisional():
+    """Not only the coincidence window. Phase 1's model defaults are not CIPP physiology."""
+    for group in (CIPP_CONTINUOUS.membrane, CIPP_CONTINUOUS.causal_volley,
+                  CIPP_CONTINUOUS.coincidence, CIPP_CONTINUOUS.relay):
+        assert getattr(group, "provisional", None) is True, group
+    assert "NOT mapped to the repository's charge units" in CIPP_CONTINUOUS.membrane.provenance
+    assert CIPP_CONTINUOUS.causal_volley.provenance
+
+
+def test_schedule_validation_rejects_non_finite_and_non_positive_intervals():
+    for bad in (0.0, -1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            CIPP_CONTINUOUS.validate_schedule(within_volley_spread_ms=0.0,
+                                              min_inter_volley_interval_ms=bad)
+    for bad in (-1.0, float("nan"), float("inf")):
+        with pytest.raises(ValueError):
+            CIPP_CONTINUOUS.validate_schedule(within_volley_spread_ms=bad,
+                                              min_inter_volley_interval_ms=15.0)
+
+
+def test_implementation_disposition_is_serialised_and_honest():
+    for profile in (CIPP_CONTINUOUS, IMPULSE_CHARACTERIZATION):
+        disposition = profile.describe()["disposition"]
+        assert disposition["mechanical_profile_promoted"] is False
+        assert disposition["summary"]
+        if disposition["scaffold"]:
+            assert disposition["target_membrane_model"] != disposition["active_competitor_model"]
+            assert disposition["deferred_to_phase_3_or_later"]
+        else:
+            assert disposition["target_membrane_model"] == disposition["active_competitor_model"]
+
+def test_a_scaffold_may_not_claim_its_target_is_active():
+    from nest_backend.profiles import ImplementationDisposition
+    with pytest.raises(ValueError, match="must not report the target membrane model"):
+        ImplementationDisposition(scaffold=True,
+                                  target_membrane_model="event_accumulator",
+                                  active_competitor_model="event_accumulator").validate()
+
+
+# ------------------------------------------- Codex addendum: bare-path structural checks
+def test_bare_validate_rejects_a_non_finite_c_refractory():
+    """No causal skew supplied, so the deferred window check does not run -- but the
+    structural fields must still be checked.
+
+    Previously the WHOLE of `CoincidencePolicy` was skipped unless a caller passed a
+    measured skew, so a profile carrying `c_refractory_ms = NaN` validated cleanly.
+    """
+    for bad in (float("nan"), float("inf"), -1.0):
+        broken = dataclasses.replace(
+            CIPP_CONTINUOUS, coincidence=CoincidencePolicy(c_refractory_ms=bad))
+        with pytest.raises(ValueError, match="c_refractory_ms must be finite"):
+            broken.validate()          # bare path: no causal_skew_ms
+
+
+@pytest.mark.parametrize("field", ["basal_window_ms", "apical_window_ms",
+                                   "deposit_dead_time_ms"])
+@pytest.mark.parametrize("bad", [0.0, -1.0, float("nan"), float("inf")])
+def test_bare_validate_rejects_non_finite_or_non_positive_windows(field, bad):
+    broken = dataclasses.replace(
+        CIPP_CONTINUOUS, coincidence=CoincidencePolicy(**{field: bad}))
+    with pytest.raises(ValueError, match="must be finite and positive"):
+        broken.validate()
+
+
+def test_bare_validate_rejects_a_dead_time_that_swallows_the_window():
+    """The dead-time/window relation is structural and needs no graph to check.
+
+    A dead time at least as long as the eligibility window makes the window unreachable.
+    """
+    broken = dataclasses.replace(
+        CIPP_CONTINUOUS,
+        coincidence=CoincidencePolicy(basal_window_ms=2.0, apical_window_ms=2.0,
+                                      deposit_dead_time_ms=3.0))
+    with pytest.raises(ValueError, match="window would be unreachable"):
+        broken.validate()
+
+
+def test_bare_validate_still_defers_the_causal_window_check():
+    """The deferred check must stay deferred -- structural coverage is not a substitute.
+
+    A window far narrower than a real skew still passes the BARE path, because Phase 2
+    cannot measure the parent's processing latency. It fails only when a skew is supplied.
+    """
+    narrow = dataclasses.replace(
+        CIPP_CONTINUOUS,
+        coincidence=CoincidencePolicy(basal_window_ms=0.2, apical_window_ms=0.2,
+                                      deposit_dead_time_ms=0.1))
+    narrow.validate()                                    # bare path: structurally fine
+    with pytest.raises(ValueError, match="measured causal arrival skew"):
+        narrow.coincidence.validate(causal_skew_ms=1.0)  # graph-aware path rejects it
+
+
+# ------------------------------- Codex addendum: impulse membrane / disposition honesty
+def test_impulse_membrane_group_is_explicitly_not_applicable():
+    """The prototype runs an accumulator in charge units; it has no mV/pF membrane.
+
+    `describe()["membrane"]["model"]` previously said `iaf_psc_exp_ps` while the same
+    payload's disposition said `event_accumulator` -- a contradiction in every impulse
+    manifest.
+    """
+    membrane = IMPULSE_CHARACTERIZATION.describe()["membrane"]
+    assert membrane["applicable"] is False
+    assert "model" not in membrane, (
+        "a non-applicable membrane group must not name a model at all"
+    )
+    for key in ("v_threshold_mv", "c_m_pf", "tau_m_ms"):
+        assert key not in membrane, f"{key} describes nothing this profile runs"
+    assert membrane["reason"]
+
+
+def test_described_membrane_and_disposition_never_contradict_each_other():
+    for profile in (CIPP_CONTINUOUS, IMPULSE_CHARACTERIZATION):
+        described = profile.describe()
+        membrane, disposition = described["membrane"], described["disposition"]
+        if disposition["scaffold"]:
+            assert membrane["applicable"] is True
+            assert membrane["model"] == disposition["target_membrane_model"]
+            assert membrane["model"] != disposition["active_competitor_model"]
+        else:
+            assert membrane["applicable"] is False
+            assert (disposition["target_membrane_model"]
+                    == disposition["active_competitor_model"])
+
+
+def test_membrane_disposition_consistency_is_enforced_not_merely_arranged():
+    """A profile that contradicts itself must fail to validate."""
+    from nest_backend.profiles import MembranePolicy
+
+    # A scaffold whose membrane group is switched off.
+    with pytest.raises(ValueError, match="membrane group must be applicable"):
+        dataclasses.replace(CIPP_CONTINUOUS,
+                            membrane=MembranePolicy(applicable=False)).validate()
+
+    # A scaffold whose disposition names a different target than its membrane group.
+    with pytest.raises(ValueError, match="contradicts membrane.model"):
+        dataclasses.replace(
+            CIPP_CONTINUOUS,
+            disposition=dataclasses.replace(CIPP_CONTINUOUS.disposition,
+                                            target_membrane_model="iaf_psc_alpha_ps"),
+        ).validate()
+
+    # A non-scaffold carrying an applicable continuous membrane group.
+    with pytest.raises(ValueError, match="has no continuous membrane group"):
+        dataclasses.replace(IMPULSE_CHARACTERIZATION,
+                            membrane=MembranePolicy(applicable=True)).validate()

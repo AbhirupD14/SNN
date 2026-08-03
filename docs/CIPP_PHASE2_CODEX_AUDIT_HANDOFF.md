@@ -1,8 +1,8 @@
 # CIPP Phase 2 Codex audit handoff
 
-**Recorded:** 2026-07-31  
-**Source branch:** `feature/NEST`  
-**Status:** implementation checkpoint only; **not yet independently audited or accepted**
+**Recorded:** 2026-08-03
+**Source branch:** `feature/NEST`
+**Status:** **independently audited and accepted by Codex as a Phase 2 scaffold**
 
 ## Resume instruction
 
@@ -16,9 +16,14 @@ explicit, prohibit commits/pushes/installs/destructive operations in Claude's pr
 retain sequential worktree ownership. Invoke Opus 5 at high effort and verify the resolved
 model from structured metadata.
 
-## Claude's latest claim (unverified)
+## Audit outcome
 
-Claude reported the Phase 2 nine-item completion gate as passing:
+Codex inspected the implementation and assertions, reproduced defects independently, sent
+bounded corrections to Claude Opus 5/high effort, then audited the resulting diff. Phase 2
+is accepted with the scope boundary below: it defines and wires an honest physical-time
+profile scaffold; it does **not** claim that the Phase 3 continuous competitor exists.
+
+The accepted nine-item gate is:
 
 1. strengthened pure-profile suite: 40 tests;
 2. live network consumes its selected profile exclusively;
@@ -41,39 +46,57 @@ separate `wta_reset` / `prediction_credit` ports. It also reported that
 `reset_suppression_ms` is ignored in the continuous profile because timer-based prediction
 suppression is to be replaced by credits.
 
-None of the claims above are Codex findings yet.
+### Defects found and corrected during Codex audit
 
-## Required independent Codex audit
+- plastic `tau_volley` still depended on legacy `Timescales.spread`, `base_ff`, and
+  presentation pacing; it now comes from `CausalVolleyPolicy.separation_ms`;
+- relay lockout and C refractory had borrowed parameters owned by other mechanisms; both
+  now have one-role profile fields;
+- the causal envelope combined projection-wide extrema and could mismatch evidence from
+  different C cells; it now walks connected endpoints and pairs basal/apical paths by the
+  same target C and causal prefix;
+- artifacts implied the profile's `iaf_psc_exp_ps` target was active, although the Phase 2
+  scaffold still runs `event_accumulator`; manifests, dashboard payloads, and replay
+  provenance now carry an explicit target-versus-active disposition;
+- the impulse profile inherited a continuous membrane description it does not use; that
+  group is now explicitly not applicable;
+- bare profile validation skipped coincidence structure, including non-finite C refractory;
+- `set_input_schedule()` installed rejected spikes before validating; validation is now
+  atomic and precedes generator mutation;
+- one new test contained a vacuous `or True`; it was replaced with structural ownership
+  assertions.
 
-Start from `prompts/Claude_NEST_CIPP_Phase2_Completion_Review.md` and personally verify each
-gate against source and executable behavior. At minimum:
+### Independent evidence
 
-- inspect profile selection for per-instance state and absence of module-global leakage;
-- inspect every continuous neuron and synapse parameter dictionary for pacing-derived
-  values;
-- adversarially test quantization at `nextafter()` boundaries, multiple resolutions,
-  monotonicity, grid membership, minimum delay, and idempotence;
-- confirm the causal-window calculation follows actual translated paths rather than a sum
-  of projection means or two terminal edges;
-- verify the declared exact-tie policy reaches manifests and cannot fall through to NEST
-  GID, creation, or connection order;
-- compare the actual impulse topology/artifacts against the preserved fingerprint;
-- inspect the assertions in Claude's new tests rather than accepting their pass count;
-- run focused suites, then the complete mechanical NEST suite;
-- decide whether leaving `event_accumulator` live is a legitimate Phase 2 boundary or
-  contradicts the claim that the live network consumes the membrane profile exclusively.
+- focused Phase 2: `98 passed`;
+- adversarial Codex probe: 16,000 additional quantization boundary/random cases passed;
+- causal path probe: 1,152 matched pairs, zero unmatched basal paths;
+- NEST semantic/integration files outside the HTTP live-server fixture: `238 passed, 11
+  xfailed`; the xfails are the preserved impulse-profile defects;
+- remaining node-contract/replay/topology group: `78 passed`;
+- main Python suite: `653 passed`;
+- JavaScript: all five test files passed;
+- impulse fingerprint: 254 edges, delay sum 368.9, spec hash `ee78be7bc4aa80a1`.
 
-If defects are found, resume Claude for bounded implementation corrections, then repeat the
-Codex audit. Only Codex may close Phase 2.
+Ten live-server HTTP tests could not enter their shared Starlette `TestClient` fixture in
+the installed `.nest-env`. A minimal one-route FastAPI application hangs identically and
+emits a warning that this deprecated `httpx`/Starlette test-client combination should use
+`httpx2`; therefore this is recorded as an environment/test-harness limitation, not a
+Phase 2 topology failure. The three live chunk-equivalence tests that do not use
+`TestClient` pass.
+
+## Next semantic phase
+
+Phase 3 must replace the ordinary competitor scaffold with the continuous model and add
+the missing CIPP state/ports: causal-volley charge at firing, distinct WTA reset and
+prediction-credit traffic, and the parent membrane latency needed to complete the causal
+window envelope. The profile's provisional mV/pF values still lack a mapping to repository
+charge units and must not be promoted as CIPP constants.
 
 ## Publication state
 
-The private `SNN` checkpoint should be pushed to `origin/feature/NEST` as unaudited WIP.
-
-Shared GitLab publication is pending the Codex audit. At handoff time,
-`../cipp-learning` was dirty and on `AbhiCIPP-EngineRework`, while the publication skill
-expects a clean approved target (normally `AbhiCIPP`). Do not discard those shared-clone
-changes or merge around them. After audit approval, resolve the intended target branch with
-the user, make the clone clean without losing its current work, integrate the reviewed SNN
-commit, verify, and push to
-`git@faraday.lps.umd.edu:cipp/cipp-learning.git` without force.
+The accepted Phase 2 commit should be pushed to private `origin/feature/NEST`, then
+published through `$publish-abhi-cipp`. The existing `../cipp-learning` checkout was dirty
+and on `AbhiCIPP-EngineRework` during the previous checkpoint; do not discard or overwrite
+that work. Use a clean publication worktree/checkout for `AbhiCIPP`, verify ancestry and
+the integrated diff, and push without force.
