@@ -34,15 +34,16 @@ The old `/home/adasgup/Documents/cipp-learning` clone targets the historical
 `cipp/cipp-learning.git` repository. It is not a publication path for either current engine
 line and must not be used for new work.
 
-## Verified baseline (2026-08-07)
+## Initial verified split point (2026-08-07)
 
 ```text
 feature/NEST          = nest-gitlab/main   = 676fb6a
 feature/tiled-cortical-columns = custom-gitlab/main = c169bbc
 ```
 
-Both comparisons were `0 0` under `git rev-list --left-right --count`; neither GitLab was
-ahead of or behind its private source branch at the recorded checkpoint.
+Both comparisons were `0 0` under `git rev-list --left-right --count` when the two
+publication lines were established. These hashes are the split point, not a claim that the
+branches never advance. Use the verification commands below to determine current state.
 
 ## Publication rules
 
