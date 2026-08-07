@@ -1,0 +1,14 @@
+{
+  "name": "snn-presentation-demos",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Deterministic Playwright/Chromium recording workflow for the four SNN dashboard demonstration videos.",
+  "type": "module",
+  "scripts": {
+    "record-demo": "node scripts/record_simulation_demos.mjs",
+    "preflight": "PYTHONPATH=. .venv/bin/python scripts/preflight_demo_measurements.py --compare-uncapped"
+  },
+  "devDependencies": {
+    "playwright": "^1.62.1"
+  }
+}

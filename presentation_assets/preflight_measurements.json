@@ -1,0 +1,872 @@
+{
+  "seed": 1,
+  "dashboard_construction": {
+    "e_weight_cap_frac": 0.5
+  },
+  "cc4_config": {
+    "topology": "rg_direct_cc4",
+    "dual_fe_fes": true,
+    "eta": 1.0,
+    "c_eta": 0.5,
+    "leak_rate": 0.0,
+    "refractory_steps": 0,
+    "dual_fe_e": 0.001,
+    "dual_fe_wte": 0.001,
+    "dual_fe_B": 5.0
+  },
+  "coincidence_config": {
+    "topology": "rg_coincidence",
+    "dual_fe_fes": true,
+    "eta": 4.0,
+    "c_eta": 16.0,
+    "input_period": 0,
+    "leak_rate": 0.0,
+    "refractory_steps": 0
+  },
+  "scaling_config": {
+    "dual_fe_fes": true,
+    "eta": 4.0,
+    "c_eta": 16.0,
+    "input_period": 0,
+    "leak_rate": 0.0,
+    "refractory_steps": 0
+  },
+  "cadence": {
+    "topology": "rg_coincidence",
+    "pattern": "row 1",
+    "seed": 1,
+    "boundaries": 2400,
+    "resolved_input_period": 1,
+    "active_l1e": [
+      "L1E3",
+      "L1E4",
+      "L1E5"
+    ],
+    "active_rg": [
+      "RG3",
+      "RG4",
+      "RG5"
+    ],
+    "early_window": 400,
+    "late_window": 400,
+    "early_emission_ratio": {
+      "L1E3": 0.79,
+      "L1E4": 0.8,
+      "L1E5": 0.795
+    },
+    "late_emission_ratio": {
+      "L1E3": 0.5,
+      "L1E4": 0.5,
+      "L1E5": 0.5
+    },
+    "early_emission_ratio_mean": 0.795,
+    "late_emission_ratio_mean": 0.5,
+    "aggregate_l1e_per_rg": 0.5906,
+    "cadence_lock_boundary": 915,
+    "cadence_lock_criterion": "first boundary from which every active L1E alternates fire/silent with no repeat through the end of the run",
+    "sample_cell": "L1E3",
+    "sample_early": "0111111110111111110111111110111111110111",
+    "sample_late": "1010101010101010101010101010101010101010",
+    "per_window_ratio": [
+      {
+        "boundary": 50,
+        "ratio": 0.88
+      },
+      {
+        "boundary": 100,
+        "ratio": 0.8667
+      },
+      {
+        "boundary": 150,
+        "ratio": 0.8333
+      },
+      {
+        "boundary": 200,
+        "ratio": 0.78
+      },
+      {
+        "boundary": 250,
+        "ratio": 0.7467
+      },
+      {
+        "boundary": 300,
+        "ratio": 0.7533
+      },
+      {
+        "boundary": 350,
+        "ratio": 0.7467
+      },
+      {
+        "boundary": 400,
+        "ratio": 0.7533
+      },
+      {
+        "boundary": 450,
+        "ratio": 0.7467
+      },
+      {
+        "boundary": 500,
+        "ratio": 0.7533
+      },
+      {
+        "boundary": 550,
+        "ratio": 0.7467
+      },
+      {
+        "boundary": 600,
+        "ratio": 0.7533
+      },
+      {
+        "boundary": 650,
+        "ratio": 0.7467
+      },
+      {
+        "boundary": 700,
+        "ratio": 0.74
+      },
+      {
+        "boundary": 750,
+        "ratio": 0.6667
+      },
+      {
+        "boundary": 800,
+        "ratio": 0.64
+      },
+      {
+        "boundary": 850,
+        "ratio": 0.5867
+      },
+      {
+        "boundary": 900,
+        "ratio": 0.58
+      },
+      {
+        "boundary": 950,
+        "ratio": 0.5267
+      },
+      {
+        "boundary": 1000,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1050,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1100,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1150,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1200,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1250,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1300,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1350,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1400,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1450,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1500,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1550,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1600,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1650,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1700,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1750,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1800,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1850,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1900,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 1950,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2000,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2050,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2100,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2150,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2200,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2250,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2300,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2350,
+        "ratio": 0.5
+      },
+      {
+        "boundary": 2400,
+        "ratio": 0.5
+      }
+    ]
+  },
+  "continuous": {
+    "topology": "rg_direct_cc4",
+    "seed": 1,
+    "B": 5.0,
+    "m": 100,
+    "eta": 1.0,
+    "c_eta": 0.5,
+    "e_weight_cap_frac": 0.5,
+    "order": [
+      "row 1",
+      "col 1",
+      "diag \\",
+      "diag /"
+    ],
+    "dwell": 800,
+    "phases": [
+      {
+        "pattern": "row 1",
+        "owner": "ccE0",
+        "dwell": 800,
+        "eligible_presentations": 636,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE0": 636
+        },
+        "previous_owner": null,
+        "turnover_from_previous": false
+      },
+      {
+        "pattern": "col 1",
+        "owner": "ccE1",
+        "dwell": 800,
+        "eligible_presentations": 629,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE0": 1,
+          "ccE1": 628
+        },
+        "previous_owner": "ccE0",
+        "turnover_from_previous": true
+      },
+      {
+        "pattern": "diag \\",
+        "owner": "ccE3",
+        "dwell": 800,
+        "eligible_presentations": 621,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE1": 1,
+          "ccE3": 620
+        },
+        "previous_owner": "ccE1",
+        "turnover_from_previous": true
+      },
+      {
+        "pattern": "diag /",
+        "owner": "ccE2",
+        "dwell": 800,
+        "eligible_presentations": 600,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE3": 1,
+          "ccE2": 599
+        },
+        "previous_owner": "ccE3",
+        "turnover_from_previous": true
+      }
+    ],
+    "owner_by_pattern": {
+      "row 1": "ccE0",
+      "col 1": "ccE1",
+      "diag \\": "ccE3",
+      "diag /": "ccE2"
+    },
+    "owners": [
+      "ccE0",
+      "ccE1",
+      "ccE3",
+      "ccE2"
+    ],
+    "distinct_owners": 4,
+    "one_to_one": true,
+    "turnover_every_switch": true,
+    "recall": {
+      "row 1": "ccE0",
+      "col 1": "ccE1",
+      "diag \\": "ccE3",
+      "diag /": "ccE2"
+    },
+    "recall_consistent": true
+  },
+  "long_dwell": {
+    "topology": "rg_direct_cc4",
+    "seed": 1,
+    "B": 5.0,
+    "m": 100,
+    "eta": 1.0,
+    "c_eta": 0.5,
+    "e_weight_cap_frac": 0.5,
+    "order": [
+      "row 1",
+      "col 1",
+      "diag \\",
+      "diag /"
+    ],
+    "train_dwell": 800,
+    "long_dwell": 6000,
+    "post_dwell": 800,
+    "held_pattern": "row 1",
+    "switched_to": "col 1",
+    "train_phases": [
+      {
+        "pattern": "row 1",
+        "owner": "ccE0",
+        "dwell": 800,
+        "eligible_presentations": 636,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE0": 636
+        },
+        "previous_owner": null
+      },
+      {
+        "pattern": "col 1",
+        "owner": "ccE1",
+        "dwell": 800,
+        "eligible_presentations": 629,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE0": 1,
+          "ccE1": 628
+        },
+        "previous_owner": "ccE0"
+      },
+      {
+        "pattern": "diag \\",
+        "owner": "ccE3",
+        "dwell": 800,
+        "eligible_presentations": 621,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE1": 1,
+          "ccE3": 620
+        },
+        "previous_owner": "ccE1"
+      },
+      {
+        "pattern": "diag /",
+        "owner": "ccE2",
+        "dwell": 800,
+        "eligible_presentations": 600,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE3": 1,
+          "ccE2": 599
+        },
+        "previous_owner": "ccE3"
+      }
+    ],
+    "trained_owner_by_pattern": {
+      "row 1": "ccE0",
+      "col 1": "ccE1",
+      "diag \\": "ccE3",
+      "diag /": "ccE2"
+    },
+    "long_dwell_phase": {
+      "pattern": "row 1",
+      "owner": "ccE0",
+      "dwell": 6000,
+      "eligible_presentations": 6000,
+      "final_quarter_dominance": 1.0,
+      "winner_counts": {
+        "ccE2": 1,
+        "ccE0": 5999
+      },
+      "tail_200_dominance": 1.0
+    },
+    "incumbent": "ccE0",
+    "post_switch_eligible_presentations": 800,
+    "post_switch_winner_counts": {
+      "ccE0": 1,
+      "ccE1": 799
+    },
+    "first_non_incumbent_eligible_presentation": 2,
+    "turnover_eligible_presentation": 2,
+    "turnover_boundary_after_switch": 2,
+    "new_owner": "ccE1",
+    "turnover_occurred": true,
+    "first_presentation_instantaneous": false,
+    "consolidation_criterion": "first eligible presentation (a boundary on which some competitor fired) whose winner differs from the long-dwell incumbent AND which begins an unbroken run of that same winner through the end of the post-switch phase",
+    "post_switch_head": [
+      "ccE0",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1",
+      "ccE1"
+    ]
+  },
+  "headless_long_dwell_crosscheck": {
+    "long_dwell": 6000,
+    "post_dwell": 800,
+    "pattern1": "row 1",
+    "pattern1_owner": "ccE0",
+    "pattern2": "col 1",
+    "pattern2_owner": "ccE1",
+    "turnover_after_long_dwell": true,
+    "incumbent_locked": false
+  },
+  "scaling": {
+    "tiled_cc": {
+      "topology": "tiled_cc",
+      "seed": 1,
+      "nodes": 191,
+      "edges": 1052,
+      "resolved_input_period": 3,
+      "patterns": [
+        "row 1",
+        "col 1",
+        "diag \\",
+        "diag /"
+      ],
+      "sheet_patterns": [],
+      "input_shape": {
+        "rows": 9,
+        "cols": 9
+      },
+      "patch_shape": {
+        "rows": 3,
+        "cols": 3
+      },
+      "grid_shape": {
+        "rows": 3,
+        "cols": 3
+      },
+      "column_layers": [
+        {
+          "layer": "L1",
+          "rows": 3,
+          "cols": 3
+        },
+        {
+          "layer": "L2",
+          "rows": 1,
+          "cols": 1
+        }
+      ],
+      "column_count": 10,
+      "columns_by_layer": {
+        "L1": 9,
+        "L2": 1
+      }
+    },
+    "two_tower_composition": {
+      "topology": "two_tower_composition",
+      "seed": 1,
+      "nodes": 393,
+      "edges": 2162,
+      "resolved_input_period": 3,
+      "patterns": [
+        "row 1",
+        "col 1",
+        "diag \\",
+        "diag /",
+        "V",
+        "A",
+        "7"
+      ],
+      "sheet_patterns": [
+        "V",
+        "A",
+        "7"
+      ],
+      "input_shape": {
+        "rows": 9,
+        "cols": 18
+      },
+      "patch_shape": {
+        "rows": 3,
+        "cols": 3
+      },
+      "grid_shape": {
+        "rows": 3,
+        "cols": 6
+      },
+      "column_layers": [
+        {
+          "layer": "L1",
+          "rows": 3,
+          "cols": 6
+        },
+        {
+          "layer": "L2",
+          "rows": 1,
+          "cols": 2
+        },
+        {
+          "layer": "L3",
+          "rows": 1,
+          "cols": 1
+        }
+      ],
+      "column_count": 21,
+      "columns_by_layer": {
+        "L1": 18,
+        "L2": 2,
+        "L3": 1
+      }
+    }
+  },
+  "two_tower_stimuli": {
+    "dwell": 600,
+    "glyphs": [
+      "V",
+      "A",
+      "7"
+    ],
+    "l2_top_owners": {
+      "V": [
+        "T0L2c00E6",
+        "T1L2c00E7"
+      ],
+      "A": [
+        "T1L2c00E3",
+        "T0L2c00E4",
+        "T1L2c00E7",
+        "T0L2c00E6"
+      ],
+      "7": [
+        "T1L2c00E5",
+        "T0L2c00E3",
+        "T1L2c00E3",
+        "T0L2c00E4"
+      ]
+    },
+    "l3_top_owners": {
+      "V": [
+        "L3c00E1"
+      ],
+      "A": [
+        "L3c00E1"
+      ],
+      "7": [
+        "L3c00E1"
+      ]
+    },
+    "l2_top_owner_per_glyph": {
+      "V": "T0L2c00E6",
+      "A": "T1L2c00E3",
+      "7": "T1L2c00E5"
+    },
+    "l3_top_owner_per_glyph": {
+      "V": "L3c00E1",
+      "A": "L3c00E1",
+      "7": "L3c00E1"
+    },
+    "distinct_l2_top_owners": 3,
+    "distinct_l3_top_owners": 1,
+    "l3_separates_glyphs": false
+  },
+  "uncapped_comparison": {
+    "continuous": {
+      "topology": "rg_direct_cc4",
+      "seed": 1,
+      "B": 5.0,
+      "m": 100,
+      "eta": 1.0,
+      "c_eta": 0.5,
+      "e_weight_cap_frac": null,
+      "order": [
+        "row 1",
+        "col 1",
+        "diag \\",
+        "diag /"
+      ],
+      "dwell": 800,
+      "phases": [
+        {
+          "pattern": "row 1",
+          "owner": "ccE0",
+          "dwell": 800,
+          "eligible_presentations": 636,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE0": 636
+          },
+          "previous_owner": null,
+          "turnover_from_previous": false
+        },
+        {
+          "pattern": "col 1",
+          "owner": "ccE1",
+          "dwell": 800,
+          "eligible_presentations": 629,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE0": 1,
+            "ccE1": 628
+          },
+          "previous_owner": "ccE0",
+          "turnover_from_previous": true
+        },
+        {
+          "pattern": "diag \\",
+          "owner": "ccE3",
+          "dwell": 800,
+          "eligible_presentations": 621,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE1": 1,
+            "ccE3": 620
+          },
+          "previous_owner": "ccE1",
+          "turnover_from_previous": true
+        },
+        {
+          "pattern": "diag /",
+          "owner": "ccE2",
+          "dwell": 800,
+          "eligible_presentations": 600,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE3": 1,
+            "ccE2": 599
+          },
+          "previous_owner": "ccE3",
+          "turnover_from_previous": true
+        }
+      ],
+      "owner_by_pattern": {
+        "row 1": "ccE0",
+        "col 1": "ccE1",
+        "diag \\": "ccE3",
+        "diag /": "ccE2"
+      },
+      "owners": [
+        "ccE0",
+        "ccE1",
+        "ccE3",
+        "ccE2"
+      ],
+      "distinct_owners": 4,
+      "one_to_one": true,
+      "turnover_every_switch": true,
+      "recall": {
+        "row 1": "ccE0",
+        "col 1": "ccE1",
+        "diag \\": "ccE3",
+        "diag /": "ccE2"
+      },
+      "recall_consistent": true
+    },
+    "long_dwell": {
+      "topology": "rg_direct_cc4",
+      "seed": 1,
+      "B": 5.0,
+      "m": 100,
+      "eta": 1.0,
+      "c_eta": 0.5,
+      "e_weight_cap_frac": null,
+      "order": [
+        "row 1",
+        "col 1",
+        "diag \\",
+        "diag /"
+      ],
+      "train_dwell": 800,
+      "long_dwell": 6000,
+      "post_dwell": 800,
+      "held_pattern": "row 1",
+      "switched_to": "col 1",
+      "train_phases": [
+        {
+          "pattern": "row 1",
+          "owner": "ccE0",
+          "dwell": 800,
+          "eligible_presentations": 636,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE0": 636
+          },
+          "previous_owner": null
+        },
+        {
+          "pattern": "col 1",
+          "owner": "ccE1",
+          "dwell": 800,
+          "eligible_presentations": 629,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE0": 1,
+            "ccE1": 628
+          },
+          "previous_owner": "ccE0"
+        },
+        {
+          "pattern": "diag \\",
+          "owner": "ccE3",
+          "dwell": 800,
+          "eligible_presentations": 621,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE1": 1,
+            "ccE3": 620
+          },
+          "previous_owner": "ccE1"
+        },
+        {
+          "pattern": "diag /",
+          "owner": "ccE2",
+          "dwell": 800,
+          "eligible_presentations": 600,
+          "final_quarter_dominance": 1.0,
+          "winner_counts": {
+            "ccE3": 1,
+            "ccE2": 599
+          },
+          "previous_owner": "ccE3"
+        }
+      ],
+      "trained_owner_by_pattern": {
+        "row 1": "ccE0",
+        "col 1": "ccE1",
+        "diag \\": "ccE3",
+        "diag /": "ccE2"
+      },
+      "long_dwell_phase": {
+        "pattern": "row 1",
+        "owner": "ccE0",
+        "dwell": 6000,
+        "eligible_presentations": 6000,
+        "final_quarter_dominance": 1.0,
+        "winner_counts": {
+          "ccE2": 1,
+          "ccE0": 5999
+        },
+        "tail_200_dominance": 1.0
+      },
+      "incumbent": "ccE0",
+      "post_switch_eligible_presentations": 800,
+      "post_switch_winner_counts": {
+        "ccE0": 1,
+        "ccE1": 799
+      },
+      "first_non_incumbent_eligible_presentation": 2,
+      "turnover_eligible_presentation": 2,
+      "turnover_boundary_after_switch": 2,
+      "new_owner": "ccE1",
+      "turnover_occurred": true,
+      "first_presentation_instantaneous": false,
+      "consolidation_criterion": "first eligible presentation (a boundary on which some competitor fired) whose winner differs from the long-dwell incumbent AND which begins an unbroken run of that same winner through the end of the post-switch phase",
+      "post_switch_head": [
+        "ccE0",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1",
+        "ccE1"
+      ]
+    },
+    "headless_crosscheck": {
+      "long_dwell": 6000,
+      "post_dwell": 800,
+      "pattern1": "row 1",
+      "pattern1_owner": "ccE0",
+      "pattern2": "col 1",
+      "pattern2_owner": "ccE1",
+      "turnover_after_long_dwell": true,
+      "incumbent_locked": false
+    }
+  }
+}

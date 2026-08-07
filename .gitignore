@@ -14,6 +14,14 @@ env/
 .vscode/
 .idea/
 
+# Playwright recording workflow (scripts/record_simulation_demos.mjs)
+node_modules/
+presentation_assets/.playwright_video/
+presentation_assets/*.mp4
+presentation_assets/*.webm
+presentation_assets/raw_webm/
+presentation_assets/recording_server.log
+
 # Generated benchmark / sweep outputs
 sweep_results/
 

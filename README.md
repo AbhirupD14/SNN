@@ -205,6 +205,33 @@ python3 -m venv .venv
 
 Open <http://127.0.0.1:8000>. Add `--reload` while editing Python.
 
+### Handoff and deterministic demonstrations
+
+This repository is the **custom Python engine** line. The NEST/NESTML port is maintained
+separately in `cipp/snn_nest.git`; the branch/remotes and safe publication commands are in
+[`docs/GITLAB_ENGINE_SEPARATION.md`](docs/GITLAB_ENGINE_SEPARATION.md).
+
+The current custom-engine handoff includes a deterministic Playwright workflow for four
+dashboard demonstrations. Its scientific measurements, recording manifest, detailed notes,
+and thumbnails are committed under `presentation_assets/`; the reproducible MP4/WebM files
+and raw captures are intentionally gitignored rather than added to ordinary Git history.
+
+```bash
+# Scientific preflight used by the captions and acceptance checks
+PYTHONPATH=. .venv/bin/python scripts/preflight_demo_measurements.py --compare-uncapped
+
+# Tests for the preflight contracts
+PYTHONPATH=. .venv/bin/python -m pytest tests/test_demo_preflight.py -q
+
+# One-time browser dependency, then reproduce all four recordings
+npm install
+npx playwright install chromium
+npm run record-demo
+```
+
+See [`presentation_assets/recording_notes.md`](presentation_assets/recording_notes.md) for
+the exact configuration, measured outcomes, shot plan, environment, and validation results.
+
 ## The active code path
 
 ```text

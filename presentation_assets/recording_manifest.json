@@ -1,0 +1,318 @@
+{
+  "generated_at": "2026-08-04T18:31:06.252Z",
+  "seed": 1,
+  "port": 8010,
+  "own_server": true,
+  "versions": {
+    "node": "v24.16.0",
+    "playwright": "1.62.1",
+    "chromium": "151.0.7922.34",
+    "ffmpeg": "ffmpeg version 6.1.1-3ubuntu5 Copyright (c) 2000-2023 the FFmpeg developers",
+    "ffprobe": "ffprobe version 6.1.1-3ubuntu5 Copyright (c) 2007-2023 the FFmpeg developers"
+  },
+  "seed_file": {
+    "path": ".claude/dashboard_seed.txt",
+    "existed_before": true,
+    "previous_contents": "2858281940",
+    "restore": {
+      "restored": true,
+      "existed": true,
+      "bytes": 10
+    }
+  },
+  "videos": [
+    {
+      "key": "uncertainty",
+      "slug": "uncertainty_frequency_demo",
+      "webm": "presentation_assets/raw_webm/uncertainty_frequency_demo.webm",
+      "webm_bytes": 9362250,
+      "wall_seconds": 97.5,
+      "notes": [
+        "inspector selected L2E1"
+      ],
+      "evidence": {
+        "inspected": "L2E1",
+        "topology": {
+          "nodes": 45,
+          "edges": 196
+        },
+        "anatomy": {
+          "kinds": {
+            "pretrained_excitation": 9,
+            "feedforward": 72,
+            "basal_excitation": 9,
+            "apical_excitation": 72,
+            "relay_excitation": 17,
+            "hard_reset_inhibition": 17
+          },
+          "l2_competitors": 8,
+          "l1_coincidence": 9
+        },
+        "rendered_frames": 1507
+      },
+      "error": null,
+      "mp4": "presentation_assets/uncertainty_frequency_demo.mp4",
+      "webm_copy": "presentation_assets/uncertainty_frequency_demo.webm",
+      "thumbnail": "presentation_assets/uncertainty_frequency_demo_thumbnail.png",
+      "thumbnail_timestamp_s": 50.82,
+      "ffprobe": {
+        "file": "/home/adasgup/Documents/SNN/presentation_assets/uncertainty_frequency_demo.mp4",
+        "codec": "h264",
+        "pix_fmt": "yuv420p",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "nb_frames": 2932,
+        "duration": 97.733333,
+        "size_bytes": 11686844
+      },
+      "decoded_packets": 2932,
+      "checks": {
+        "codec_h264": true,
+        "pix_fmt_yuv420p": true,
+        "width_1920": true,
+        "height_1080": true,
+        "fps_30": true,
+        "duration_positive": true,
+        "decodes": true,
+        "thumbnail_1920x1080": true
+      }
+    },
+    {
+      "key": "continuous",
+      "slug": "continuous_learning_demo",
+      "webm": "presentation_assets/raw_webm/continuous_learning_demo.webm",
+      "webm_bytes": 5844676,
+      "wall_seconds": 58.3,
+      "notes": [
+        "inspector selected ccE3",
+        "phase \"row 1\": observed owner ccE0 ({\"ccE0\":642})",
+        "phase \"col 1\": observed owner ccE1 ({\"ccE0\":1,\"ccE1\":635})",
+        "phase \"diag \\\": observed owner ccE3 ({\"ccE1\":1,\"ccE3\":623})",
+        "phase \"diag /\": observed owner ccE2 ({\"ccE3\":1,\"ccE2\":602})"
+      ],
+      "evidence": {
+        "inspected": "ccE3",
+        "topology": {
+          "nodes": 14,
+          "edges": 44
+        },
+        "observed_owners": {
+          "row 1": "ccE0",
+          "col 1": "ccE1",
+          "diag \\": "ccE3",
+          "diag /": "ccE2"
+        },
+        "phase_tally": [
+          {
+            "pattern": "row 1",
+            "owner": "ccE0",
+            "tally": {
+              "ccE0": 642
+            },
+            "rendered_frames": 642
+          },
+          {
+            "pattern": "col 1",
+            "owner": "ccE1",
+            "tally": {
+              "ccE0": 1,
+              "ccE1": 635
+            },
+            "rendered_frames": 636
+          },
+          {
+            "pattern": "diag \\",
+            "owner": "ccE3",
+            "tally": {
+              "ccE1": 1,
+              "ccE3": 623
+            },
+            "rendered_frames": 624
+          },
+          {
+            "pattern": "diag /",
+            "owner": "ccE2",
+            "tally": {
+              "ccE3": 1,
+              "ccE2": 602
+            },
+            "rendered_frames": 603
+          }
+        ],
+        "distinct_owners": 4,
+        "matches_preflight": true
+      },
+      "error": null,
+      "mp4": "presentation_assets/continuous_learning_demo.mp4",
+      "webm_copy": "presentation_assets/continuous_learning_demo.webm",
+      "thumbnail": "presentation_assets/continuous_learning_demo_thumbnail.png",
+      "thumbnail_timestamp_s": 56.81,
+      "ffprobe": {
+        "file": "/home/adasgup/Documents/SNN/presentation_assets/continuous_learning_demo.mp4",
+        "codec": "h264",
+        "pix_fmt": "yuv420p",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "nb_frames": 1757,
+        "duration": 58.566667,
+        "size_bytes": 5388860
+      },
+      "decoded_packets": 1757,
+      "checks": {
+        "codec_h264": true,
+        "pix_fmt_yuv420p": true,
+        "width_1920": true,
+        "height_1080": true,
+        "fps_30": true,
+        "duration_positive": true,
+        "decodes": true,
+        "thumbnail_1920x1080": true
+      }
+    },
+    {
+      "key": "unbiased",
+      "slug": "unbiased_learning_demo",
+      "webm": "presentation_assets/raw_webm/unbiased_learning_demo.webm",
+      "webm_bytes": 7267936,
+      "wall_seconds": 78.6,
+      "notes": [
+        "inspector selected ccE3",
+        "fast-forward 600 boundaries in 1.4s (421 boundaries/s), timestep 200 -> 800",
+        "fast-forward 800 boundaries in 1.9s (425 boundaries/s), timestep 800 -> 1600",
+        "fast-forward 800 boundaries in 2.0s (410 boundaries/s), timestep 1600 -> 2400",
+        "fast-forward 800 boundaries in 2.2s (362 boundaries/s), timestep 2400 -> 3200",
+        "trained owners (rendered frames): {\"row 1\":\"ccE0\",\"col 1\":\"ccE1\",\"diag \\\\\":\"ccE3\",\"diag /\":\"ccE2\"}",
+        "fast-forward 5,100 boundaries in 15.1s (338 boundaries/s), timestep 3660 -> 8760",
+        "incumbent after the long dwell: ccE0 ({\"ccE2\":1,\"ccE0\":6013})",
+        "post-switch: new owner ccE1 from rendered presentation 2 of 809; tally {\"ccE0\":1,\"ccE1\":808}"
+      ],
+      "evidence": {
+        "inspected": "ccE3",
+        "topology": {
+          "nodes": 14,
+          "edges": 44
+        },
+        "trained_owners_rendered": {
+          "row 1": "ccE0",
+          "col 1": "ccE1",
+          "diag \\": "ccE3",
+          "diag /": "ccE2"
+        },
+        "dwell": {
+          "start": 3200,
+          "end": 9214,
+          "boundaries": 6014
+        },
+        "incumbent_rendered": "ccE0",
+        "post_switch": {
+          "rendered_eligible": 809,
+          "tally": {
+            "ccE0": 1,
+            "ccE1": 808
+          },
+          "turnover_rendered_presentation": 2,
+          "new_owner": "ccE1",
+          "head": [
+            "ccE0",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1",
+            "ccE1"
+          ]
+        }
+      },
+      "error": null,
+      "mp4": "presentation_assets/unbiased_learning_demo.mp4",
+      "webm_copy": "presentation_assets/unbiased_learning_demo.webm",
+      "thumbnail": "presentation_assets/unbiased_learning_demo_thumbnail.png",
+      "thumbnail_timestamp_s": 71.07,
+      "ffprobe": {
+        "file": "/home/adasgup/Documents/SNN/presentation_assets/unbiased_learning_demo.mp4",
+        "codec": "h264",
+        "pix_fmt": "yuv420p",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "nb_frames": 2369,
+        "duration": 78.966667,
+        "size_bytes": 7859436
+      },
+      "decoded_packets": 2369,
+      "checks": {
+        "codec_h264": true,
+        "pix_fmt_yuv420p": true,
+        "width_1920": true,
+        "height_1080": true,
+        "fps_30": true,
+        "duration_positive": true,
+        "decodes": true,
+        "thumbnail_1920x1080": true
+      }
+    },
+    {
+      "key": "scaling",
+      "slug": "scaling_demo",
+      "webm": "presentation_assets/raw_webm/scaling_demo.webm",
+      "webm_bytes": 20869658,
+      "wall_seconds": 187.4,
+      "notes": [
+        "inspector selected L2c00E2",
+        "inspector selected L3c00E1 (preferred T0L2c00E > T1L2c00E > L3c00E; saw T0L1c02E0, T0L1c01E6, L3c00E1, T1L1c00Eor, L3c00E5)"
+      ],
+      "evidence": {
+        "inspected": "L2c00E2",
+        "tiled_cc": {
+          "nodes": 191,
+          "edges": 1052
+        },
+        "inspected_two_tower": "L3c00E1",
+        "two_tower": {
+          "nodes": 393,
+          "edges": 2162,
+          "layers": "L1 3×6 · L2 1×2 · L3 1×1"
+        }
+      },
+      "error": null,
+      "mp4": "presentation_assets/scaling_demo.mp4",
+      "webm_copy": "presentation_assets/scaling_demo.webm",
+      "thumbnail": "presentation_assets/scaling_demo_thumbnail.png",
+      "thumbnail_timestamp_s": 181.84,
+      "ffprobe": {
+        "file": "/home/adasgup/Documents/SNN/presentation_assets/scaling_demo.mp4",
+        "codec": "h264",
+        "pix_fmt": "yuv420p",
+        "width": 1920,
+        "height": 1080,
+        "fps": 30,
+        "nb_frames": 5624,
+        "duration": 187.466667,
+        "size_bytes": 21549663
+      },
+      "decoded_packets": 5624,
+      "checks": {
+        "codec_h264": true,
+        "pix_fmt_yuv420p": true,
+        "width_1920": true,
+        "height_1080": true,
+        "fps_30": true,
+        "duration_positive": true,
+        "decodes": true,
+        "thumbnail_1920x1080": true
+      }
+    }
+  ],
+  "independent_outputs": true
+}
