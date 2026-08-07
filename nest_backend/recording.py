@@ -22,7 +22,7 @@ The two metrics that carry the scientific weight are:
 from __future__ import annotations
 
 import math
-from collections import defaultdict
+from collections import Counter, defaultdict
 
 
 def collect_spikes(net) -> list:
@@ -127,9 +127,15 @@ def by_column(net, spikes: list) -> dict:
 def winner_multiplicity(net, spikes: list, t0: float, period: float) -> dict:
     """The primary WTA observable.
 
-    Returns per-column statistics over presentation windows in which that column produced
-    at least one ordinary-E spike. A column that never fires contributes no windows, so a
-    silent column cannot flatter the mean.
+    Returns per-column statistics AND owner identity over presentation windows in which
+    that column produced at least one ordinary-E spike. A column that never fires
+    contributes no windows, so a silent column cannot flatter the mean.
+
+    Identity is deliberately retained alongside multiplicity. A run with one winner per
+    window but a rotating winner is not representationally equivalent to a run with one
+    stable owner. If two cells are equally modal, ``owner`` is ``None`` and
+    ``modal_owners`` records the unresolved set; repository/GID order must not invent an
+    owner for a reporting tie.
     """
     per_column_window: dict = defaultdict(lambda: defaultdict(set))
     for t, nid in spikes:
@@ -141,7 +147,19 @@ def winner_multiplicity(net, spikes: list, t0: float, period: float) -> dict:
 
     summary: dict = {}
     for column, windows in per_column_window.items():
-        counts = [len(winners) for winners in windows.values()]
+        winners_by_window = {
+            window: sorted(winners)
+            for window, winners in sorted(windows.items())
+        }
+        counts = [len(winners) for winners in winners_by_window.values()]
+        appearances = Counter(
+            owner for winners in winners_by_window.values() for owner in winners
+        )
+        modal_count = max(appearances.values(), default=0)
+        modal_owners = sorted(
+            owner for owner, count in appearances.items() if count == modal_count
+        )
+        owner = modal_owners[0] if len(modal_owners) == 1 else None
         summary[column] = {
             "windows_active": len(counts),
             "mean": round(sum(counts) / len(counts), 4) if counts else 0.0,
@@ -151,6 +169,11 @@ def winner_multiplicity(net, spikes: list, t0: float, period: float) -> dict:
             "fraction_single_winner": (
                 round(sum(1 for c in counts if c == 1) / len(counts), 4) if counts else None
             ),
+            "winners_by_window": winners_by_window,
+            "distinct_owners": len(appearances),
+            "modal_owners": modal_owners,
+            "owner": owner,
+            "stability": (modal_count / len(counts)) if counts else None,
         }
     return summary
 

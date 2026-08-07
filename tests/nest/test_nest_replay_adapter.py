@@ -6,6 +6,7 @@ NOT record is reported as unavailable rather than as zero.
 """
 from __future__ import annotations
 
+import dataclasses
 import json
 
 import pytest
@@ -160,6 +161,108 @@ def test_frozen_runner_emits_no_weight_changes(parts):
     _header, frames, _m, _r = parts
     for frame in frames:
         assert frame["dynamic"]["changed_synapses"] == []
+
+
+def test_learning_runner_records_updates_and_exports_materialized_weights():
+    """The ordinary runner must not silently turn ``learning=True`` into frozen output."""
+    learning = run_case(
+        "learning_artifact_probe",
+        Stimulus({(0, 0): "row 1"}),
+        shape=(3, 3),
+        n_presentations=4,
+        learning=True,
+    )
+
+    assert learning.manifest["learning"] is True
+    assert learning.manifest["weight_state"] == {
+        "initial_source": "reference engine deterministic initialization",
+        "available_snapshots": ["initial", "materialized_current"],
+        "dashboard_default_snapshot": "materialized_current",
+        "updates_recorded": True,
+        "logical_weights_flushed": False,
+    }
+    assert learning.weight_changes, "a firing learning run must carry recorder updates"
+    assert learning.topology["nest"]["weight_state"] == "initial"
+
+    # The header's PROSE must name the same snapshot as its `weight_state`. This payload is
+    # the pre-run baseline; describing it as materialized is the audit's mislabel with the
+    # two numbers swapped, and the prose is what a dashboard reader actually sees.
+    nest_block = learning.topology["nest"]
+    assert "active" in nest_block["learning"]
+    assert "materialized" not in nest_block["learning"], (
+        f"header topology holds {nest_block['weight_state']!r} weights but says "
+        f"{nest_block['learning']!r}"
+    )
+    assert not any("materialized" in note for note in nest_block["known_differences"]
+                   if "topology weights" in note or "weights are" in note), (
+        "known_differences claims a materialized snapshot for an initial-weight payload"
+    )
+
+    by_edge = {synapse["id"]: synapse for synapse in learning.topology["synapses"]}
+    changed_edge = learning.weight_changes[-1][1]
+    exported = by_edge[changed_edge]
+    assert exported["weight_state"] == "initial"
+    assert "initial_weight" in exported
+
+    records = build_records(learning)
+    header = records[0]
+    assert header["conditions"]["learning"] == "recorded"
+    assert header["nest"]["learning_mode"] == "recorded"
+    assert header["nest"]["weight_state"]["logical_weights_flushed"] is False
+    assert any(
+        frame["dynamic"]["changed_synapses"]
+        for frame in records if frame["record"] == "frame"
+    )
+    assert all(
+        "learning" in frame["annotation"]["tags"]
+        for frame in records if frame["record"] == "frame"
+    )
+
+    final_record = records[-1]
+    weights = final_record["measurements"]["weights"]
+    assert weights["state"] == "materialized_final"
+    assert weights["header_weight_state"] == "initial"
+    assert weights["values"] == learning.final_weights
+
+    # Reconstruction has to CROSS a real distance, or the assertion below would hold on a
+    # run in which nothing learned. Some plastic edges never materialize (their afferent
+    # went quiet); those legitimately end where they started.
+    header_weight = {synapse["id"]: synapse["weight"]
+                     for synapse in learning.topology["synapses"]}
+    moved = [edge for edge, final in learning.final_weights.items()
+             if abs(final - header_weight[edge]) > 1e-3]
+    assert moved, "no plastic weight moved: the reconstruction check would be vacuous"
+
+    frames = [record for record in records if record["record"] == "frame"]
+    reconstructed = reconstruct_weights_at(records, len(frames) - 1)
+    for edge_id, final_weight in learning.final_weights.items():
+        assert reconstructed[edge_id] == pytest.approx(final_weight, abs=1e-6)
+
+
+def test_a_learning_run_without_captured_finals_is_not_labelled_frozen():
+    """A learning artifact that carries no final snapshot must say so.
+
+    The saturation DEMO pass is exactly this shape: its header topology is a
+    materialized-current snapshot of the trained network and it attaches neither recorder
+    deltas nor a separate final set. Labelling that artifact's weight block
+    ``initial_frozen`` states the opposite of both halves -- the weights are neither
+    initial nor frozen.
+    """
+    learning = run_case(
+        "learning_without_finals",
+        Stimulus({(0, 0): "row 1"}),
+        shape=(3, 3),
+        n_presentations=2,
+        learning=True,
+    )
+    no_finals = dataclasses.replace(learning, weight_changes=[], final_weights={})
+
+    weights = build_records(no_finals)[-1]["measurements"]["weights"]
+    assert weights["state"] == "not_captured", (
+        f"a learning run with no captured finals reports {weights['state']!r}"
+    )
+    assert weights["values"] is None
+    assert weights["header_weight_state"] == "initial"
 
 
 # ------------------------------------------------------------------- honesty

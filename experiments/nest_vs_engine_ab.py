@@ -32,6 +32,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter, defaultdict
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
@@ -92,6 +93,7 @@ def record_python(shape, pattern, seed, presentations, out_dir):
                 winners.append({k: v["id"] for k, v in engine.column_winners.items()})
         rec.finish(STATUS_COMPLETED, result={"winners": winners})
 
+    owners, owner_detail = oracle_owners(winners)
     return {
         "path": str(out_dir / "python_engine" / "replay.snn.jsonl"),
         "boundaries": boundaries,
@@ -99,7 +101,40 @@ def record_python(shape, pattern, seed, presentations, out_dir):
         "loop_latency_boundaries": engine.feedback_loop_latency,
         "winner_samples": winners[:12],
         "distinct_winners": sorted({w for d in winners for w in d.values()}),
+        "owners": owners,
+        "owner_detail": owner_detail,
     }
+
+
+def oracle_owners(winners) -> tuple[dict, dict]:
+    """`({column: modal owner}, {column: detail})` over the ORACLE's boundary winners.
+
+    The owner both halves of the pair are compared on must be derived the same way on both
+    sides. `winner_multiplicity` names the NEST owner as the MODAL winner across windows
+    and reports `None` when two cells tie, so the oracle's owner is derived identically
+    here. Taking the first sampled boundary instead -- and from a 12-entry display slice at
+    that -- made agreement depend on which cell happened to win first while the reported
+    NEST owner was modal over the whole run: two different questions, compared as one.
+
+    A column whose oracle owner is tied yields `None`, which `build_nest_section` reports
+    as unknown agreement rather than as a comparison that passed.
+    """
+    appearances: dict = defaultdict(Counter)
+    for sample in winners:
+        for column, owner in sample.items():
+            appearances[column][owner] += 1
+
+    owners, detail = {}, {}
+    for column, counts in appearances.items():
+        modal_count = max(counts.values())
+        modal = sorted(o for o, c in counts.items() if c == modal_count)
+        owners[column] = modal[0] if len(modal) == 1 else None
+        detail[column] = {
+            "boundaries_won": dict(sorted(counts.items())),
+            "modal_owners": modal,
+            "stability": modal_count / sum(counts.values()),
+        }
+    return owners, detail
 
 
 # ------------------------------------------------------------------ pair report shape
@@ -203,11 +238,9 @@ def main(argv=None) -> int:
                                 args.presentations, out_dir)
     print(f"  python engine: {python_info['path']}")
     # The Python owner per column, so the NEST section can report agreement rather than
-    # leaving the reader to eyeball two lists.
-    python_owners = {}
-    for sample in python_info.get("winner_samples", []):
-        for column, owner in sample.items():
-            python_owners.setdefault(column, owner)
+    # leaving the reader to eyeball two lists. Modal over every recorded boundary, the same
+    # rule the NEST side uses -- see `oracle_owners`.
+    python_owners = {c: o for c, o in python_info["owners"].items() if o is not None}
     nest_info = record_nest((rows, cols), args.pattern, args.seed, args.presentations,
                             out_dir, args.h, args.spread, args.jitter,
                             args.presentation_ms, python_owners=python_owners)
@@ -241,6 +274,12 @@ def main(argv=None) -> int:
     print(f"           winners/window mean {m['mean']}, max {m['max']}, "
           f"single-winner {m['fraction_single_winner']}")
     print(f"           firing pattern {nest_info['firing_pattern']}")
+    for column, entry in sorted(nest_info["columns"].items()):
+        agreement = {True: "agrees", False: "DIFFERS", None: "unknown"}[
+            entry["agrees_with_python"]]
+        print(f"           {column}: python owner {entry['python_owner']} vs nest modal "
+              f"{entry['owner']} (stability {entry['stability']:.2f}, "
+              f"{entry['distinct_owners']} distinct) -- {agreement}")
     print(f"\npair.json written to {out_dir / 'pair.json'}")
     print("Open BOTH with the dashboard's Load Test control to compare.")
     return 0

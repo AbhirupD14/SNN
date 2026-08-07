@@ -9,6 +9,9 @@ Results and their interpretation live in
 [`docs/NEST_EVENT_DRIVEN_3X3_REPORT.md`](../docs/NEST_EVENT_DRIVEN_3X3_REPORT.md).
 Dashboard viewing (offline replay + the read-only live server) is documented in
 [`docs/NEST_DASHBOARD.md`](../docs/NEST_DASHBOARD.md).
+The complete equation, NESTML-to-C++ build, PyNEST runtime, JSONL export, and dashboard-load
+pipeline is documented in
+[`docs/NEST_EQUATIONS_AND_ARTIFACT_PIPELINE.md`](../docs/NEST_EQUATIONS_AND_ARTIFACT_PIPELINE.md).
 
 ## Quick start
 

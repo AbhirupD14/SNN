@@ -42,6 +42,17 @@ PLASTIC_SYNAPSE_MODELS = (
     "plastic_basal_synapse__with_event_coincidence",
 )
 
+# How each exported weight snapshot is DESCRIBED in prose. Kept beside the state names so
+# that a payload's narrative and its machine-readable `weight_state` cannot disagree: a
+# replay header carries the pre-run baseline, and calling that a materialized kernel
+# snapshot would be the same class of untrue artifact claim the audit found in reverse.
+_WEIGHT_STATE_PROSE = {
+    "initial": ("the construction-time baseline that PRECEDES the recorded deltas, not "
+                "the trained values"),
+    "materialized_current": "a materialized kernel snapshot",
+    "initial_frozen": "frozen construction-time values",
+}
+
 # Pathways that receive geometric arrival dispersion. Only the two genuinely
 # spatial feedforward projections do: an RGC surface projecting into a column, and a
 # column projecting into its parent. Within-column pathways are compact by construction
@@ -907,6 +918,18 @@ class NestTiledNetwork:
             "jitter_ms": self.jitter_ms,
             "reset_suppression_ms": self.reset_suppression_ms,
             "learning": self.learning,
+            "weight_state": {
+                "initial_source": "reference engine deterministic initialization",
+                "available_snapshots": (["initial", "materialized_current"]
+                                        if self.learning else ["initial_frozen"]),
+                "dashboard_default_snapshot": ("materialized_current" if self.learning
+                                               else "initial_frozen"),
+                "updates_recorded": self.weight_recorder is not None,
+                # The current paired NESTML rule advances on presynaptic traffic. A quiet
+                # afferent can therefore retain pending post updates. We export the kernel
+                # truth and name it accurately; a logical flush is still a separate repair.
+                "logical_weights_flushed": not self.learning,
+            },
             "tau_volley_ms": self.tau_volley_ms,
             "eta": self.eta,
             "c_eta": self.c_eta,
@@ -1049,7 +1072,7 @@ class NestTiledNetwork:
             self.multimeters[model] = meter
 
     # ------------------------------------------------------- dashboard topology
-    def dashboard_topology(self) -> dict:
+    def dashboard_topology(self, *, weight_state: str = "materialized_current") -> dict:
         """The dashboard's existing topology payload, describing the NEST network.
 
         Built from the reference engine's own `topology()` rather than hand-assembled: the
@@ -1059,7 +1082,8 @@ class NestTiledNetwork:
 
         Only what NEST actually changes is overridden:
 
-        * every weighted edge carries the FROZEN NEST weight;
+        * every weighted edge carries the current materialized NEST weight in learning
+          mode, and its frozen construction-time weight otherwise;
         * every edge carries its realized NEST delay in ms;
         * `params` is marked as the NEST engine and carries the timescales;
         * an additive `nest` block carries provenance and the validity envelope.
@@ -1070,10 +1094,34 @@ class NestTiledNetwork:
         """
         topo = self.engine.topology()
 
+        if weight_state not in ("initial", "materialized_current"):
+            raise ValueError(
+                f"weight_state must be 'initial' or 'materialized_current', got "
+                f"{weight_state!r}"
+            )
+
+        # One kernel snapshot at the artifact boundary. ``self.weights`` is intentionally
+        # immutable construction provenance; using it for a learning artifact silently
+        # rewound trained edges to their initial values. A replay header is the deliberate
+        # exception: it requests ``initial`` because recorded deltas must apply to the
+        # state that preceded them, never to an already-final snapshot.
+        live_weights = (self.plastic_weights()
+                        if self.learning and weight_state == "materialized_current" else {})
+        exported_state = (weight_state if self.learning else "initial_frozen")
+        # Prose and `weight_state` must name the SAME snapshot. Describing a payload built
+        # with `weight_state="initial"` as a materialized kernel snapshot is the exact
+        # mislabel the audit recorded (250 in a replay header against 1000 in the adjacent
+        # report), only with the two numbers now swapped.
+        state_prose = _WEIGHT_STATE_PROSE[exported_state]
+
         for synapse in topo["synapses"]:
             edge_id = synapse["id"]
             if edge_id in self.weights:
-                synapse["weight"] = round(float(self.weights[edge_id]), 6)
+                current = live_weights.get(edge_id, self.weights[edge_id])
+                synapse["weight"] = round(float(current), 6)
+                if self.learning:
+                    synapse["initial_weight"] = round(float(self.weights[edge_id]), 6)
+                    synapse["weight_state"] = exported_state
             synapse["nest_delay_ms"] = self.delays.by_edge.get(edge_id)
             meta = self.edge_meta.get(edge_id, {})
             if meta.get("projection"):
@@ -1100,7 +1148,10 @@ class NestTiledNetwork:
                     "reference conductance-LIF membrane a pure integrator."
                 ),
             },
-            "learning": "frozen",
+            "learning": (f"dual FE/FES active; weights are {state_prose}"
+                         if self.learning else "frozen"),
+            "weight_state": exported_state,
+            "logical_weights_flushed": not self.learning,
             # The profile's implementation status travels with the DASHBOARD payload too,
             # not only the manifest and replay provenance: someone reading the topology
             # panel must not conclude that a continuous CIPP engine produced this.
@@ -1119,7 +1170,10 @@ class NestTiledNetwork:
                 "Native NEST delivery produces MULTIPLE ordinary-E winners in many "
                 "column/presentation windows; the reference engine guarantees one.",
                 "The strict 1010 feedback cadence law does not reproduce.",
-                "Weights are frozen static_synapse values; no learning occurs.",
+                *((f"Learning is active; topology weights are {state_prose}; "
+                   "silent-afferent logical updates are not flushed.",)
+                  if self.learning else
+                  ("Weights are frozen static_synapse values; no learning occurs.",)),
                 "MPI is not available in the installed conda NEST build.",
             ],
         }

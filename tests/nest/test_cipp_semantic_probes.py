@@ -232,15 +232,6 @@ def test_c2_c_at_full_theta_is_one_shot(fresh_kernel):
 # =====================================================================================
 # CONTRACT 3 -- owner identity is reported, not just multiplicity
 # =====================================================================================
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "AUDIT P0: `winner_multiplicity` reduces each window's winner set to `len(winners)`, "
-    "discarding identity; `firing_pattern` keeps only fire/silent. The assembled pair "
-    "report therefore cannot answer 'which cell owned this pattern, how stably, and did "
-    "it agree with the Python owner'. Measured divergence the current report cannot "
-    "surface: Python owner L1c00E4 against NEST owners E7,E4,E4,E7,E6,E6,E7 across seven "
-    "windows -- three distinct owners, labelled 'matched'. Repair must carry per-window "
-    "winner identity, distinct-owner count, modal owner, stability and agreement through "
-    "to the emitted artifact (Phase 7)."))
 @pytest.mark.parametrize("python_owner_index, expect_agreement", [(1, True), (0, False)])
 def test_c3_pair_report_carries_owner_identity_and_agreement(
         fresh_kernel, python_owner_index, expect_agreement):
@@ -312,6 +303,35 @@ def test_c3_pair_report_carries_owner_identity_and_agreement(
         "multiplicity is a flat 1.0 across a rotating owner -- which is exactly why it "
         "cannot stand in for identity"
     )
+
+
+def test_c3_oracle_owner_is_modal_not_the_first_recorded_boundary():
+    """The ORACLE half of the agreement must be derived the same way as the NEST half.
+
+    Agreement compares one owner against another, so both must answer the same question.
+    The NEST owner is modal across windows with ``None`` on a tie. Deriving the Python
+    owner from the first sampled boundary instead makes agreement depend on which cell
+    happened to win first -- and, because the sample list is truncated for display, on a
+    slice length chosen for readability.
+
+    Rotation `[A, B, B]`: the modal oracle owner is B. Under first-boundary selection it is
+    A, so the identical NEST run would be reported as DISAGREEING with an oracle that in
+    fact preferred the same cell.
+    """
+    from experiments.nest_vs_engine_ab import oracle_owners
+
+    a, b = "L1c00E0", "L1c00E1"
+    owners, detail = oracle_owners([{"L1c00": a}, {"L1c00": b}, {"L1c00": b}])
+    assert owners["L1c00"] == b, (
+        f"modal oracle owner over [A, B, B] is {b}; got {owners['L1c00']}"
+    )
+    assert detail["L1c00"]["stability"] == pytest.approx(2 / 3)
+    assert detail["L1c00"]["boundaries_won"] == {a: 1, b: 2}
+
+    # An exact tie is unresolved on the oracle side too: no repository/GID fallthrough.
+    tied, tied_detail = oracle_owners([{"L1c00": a}, {"L1c00": b}])
+    assert tied["L1c00"] is None, "an exact oracle tie must not be resolved by node order"
+    assert tied_detail["L1c00"]["modal_owners"] == [a, b]
 
 
 # =====================================================================================
@@ -638,13 +658,6 @@ def test_c9_delay_quantization_never_returns_below_the_resolution(fresh_kernel):
 # =====================================================================================
 # SUPPLEMENTARY -- artifact weight export (audit P1, not one of the nine required probes)
 # =====================================================================================
-@pytest.mark.xfail(strict=True, raises=AssertionError, reason=(
-    "AUDIT P1: `dashboard_topology()` fills displayed weights from `self.weights`, the "
-    "CONSTRUCTION-TIME dictionary, and never calls `plastic_weights()`. A post-training "
-    "artifact therefore ships initial weights while claiming to carry trained ones -- "
-    "observed as `L1c00_eor_c` = 250 in a replay header against 1000 in the adjacent "
-    "report. Repair requires a materialized live-weight snapshot at artifact boundaries "
-    "(Phase 7)."))
 def test_supp_dashboard_topology_reports_live_weights(fresh_kernel):
     """What a learning run exports must be what the kernel currently holds."""
     import nest as _nest

@@ -13,10 +13,11 @@ What it will not do
   **unavailable** (the field is omitted, and the frame's declared `state_availability`
   map says why) rather than as zero or as a repeated final value.
 * It never collapses simultaneous winners. Every sender at a timestamp is preserved.
-* It never invents learning. When no `weight_recorder` was registered the run is frozen,
-  header weights are authoritative and `changed_synapses` is empty in every frame. When one
-  WAS registered, `changed_synapses` carries the updates NEST actually emitted, at the ticks
-  it emitted them -- recorded events, never an interpolated trajectory between them.
+* It never invents learning. A frozen manifest keeps header weights authoritative and
+  `changed_synapses` empty. For a learning run with a registered recorder,
+  `changed_synapses` carries the updates NEST actually emitted, at the ticks it emitted
+  them -- recorded events, never an interpolated trajectory between them. Learning without
+  a recorder is labelled as such; an empty change list is not relabelled frozen.
 
 What it does derive
 +++++++++++++++++++
@@ -158,7 +159,12 @@ def provenance(result) -> dict:
         "dispersion_enabled": manifest.get("dispersion_enabled"),
         "feedback_enabled": manifest.get("feedback_enabled"),
         "c_basal_weight_override": manifest.get("c_basal_weight_override"),
-        "learning_mode": ("recorded" if result.weight_changes else "frozen"),
+        "learning_mode": (
+            "frozen" if not manifest.get("learning") else
+            "unrecorded" if not (manifest.get("weight_state") or {}).get("updates_recorded") else
+            "recorded" if result.weight_changes else "recorded_no_updates"
+        ),
+        "weight_state": manifest.get("weight_state"),
         "converted_utc": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
     }
 
@@ -410,6 +416,11 @@ def build_records(result) -> list:
         changes_by_tick.setdefault(to_tick(float(t_ms), h), []).append(
             {"id": edge_id, "weight": round(float(weight), 6)})
     weights_recorded = bool(changes_by_tick)
+    # The two weight snapshots the artifact can carry, kept distinct: what the HEADER
+    # topology holds (the baseline the deltas apply to, when the producer captured one) and
+    # the separately labelled final materialized set, when the producer captured that.
+    final_weights = getattr(result, "final_weights", None) or {}
+    header_weight_state = (topology.get("nest") or {}).get("weight_state")
     state_availability = availability(recorded_vars) | activity_availability(
         freq_window_ms > 0, has_reset_edges)
 
@@ -429,7 +440,11 @@ def build_records(result) -> list:
             # whether the translated C -> I confirmation pathway was connected.
             "hierarchical_feedback": bool(manifest.get("feedback_enabled")),
             "engine": "nest",
-            "learning": "frozen",
+            "learning": (
+                "frozen" if not manifest.get("learning") else
+                "recorded" if (manifest.get("weight_state") or {}).get("updates_recorded")
+                else "unrecorded"
+            ),
             "dispersion_enabled": manifest.get("dispersion_enabled"),
             "c_basal_weight_override": manifest.get("c_basal_weight_override"),
         },
@@ -676,7 +691,7 @@ def build_records(result) -> list:
             "annotation": {
                 "phase": "nest",
                 "pattern": json.dumps(patches) if patches else None,
-                "tags": ["nest", "frozen"],
+                "tags": ["nest", "learning" if manifest.get("learning") else "frozen"],
                 "notes": None,
             },
             "dynamic": dynamic,
@@ -700,6 +715,21 @@ def build_records(result) -> list:
             "eor_input_multiplicity": result.metrics.get("eor_input_multiplicity"),
             "coincidence": result.metrics.get("coincidence"),
             "firing_pattern": result.metrics.get("firing_pattern"),
+            "weights": {
+                # `state` describes THESE values, and only these. A learning run that
+                # attached no final snapshot is `not_captured`, never `initial_frozen`:
+                # the header of such a run may itself hold a materialized snapshot (the
+                # saturation demo pass does), and calling that pair "initial_frozen"
+                # would state the opposite of both halves of the artifact.
+                "state": ("materialized_final" if final_weights
+                          else "initial_frozen" if not manifest.get("learning")
+                          else "not_captured"),
+                "header_weight_state": header_weight_state,
+                "logical_weights_flushed": bool(
+                    (manifest.get("weight_state") or {}).get("logical_weights_flushed")
+                ),
+                "values": final_weights or None,
+            },
         },
         "frames": frame_index,
     })

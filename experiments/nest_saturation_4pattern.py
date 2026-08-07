@@ -135,6 +135,10 @@ class Trainer:
             self.net.attach_weight_recording(start_ms=0.0)
             if args.charge_interval:
                 self.net.attach_charge_recording(args.charge_interval, start_ms=0.0)
+        # The training replay records deltas from time zero, so its header must retain the
+        # state before the first delta. A post-training dashboard snapshot is captured
+        # separately by ``demo_pass``.
+        self.initial_topology = self.net.dashboard_topology(weight_state="initial")
         self.t_ms = 0.0
         self.spikes_seen = 0
         self.presentations: list = []
@@ -422,11 +426,12 @@ def training_pass(trainer) -> RunResult:
             "learning": "dual FE/FES, RECORDED (weights move during this artifact)",
             "note": "the training run itself, not a demonstration over a trained network",
         },
-        topology=net.dashboard_topology(),
+        topology=trainer.initial_topology,
         outgoing_edges=net.outgoing_edges(),
         presentations=presentations,
         charge=collect_charge(net),
         weight_changes=collect_weight_changes(net),
+        final_weights=net.plastic_weights(),
     )
 
 

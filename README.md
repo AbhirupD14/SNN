@@ -197,6 +197,12 @@ experiment, and a legacy frequency analysis.
 
 ## Start here
 
+> **NEST engine handoff.** This branch is the NEST/NESTML engine line. Begin with
+> [`docs/NEST_EQUATIONS_AND_ARTIFACT_PIPELINE.md`](docs/NEST_EQUATIONS_AND_ARTIFACT_PIPELINE.md)
+> for the equations, generated-C++ build, PyNEST execution, JSONL export, and dashboard
+> replay pipeline. The custom Python engine is published separately; see
+> [`docs/GITLAB_ENGINE_SEPARATION.md`](docs/GITLAB_ENGINE_SEPARATION.md).
+
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt

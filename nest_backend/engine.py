@@ -5,16 +5,16 @@ patch/pattern stimulus into a NEST spike schedule, calls `Simulate`, and hands t
 output to `nest_backend.recording`. NEST owns the clock, delivery order, delays, buffering,
 recording and thread/MPI execution throughout.
 
-Learning is FROZEN here by construction -- every connection uses `static_synapse`, so no
-weight can change inside NEST and none is touched from Python between calls. Phase 4 is what
-introduces plastic synapse models.
+Learning is frozen by default. With ``learning=True`` the translated feedforward and basal
+connections use their paired NESTML plastic synapses, and the runner registers a weight
+recorder before construction so every materialized update reaches the replay artifact.
 """
 from __future__ import annotations
 
 import time
 from dataclasses import dataclass, field
 
-from .recording import collect_charge, summarize
+from .recording import collect_charge, collect_weight_changes, summarize
 from .topology import NestTiledNetwork, Timescales
 
 # The four center-crossing 3x3 local features, mirrored from `backend.simulation.PATTERNS`.
@@ -91,6 +91,9 @@ class RunResult:
     # the moment it happened, which is what lets a replay show learning instead of a static
     # post-hoc weight set.
     weight_changes: list = field(default_factory=list)
+    # Materialized kernel snapshot after the run. The replay header separately carries the
+    # initial state on which ``weight_changes`` operate.
+    final_weights: dict = field(default_factory=dict)
 
 
 def run_case(name: str, stimulus: Stimulus, *, seed: int = 1,
@@ -118,7 +121,18 @@ def run_case(name: str, stimulus: Stimulus, *, seed: int = 1,
                            c_basal_weight=c_basal_weight,
                            charge_interval_ms=charge_interval_ms,
                            shape=shape, jitter_ms=jitter_ms,
-                           reset_suppression_ms=reset_suppression_ms, learning=learning)
+                           reset_suppression_ms=reset_suppression_ms, learning=learning,
+                           record_weights=learning)
+    if learning:
+        # The recorder is a synapse-model common property and was registered before
+        # connections were created. Open its observation window before any simulation so
+        # a learning replay cannot claim completeness while omitting early updates.
+        net.attach_weight_recording(start_ms=0.0)
+
+    # Replay baseline, captured before the first event. The dashboard helper defaults to a
+    # current kernel snapshot for interactive/post-run use, but applying recorded deltas
+    # to that final state would double-apply learning during playback.
+    topology = net.dashboard_topology(weight_state="initial")
 
     t0 = ts.presentation  # start one full window in, so nothing lands at t=0
     period = ts.presentation
@@ -150,9 +164,10 @@ def run_case(name: str, stimulus: Stimulus, *, seed: int = 1,
     metrics = summarize(net, t0=t0, period=period, n_windows=total_windows)
     manifest = net.manifest()
     manifest["feedback_loop_latency_ms"] = round(net.feedback_loop_latency_ms(), 6)
-    topology = net.dashboard_topology()
     outgoing = net.outgoing_edges()
     charge = collect_charge(net)
+    weight_changes = collect_weight_changes(net)
+    final_weights = net.plastic_weights() if learning else {}
 
     # The presentation schedule, as PLANNED. Each entry is what was actually scheduled on
     # the generators, so a replay can mark window boundaries and name the pattern being
@@ -202,4 +217,6 @@ def run_case(name: str, stimulus: Stimulus, *, seed: int = 1,
         outgoing_edges=outgoing,
         presentations=presentations,
         charge=charge,
+        weight_changes=weight_changes,
+        final_weights=final_weights,
     )
