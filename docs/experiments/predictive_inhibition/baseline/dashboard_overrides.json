@@ -1,0 +1,19 @@
+{
+  "assembly_decay_frac": 0.0,
+  "competitive_weight_update": "redistribution",
+  "confidence_consolidation": false,
+  "distance_weighting": true,
+  "ei_sat_mult": 4.0,
+  "excitatory_flow_rate": false,
+  "inhibitory_delta_rule": false,
+  "l2_charge_chunks": 20,
+  "l2e_lr_frac": 0.02,
+  "l2e_weight_cap_frac": 0.3333333333333333,
+  "l2i_excitatory_flow_rate": false,
+  "l2i_hard_reset_losers": true,
+  "l2i_threshold_frac": 0.3333333333333333,
+  "pos_weight_floor": 1,
+  "refractory": 1,
+  "signed_depression": false,
+  "structural_free_energy": true
+}

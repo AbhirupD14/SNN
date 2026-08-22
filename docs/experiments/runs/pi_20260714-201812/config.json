@@ -1,0 +1,27 @@
+{
+  "seeds": [
+    0,
+    1,
+    2,
+    3,
+    4,
+    5,
+    6,
+    7,
+    8,
+    9
+  ],
+  "tasks": [
+    "contextual",
+    "fourpattern"
+  ],
+  "modes": [
+    "baseline",
+    "legacy_feedback",
+    "local_only",
+    "local_plus_feedback",
+    "time_shuffled_feedback"
+  ],
+  "total_runs": 100,
+  "started": 1784074692.8594246
+}

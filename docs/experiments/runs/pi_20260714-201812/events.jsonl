@@ -1,0 +1,102 @@
+{"t": 1784074692.8871744, "kind": "matrix_start", "seeds": [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], "tasks": ["contextual", "fourpattern"]}
+{"t": 1784074712.5254889, "kind": "run_done", "seed": 0, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784074731.9115388, "kind": "run_done", "seed": 0, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784074751.763739, "kind": "run_done", "seed": 0, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784074772.9974499, "kind": "run_done", "seed": 0, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784074794.0013533, "kind": "run_done", "seed": 0, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784074814.4795263, "kind": "run_done", "seed": 1, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784074835.9556253, "kind": "run_done", "seed": 1, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784074858.3415473, "kind": "run_done", "seed": 1, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784074881.163549, "kind": "run_done", "seed": 1, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784074902.4635773, "kind": "run_done", "seed": 1, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784074922.4094143, "kind": "run_done", "seed": 2, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784074943.0202222, "kind": "run_done", "seed": 2, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784074963.4461086, "kind": "run_done", "seed": 2, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784074984.3979547, "kind": "run_done", "seed": 2, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075006.3025396, "kind": "run_done", "seed": 2, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075026.859175, "kind": "run_done", "seed": 3, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784075047.835555, "kind": "run_done", "seed": 3, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075068.9640863, "kind": "run_done", "seed": 3, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784075090.4943557, "kind": "run_done", "seed": 3, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075112.2980626, "kind": "run_done", "seed": 3, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075131.6343844, "kind": "run_done", "seed": 4, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784075151.3488386, "kind": "run_done", "seed": 4, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075171.0955777, "kind": "run_done", "seed": 4, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784075192.076952, "kind": "run_done", "seed": 4, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075212.813519, "kind": "run_done", "seed": 4, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075232.1861086, "kind": "run_done", "seed": 5, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784075252.4220285, "kind": "run_done", "seed": 5, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075272.3867831, "kind": "run_done", "seed": 5, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784075294.0341003, "kind": "run_done", "seed": 5, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075315.3877006, "kind": "run_done", "seed": 5, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075334.700365, "kind": "run_done", "seed": 6, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784075354.5596693, "kind": "run_done", "seed": 6, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075374.2976565, "kind": "run_done", "seed": 6, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784075394.7559931, "kind": "run_done", "seed": 6, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075416.2432272, "kind": "run_done", "seed": 6, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075436.6529984, "kind": "run_done", "seed": 7, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784075456.1498954, "kind": "run_done", "seed": 7, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075476.4138517, "kind": "run_done", "seed": 7, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784075497.1053534, "kind": "run_done", "seed": 7, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075517.6170752, "kind": "run_done", "seed": 7, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075537.923093, "kind": "run_done", "seed": 8, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784075558.2211487, "kind": "run_done", "seed": 8, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075579.1853366, "kind": "run_done", "seed": 8, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784075600.7643719, "kind": "run_done", "seed": 8, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075622.653521, "kind": "run_done", "seed": 8, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075641.8900979, "kind": "run_done", "seed": 9, "task": "contextual", "mode": "baseline", "reused": false}
+{"t": 1784075661.2600563, "kind": "run_done", "seed": 9, "task": "contextual", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075681.0112362, "kind": "run_done", "seed": 9, "task": "contextual", "mode": "local_only", "reused": false}
+{"t": 1784075702.140775, "kind": "run_done", "seed": 9, "task": "contextual", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075723.6701841, "kind": "run_done", "seed": 9, "task": "contextual", "mode": "time_shuffled_feedback"}
+{"t": 1784075733.4003956, "kind": "run_done", "seed": 0, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784075743.1863942, "kind": "run_done", "seed": 0, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075752.8226726, "kind": "run_done", "seed": 0, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784075762.6733317, "kind": "run_done", "seed": 0, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075773.0814276, "kind": "run_done", "seed": 0, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784075782.4333699, "kind": "run_done", "seed": 1, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784075792.2868664, "kind": "run_done", "seed": 1, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075801.9878888, "kind": "run_done", "seed": 1, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784075811.8595996, "kind": "run_done", "seed": 1, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075822.222037, "kind": "run_done", "seed": 1, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784075831.8597271, "kind": "run_done", "seed": 2, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784075841.559382, "kind": "run_done", "seed": 2, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075851.0004873, "kind": "run_done", "seed": 2, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784075861.0121615, "kind": "run_done", "seed": 2, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075871.2605455, "kind": "run_done", "seed": 2, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784075880.080558, "kind": "run_done", "seed": 3, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784075889.3086293, "kind": "run_done", "seed": 3, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075898.7962286, "kind": "run_done", "seed": 3, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784075908.109466, "kind": "run_done", "seed": 3, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075918.398164, "kind": "run_done", "seed": 3, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784075928.0334072, "kind": "run_done", "seed": 4, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784075937.740792, "kind": "run_done", "seed": 4, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075947.258405, "kind": "run_done", "seed": 4, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784075957.2470713, "kind": "run_done", "seed": 4, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784075967.364506, "kind": "run_done", "seed": 4, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784075976.6790843, "kind": "run_done", "seed": 5, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784075985.8236792, "kind": "run_done", "seed": 5, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784075995.9016657, "kind": "run_done", "seed": 5, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784076005.4849298, "kind": "run_done", "seed": 5, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784076015.3826466, "kind": "run_done", "seed": 5, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784076024.4972067, "kind": "run_done", "seed": 6, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784076033.4283583, "kind": "run_done", "seed": 6, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784076042.7350907, "kind": "run_done", "seed": 6, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784076052.663222, "kind": "run_done", "seed": 6, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784076062.8967526, "kind": "run_done", "seed": 6, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784076072.0765615, "kind": "run_done", "seed": 7, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784076082.072281, "kind": "run_done", "seed": 7, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784076091.969962, "kind": "run_done", "seed": 7, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784076101.7514493, "kind": "run_done", "seed": 7, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784076112.2191672, "kind": "run_done", "seed": 7, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784076121.7493815, "kind": "run_done", "seed": 8, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784076130.782543, "kind": "run_done", "seed": 8, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784076140.7196562, "kind": "run_done", "seed": 8, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784076151.0543394, "kind": "run_done", "seed": 8, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784076160.688866, "kind": "run_done", "seed": 8, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784076170.2653608, "kind": "run_done", "seed": 9, "task": "fourpattern", "mode": "baseline", "reused": false}
+{"t": 1784076179.9263735, "kind": "run_done", "seed": 9, "task": "fourpattern", "mode": "legacy_feedback", "reused": false}
+{"t": 1784076189.6104293, "kind": "run_done", "seed": 9, "task": "fourpattern", "mode": "local_only", "reused": false}
+{"t": 1784076199.484429, "kind": "run_done", "seed": 9, "task": "fourpattern", "mode": "local_plus_feedback", "reused": false}
+{"t": 1784076209.955732, "kind": "run_done", "seed": 9, "task": "fourpattern", "mode": "time_shuffled_feedback"}
+{"t": 1784076209.9942813, "kind": "matrix_end", "done": 100}

@@ -1,0 +1,107 @@
+{
+  "isolated_cadence": {
+    "c_init": 520.5381,
+    "c_max": 1116.8376,
+    "w1": 1015.3069,
+    "impulse_tau": 0.75,
+    "c_init_single_impulse_subthreshold": true,
+    "c_max_single_impulse_suprathreshold": true,
+    "fire_pattern": [
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1,
+      0,
+      1
+    ],
+    "spikes": 6,
+    "coincidences": 12,
+    "ratio": 0.5,
+    "exact_two_to_one": true,
+    "crossing_taus": [
+      0.75,
+      0.75,
+      0.75,
+      0.75,
+      0.75,
+      0.75
+    ],
+    "pretrained_l1e_tau": 0.9517
+  },
+  "full_preset": {
+    "boundaries": 4000,
+    "seed": 1,
+    "active_pixels": [
+      3,
+      4,
+      5
+    ],
+    "c_init": 520.5381,
+    "c_max": 1116.8376,
+    "counters": {
+      "rg_spikes": 12000,
+      "l1e_spikes": 7029,
+      "c_spikes": 5058,
+      "l2_spikes": 2065,
+      "basal_available": 7029,
+      "apical_events": 18585,
+      "valid_coincidences": 6195,
+      "l1_hard_resets": 5058,
+      "l2_hard_resets": 16520,
+      "l1e_reset_suppressed": 4968,
+      "latency_ties": 7953
+    },
+    "apical_source_ids": [
+      "L2E2"
+    ],
+    "final_basal_weights": [
+      520.5381,
+      520.5381,
+      520.5381,
+      1116.738,
+      1115.5951,
+      1116.5093,
+      520.5381,
+      520.5381,
+      520.5381
+    ],
+    "matured_to_cap": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false
+    ],
+    "timing": {
+      "mean_l2_winner_tau": 0.85091,
+      "mean_c_spike_tau": 0.86505,
+      "mean_l1e_spike_tau": 0.95168,
+      "same_tau_c_spikes": 5058,
+      "phase_mismatches": 0,
+      "note": "Every firing C deposits and spikes at its permitting L2E tau. That tau must precede the paired L1E crossing (~0.952) for reset suppression."
+    },
+    "frequency": {
+      "l1e_over_rg_overall": 0.5857,
+      "l1e_rate_first_window": 0.84,
+      "l1e_rate_last_window": 0.5,
+      "target": 0.5
+    }
+  },
+  "winner_exchange": {
+    "strong_L2E0_winner": "L2E0",
+    "strong_L2E5_winner": "L2E5",
+    "node_order_unchanged": true,
+    "winner_followed_drive": true
+  },
+  "deterministic_replay": true
+}
